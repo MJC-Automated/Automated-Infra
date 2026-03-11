@@ -1,0 +1,341 @@
+# ===========================================
+# roles/user_management/tasks/harden_automation_account.yml
+# ===========================================
+---
+- name: Build key-only account target list
+  ansible.builtin.set_fact:
+    key_only_accounts_target: >-
+      {{
+        (
+          ((automation_account_hardening_enabled | bool) | ternary(automation_account_usernames | default([]), []))
+          +
+          ((managed_accounts_key_only | bool) | ternary(managed_present_users | default([]), []))
+        )
+        | difference(breakglass_accounts | default([]))
+        | unique
+        | list
+      }}
+  changed_when: false
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Detect key-only accounts present on host
+  ansible.builtin.command: "getent passwd {{ item }}"
+  register: key_only_account_getent
+  changed_when: false
+  failed_when: false
+  loop: "{{ key_only_accounts_target | default([]) }}"
+  when:
+    - (key_only_accounts_target | default([])) | length > 0
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Build existing key-only accounts list
+  ansible.builtin.set_fact:
+    existing_key_only_accounts: >-
+      {{
+        (key_only_account_getent.results | default([]))
+        | selectattr('rc', 'equalto', 0)
+        | map(attribute='item')
+        | list
+      }}
+  changed_when: false
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Build key-only account home directory map
+  ansible.builtin.set_fact:
+    key_only_account_homes: >-
+      {{
+        (key_only_account_homes | default({}))
+        | combine({
+            item.item: (
+              (item.stdout.split(':') | length > 5)
+              | ternary(item.stdout.split(':')[5], '/home/' ~ item.item)
+            )
+          })
+      }}
+  changed_when: false
+  loop: "{{ key_only_account_getent.results | default([]) }}"
+  when: item.rc == 0
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Ensure key-only accounts have authorized_keys before hardening
+  ansible.builtin.stat:
+    path: "{{ (key_only_account_homes[item] | default('/home/' ~ item)) ~ '/.ssh/authorized_keys' }}"
+  register: key_only_authorized_keys_stats
+  loop: "{{ existing_key_only_accounts | default([]) }}"
+  when:
+    - key_only_disable_password_auth | bool
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Initialize key-only accounts ready for hardening
+  ansible.builtin.set_fact:
+    key_only_accounts_ready_for_hardening: []
+  changed_when: false
+  when:
+    - key_only_disable_password_auth | bool
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Build key-only accounts ready for hardening
+  ansible.builtin.set_fact:
+    key_only_accounts_ready_for_hardening: "{{ key_only_accounts_ready_for_hardening + [item.item] }}"
+  loop: "{{ key_only_authorized_keys_stats.results | default([]) }}"
+  when:
+    - key_only_disable_password_auth | bool
+    - item.stat is defined
+    - item.stat.exists | default(false)
+    - (item.stat.size | default(0) | int) > 0
+  changed_when: false
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Build key-only accounts missing authorized_keys list
+  ansible.builtin.set_fact:
+    key_only_accounts_missing_authorized_keys: >-
+      {{
+        (existing_key_only_accounts | default([]))
+        | difference(key_only_accounts_ready_for_hardening | default([]))
+        | list
+      }}
+  changed_when: false
+  when:
+    - key_only_disable_password_auth | bool
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Assert key-only prerequisites are met
+  ansible.builtin.assert:
+    that:
+      - (key_only_accounts_missing_authorized_keys | default([])) | length == 0
+    fail_msg: >-
+      Refusing key-only hardening because authorized_keys is missing/empty for:
+      {{ key_only_accounts_missing_authorized_keys | join(', ') }}.
+      Pre-provision SSH keys on new hosts or set key_only_prereq_mode=warn temporarily.
+  when:
+    - key_only_disable_password_auth | bool
+    - (key_only_prereq_mode | lower) == 'fail'
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Warn for key-only accounts missing authorized_keys (warn mode)
+  ansible.builtin.debug:
+    msg: >-
+      Skipping key-only hardening for accounts missing authorized_keys:
+      {{ key_only_accounts_missing_authorized_keys | join(', ') }}.
+  when:
+    - key_only_disable_password_auth | bool
+    - (key_only_prereq_mode | lower) == 'warn'
+    - (key_only_accounts_missing_authorized_keys | default([])) | length > 0
+  tags:
+    - users
+    - security
+    - automation_account
+    - ssh_keys
+
+- name: Build SSH login allowlist
+  ansible.builtin.set_fact:
+    sshd_login_allowlist_users: >-
+      {{
+        (
+          (managed_present_users | default([]))
+          + (automation_account_usernames | default([]))
+          + (breakglass_accounts | default([]))
+          + (allowed_unmanaged_accounts | default([]))
+          + (allowed_unmanaged_accounts_by_host[inventory_hostname] | default([]))
+          + (sshd_allowlist_extra_users | default([]))
+        )
+        | unique
+        | list
+      }}
+  changed_when: false
+  when: enforce_sshd_allowlist | bool
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Assert SSH allowlist mode is supported
+  ansible.builtin.assert:
+    that:
+      - (sshd_allowlist_mode | lower) in ['users']
+    fail_msg: "Unsupported sshd_allowlist_mode={{ sshd_allowlist_mode }}. Supported values: users."
+  when: enforce_sshd_allowlist | bool
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Assert SSH allowlist is not empty
+  ansible.builtin.assert:
+    that:
+      - (sshd_login_allowlist_users | default([])) | length > 0
+    fail_msg: "SSH allowlist enforcement is enabled but no allowed users were resolved."
+  when:
+    - enforce_sshd_allowlist | bool
+    - (sshd_allowlist_mode | lower) == 'users'
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Ensure sshd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - (key_only_disable_password_auth | bool and (key_only_accounts_ready_for_hardening | default([])) | length > 0)
+      or (enforce_sshd_allowlist | bool and (sshd_login_allowlist_users | default([])) | length > 0)
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Build password-lock targets for automation accounts
+  ansible.builtin.set_fact:
+    key_only_password_lock_targets: >-
+      {{
+        (existing_key_only_accounts | default([]))
+        | intersect(automation_account_usernames | default([]))
+        | list
+      }}
+  changed_when: false
+  when:
+    - key_only_lock_password | bool
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Lock passwords for automation key-only accounts
+  ansible.builtin.user:
+    name: "{{ item }}"
+    password_lock: true
+  loop: "{{ key_only_password_lock_targets | default([]) }}"
+  when:
+    - key_only_lock_password | bool
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Enforce SSH key-only auth for hardened accounts
+  ansible.builtin.copy:
+    dest: "{{ key_only_sshd_dropin_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by Ansible (user-man role).
+      # Restrict managed key-only accounts to key-based SSH auth only.
+      Match User {{ (key_only_accounts_ready_for_hardening | default([]) | sort) | join(',') }}
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PubkeyAuthentication yes
+      {% if key_only_authentication_methods_publickey | bool %}
+          AuthenticationMethods publickey
+      {% endif %}
+  notify: Reload SSH service
+  when:
+    - key_only_disable_password_auth | bool
+    - (key_only_accounts_ready_for_hardening | default([])) | length > 0
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Remove key-only sshd hardening drop-in when disabled
+  ansible.builtin.file:
+    path: "{{ key_only_sshd_dropin_path }}"
+    state: absent
+  notify: Reload SSH service
+  when:
+    - not (key_only_disable_password_auth | bool and (key_only_accounts_ready_for_hardening | default([])) | length > 0)
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Remove legacy automation-account sshd hardening drop-in
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/99-automation-account-hardening.conf
+    state: absent
+  notify: Reload SSH service
+  when:
+    - key_only_sshd_dropin_path != '/etc/ssh/sshd_config.d/99-automation-account-hardening.conf'
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Enforce SSH user allowlist
+  ansible.builtin.copy:
+    dest: "{{ sshd_allowlist_dropin_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by Ansible (user-man role).
+      # Restrict SSH logins to allowlisted identities.
+      AllowUsers {{ (sshd_login_allowlist_users | default([]) | sort) | join(' ') }}
+  notify: Reload SSH service
+  when:
+    - enforce_sshd_allowlist | bool
+    - (sshd_allowlist_mode | lower) == 'users'
+    - (sshd_login_allowlist_users | default([])) | length > 0
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Remove SSH allowlist drop-in when disabled
+  ansible.builtin.file:
+    path: "{{ sshd_allowlist_dropin_path }}"
+    state: absent
+  notify: Reload SSH service
+  when:
+    - not (enforce_sshd_allowlist | bool and (sshd_allowlist_mode | lower) == 'users')
+  tags:
+    - users
+    - security
+    - automation_account

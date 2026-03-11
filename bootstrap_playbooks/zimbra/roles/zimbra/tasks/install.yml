@@ -1,0 +1,59 @@
+---
+- name: Refresh install marker after host preparation
+  ansible.builtin.stat:
+    path: /opt/zimbra/bin/zmcontrol
+  register: zimbra_installed_bin_after_prepare
+
+- name: Derive local/remote artifact names
+  ansible.builtin.set_fact:
+    zimbra_artifact_filename: "{{ zimbra_artifact_path | basename }}"
+    zimbra_artifact_remote_path: "{{ zimbra_install_base_dir }}/{{ zimbra_artifact_path | basename }}"
+
+- name: Ensure remote install staging directory exists
+  ansible.builtin.file:
+    path: "{{ zimbra_install_base_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy Zimbra artifact to target
+  ansible.builtin.copy:
+    src: "{{ zimbra_artifact_path }}"
+    dest: "{{ zimbra_artifact_remote_path }}"
+    mode: '0644'
+  when: not zimbra_installed_bin_after_prepare.stat.exists
+
+- name: Extract Zimbra artifact
+  ansible.builtin.unarchive:
+    src: "{{ zimbra_artifact_remote_path }}"
+    dest: "{{ zimbra_install_base_dir }}"
+    remote_src: true
+    creates: "{{ zimbra_install_dir }}/install.sh"
+  when: not zimbra_installed_bin_after_prepare.stat.exists
+
+- name: Render unattended installer defaults file
+  ansible.builtin.template:
+    src: zimbra-autoinstall.cfg.j2
+    dest: "{{ zimbra_autoinstall_file }}"
+    mode: '0600'
+  no_log: true
+  when: not zimbra_installed_bin_after_prepare.stat.exists
+
+- name: Run unattended Zimbra installer
+  ansible.builtin.command: >-
+    ./install.sh
+    {{ '--skipspacecheck' if zimbra_skip_space_check else '' }}
+    {{ '--platform-override' if zimbra_platform_override else '' }}
+    {{ zimbra_autoinstall_file }}
+  args:
+    chdir: "{{ zimbra_install_dir }}"
+  environment:
+    LC_ALL: C
+  async: "{{ zimbra_install_timeout }}"
+  poll: 30
+  register: zimbra_install_result
+  when: not zimbra_installed_bin_after_prepare.stat.exists
+
+- name: Show install skip reason when already present
+  ansible.builtin.debug:
+    msg: "Zimbra already installed; skipping installer execution."
+  when: zimbra_installed_bin_after_prepare.stat.exists

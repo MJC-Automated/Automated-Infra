@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+confdir /etc/chrony/conf.d
+sourcedir /etc/chrony/sources.d
+sourcedir /run/chrony-dhcp
+
+keyfile /etc/chrony/chrony.keys
+driftfile /var/lib/chrony/chrony.drift
+ntsdumpdir /var/lib/chrony
+logdir /var/log/chrony
+
+maxupdateskew 100.0
+rtcsync
+makestep 1 3
+leapseclist /usr/share/zoneinfo/leap-seconds.list

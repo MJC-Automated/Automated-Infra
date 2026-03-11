@@ -1,0 +1,25 @@
+# Node Manager properties (managed by Ansible)
+LogAppend=true
+DomainsFile={{ domain_home }}/nodemanager/nodemanager.domains
+LogLevel=INFO
+PropertiesVersion=12.2.1
+ListenBacklog=50
+QuitEnabled=false
+LogCount=1
+LogLimit=0
+NodeManagerHome={{ domain_home }}/nodemanager
+LogToStderr=true
+NativeVersionEnabled=true
+AuthenticationEnabled=true
+CrashRecoveryEnabled=false
+weblogic.StopScriptEnabled=false
+DomainsFileEnabled=true
+weblogic.StartScriptEnabled=true
+LogFile={{ nodemanager_logs_dir }}/nodemanager.log
+LogFormatter=weblogic.nodemanager.server.LogFormatter
+ListenAddress={{ nodemanager_listen_address }}
+JavaHome={{ java_home }}
+weblogic.StartScriptName=startWebLogic.sh
+ListenPort={{ nodemanager_listen_port }}
+SecureListener={{ 'true' if nodemanager_secure_listener else 'false' }}
+StateCheckInterval=500

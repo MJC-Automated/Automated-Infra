@@ -1,0 +1,33 @@
+---
+- name: Install Docker and dependencies
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+      - curl
+      - ca-certificates
+      - firewalld
+    state: present
+    update_cache: true
+
+- name: Ensure docker service is enabled and running
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Ensure firewalld is enabled and running
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: true
+    state: started
+  when: observability_manage_firewall | bool
+
+- name: Open observability firewall ports
+  ansible.posix.firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: "{{ observability_ports }}"
+  when: observability_manage_firewall | bool

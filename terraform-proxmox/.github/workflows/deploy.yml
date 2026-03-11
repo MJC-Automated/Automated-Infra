@@ -1,0 +1,44 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  TF_VAR_vault_address: ${{ secrets.VAULT_ADDRESS }}
+  TF_VAR_vault_token: ${{ secrets.VAULT_TOKEN }}
+  PM_API_URL: ${{ secrets.PM_API_URL }}
+  PM_API_TOKEN_ID: ${{ secrets.PM_API_TOKEN_ID }}
+  PM_API_TOKEN_SECRET: ${{ secrets.PM_API_TOKEN_SECRET }}
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+
+      - name: Terraform Format
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: make init ENVIRONMENT=dev
+
+      - name: Terraform Validate
+        run: make validate
+
+      - name: Terraform Plan
+        if: github.event_name == 'pull_request'
+        run: make plan ENVIRONMENT=dev
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: make apply ENVIRONMENT=dev

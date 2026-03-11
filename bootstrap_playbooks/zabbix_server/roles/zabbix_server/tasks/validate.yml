@@ -1,0 +1,107 @@
+---
+- name: Validate supported distribution
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution in zabbix_platform_matrix.keys()
+    fail_msg: >-
+      Unsupported distribution {{ ansible_facts.distribution }}. Supported:
+      {{ zabbix_platform_matrix.keys() | list | join(', ') }}.
+
+- name: Set platform metadata
+  ansible.builtin.set_fact:
+    zabbix_platform: "{{ zabbix_platform_matrix[ansible_facts.distribution] }}"
+
+- name: Validate supported distribution major version
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution_major_version | string == zabbix_platform.supported_major | string
+    fail_msg: >-
+      Unsupported {{ ansible_facts.distribution }} major version {{ ansible_facts.distribution_major_version }}.
+      Expected {{ zabbix_platform.supported_major }} for this role.
+
+- name: Validate database mode
+  ansible.builtin.assert:
+    that:
+      - zabbix_db_mode in ['internal', 'external']
+    fail_msg: "zabbix_db_mode must be 'internal' or 'external'."
+
+- name: Validate mandatory database values
+  ansible.builtin.assert:
+    that:
+      - zabbix_db_name | string | trim | length > 0
+      - zabbix_db_user | string | trim | length > 0
+      - zabbix_db_password | string | trim | length > 0
+    fail_msg: "zabbix_db_name, zabbix_db_user and zabbix_db_password are required."
+  no_log: true
+
+- name: Validate external database host
+  ansible.builtin.assert:
+    that:
+      - zabbix_db_host | string | trim | length > 0
+    fail_msg: "Set zabbix_db_host (or ZABBIX_DB_HOST in .env) when zabbix_db_mode=external."
+  when: zabbix_db_mode == 'external'
+
+- name: Validate frontend DB credential store type
+  ansible.builtin.assert:
+    that:
+      - zabbix_db_credentials_store in ['plaintext', 'hashicorp']
+    fail_msg: >-
+      zabbix_db_credentials_store must be 'plaintext' or 'hashicorp'.
+
+- name: Validate HashiCorp Vault settings when selected
+  ansible.builtin.assert:
+    that:
+      - zabbix_db_vault_url | string | trim | length > 0
+      - zabbix_db_vault_db_path | string | trim | length > 0
+      - zabbix_db_vault_token | string | trim | length > 0
+    fail_msg: >-
+      hashicorp credential store requires zabbix_db_vault_url,
+      zabbix_db_vault_db_path and zabbix_db_vault_token.
+  when: zabbix_db_credentials_store == 'hashicorp'
+  no_log: true
+
+- name: Validate external DB admin credentials when bootstrap is enabled
+  ansible.builtin.assert:
+    that:
+      - zabbix_db_admin_user | string | trim | length > 0
+      - zabbix_db_admin_password | string | trim | length > 0
+    fail_msg: >-
+      External DB bootstrap requires zabbix_db_admin_user and zabbix_db_admin_password
+      when zabbix_db_manage_user_and_db=true.
+  when:
+    - zabbix_db_mode == 'external'
+    - zabbix_db_manage_user_and_db | bool
+  no_log: true
+
+- name: Validate backup policy values
+  ansible.builtin.assert:
+    that:
+      - zabbix_backup_mount_point | string | trim | length > 0
+      - zabbix_backup_dir | string | trim | length > 0
+      - zabbix_backup_keep_archived | int >= 0
+      - zabbix_backup_keep_max | int >= 1
+      - zabbix_backup_keep_max | int >= (zabbix_backup_keep_archived | int + 1)
+      - zabbix_backup_schedule_hour | int >= 0
+      - zabbix_backup_schedule_hour | int <= 23
+      - zabbix_backup_schedule_minute | int >= 0
+      - zabbix_backup_schedule_minute | int <= 59
+    fail_msg: >-
+      Invalid backup settings. Ensure schedule is valid and keep_max is at least
+      keep_archived + 1.
+  when: zabbix_backup_enabled | bool
+
+- name: Validate backup mount is present when required
+  ansible.builtin.assert:
+    that:
+      - zabbix_backup_mount_point in (ansible_facts.mounts | map(attribute='mount') | list)
+    fail_msg: >-
+      Backup mount point {{ zabbix_backup_mount_point }} is not mounted.
+      Either mount it first or set zabbix_backup_require_mount=false.
+  when:
+    - zabbix_backup_enabled | bool
+    - zabbix_backup_require_mount | bool
+
+- name: Set computed runtime values
+  ansible.builtin.set_fact:
+    zabbix_db_host_effective: "{{ (zabbix_db_mode == 'external') | ternary(zabbix_db_host, '127.0.0.1') }}"
+    zabbix_runtime_services: "{{ ['zabbix-server', 'zabbix-agent2'] + (zabbix_platform.http_services | default([])) }}"

@@ -1,0 +1,31 @@
+# Host-group overrides for WebLogic 12c nodes in dev.
+# Tuned to match the multi-domain service naming/ports pattern.
+
+domain_name: LifeCo_domain
+domain_home: "{{ oracle_middleware_home }}/user_projects/domains/{{ domain_name }}"
+admin_port: 8006
+domain_logs_dir: "/Logs/{{domain_name}}_logs"
+
+crontab_enabled: true
+dangerous_pkill_enabled: true
+crontab_pkill_hour: "23"
+crontab_pkill_minute: "53"
+crontab_stop_hour: "23"
+crontab_stop_minute: "55"
+crontab_start_hour: "00"
+crontab_start_minute: "02"
+managed_server_enable: true
+
+additional_weblogic_domains:
+  - domain_name: FMSCRM
+    domain_home: "{{ oracle_middleware_home }}/user_projects/domains/FMSCRM"
+    admin_port: 7008
+    domain_logs_dir: "/Logs/weblogic_7008_logs"
+    cron_stop_minute: "54"
+    cron_start_minute: "01"
+    extra_ports: []
+    managed_servers:
+      - name: ManagedServer1
+        listen_port: 7101
+      - name: ManagedServer2
+        listen_port: 7102

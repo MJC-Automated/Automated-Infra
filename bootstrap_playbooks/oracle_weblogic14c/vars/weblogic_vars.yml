@@ -1,0 +1,244 @@
+# vars/weblogic_vars.yml
+# WebLogic Server 14c (14.1.2) variables
+
+# --- General User/Group Configuration ---
+weblogic_user: oracle
+weblogic_group: oinstall
+weblogic_user_uid: 54321
+weblogic_group_gid: 54321
+
+# --- Paths and Directory Layout ---
+oracle_base_root: /u01
+oracle_base: /u01/app/oracle
+oracle_inventory_dir: /u01/app/oraInventory
+oracle_middleware_home: "{{ oracle_base }}/product/14.1.2"
+weblogic_install_dir: "{{ oracle_middleware_home }}/wlserver"
+
+# Keep domain and applications outside ORACLE_HOME as recommended by Oracle.
+# Use dedicated mounts for domains/applications/logs
+domain_base: "/u02/domains"
+applications_base: "/Applications"
+
+scripts_dir: "/home/{{ weblogic_user }}/scripts"
+logs_base_dir: "/Logs/weblogic"
+wlst_tmp_dir: "/home/{{ weblogic_user }}/wlsttmp"
+wlst_cache_dir: "/home/{{ weblogic_user }}/wlstcache"
+
+# --- Node Manager ---
+nodemanager_enabled: true
+nodemanager_listen_address: ""
+nodemanager_listen_port: 5556
+nodemanager_secure_listener: true
+domain_service_key: "{{ domain_name | upper | regex_replace('[^A-Z0-9]', '') }}"
+domain_script_key: "{{ domain_name | lower | regex_replace('[^a-z0-9]', '') }}"
+nodemanager_systemd_service_name: "wls{{ domain_service_key }}NM.service"
+nodemanager_start_script_name: "startNodeManager_{{ domain_script_key }}_{{ nodemanager_listen_port }}.sh"
+nodemanager_stop_script_name: "stopNodeManager_{{ domain_script_key }}_{{ nodemanager_listen_port }}.sh"
+
+# --- Domain Configuration ---
+domain_name: WLS14C_DOMAIN
+domain_home: "{{ domain_base }}/{{ domain_name }}"
+
+weblogic_admin_user: weblogic
+# IMPORTANT: Store this securely (use Ansible Vault in production).
+weblogic_password: "{{ vault_weblogic_password | default(WLS_ADMIN_PASSWORD | default(lookup('env', 'WLS_ADMIN_PASSWORD', default=''), true), true) }}"
+
+admin_server_name: AdminServer
+admin_listen_address: "" # Empty = listen on all interfaces
+admin_port: 7001
+
+cluster_enabled: true
+cluster_name: WLS_Cluster1
+
+managed_servers:
+  - name: ManagedServer1
+    listen_address: ""
+    listen_port: 8001
+    machine: LocalMachine
+    cluster: "{{ cluster_name }}"
+  - name: ManagedServer2
+    listen_address: ""
+    listen_port: 8002
+    machine: LocalMachine
+    cluster: "{{ cluster_name }}"
+
+# Optional: additional domains to manage on the same host (service/scripts/cron/firewall).
+# Domain creation remains driven by the primary domain_* variables above.
+additional_weblogic_domains: []
+
+machines:
+  - name: LocalMachine
+    nm_listen_address: ""
+    nm_listen_port: 5556
+    nm_type: "SSL"
+
+create_boot_properties: true
+
+# --- WebLogic Version / JDK Selection ---
+wls_version: "14.1.2"
+
+# Switch between JDK 8, 11, 17 by setting jdk_choice.
+# NOTE: WebLogic 14.1.2 supports JDK 17 or 21. Use allow_unsupported_jdk only if you must.
+allow_unsupported_jdk: true
+jdk_choice: "17" # "8" | "11" | "17"
+jdk_source_dir: "/resources" # Control-node path where JDK archives live
+
+jdk_catalog:
+  "8":
+    archive: "jdk-8u411-linux-x64.tar.gz"
+    version_dir: "jdk1.8.0_411"
+  "11":
+    archive: "jdk-11.0.29_linux-x64_bin.tar.gz"
+    version_dir: "jdk-11.0.29"
+  "17":
+    archive: "jdk-17.0.12_linux-x64_bin.tar.gz"
+    version_dir: "jdk-17.0.12"
+
+jdk_install_method: tarball # tarball | package
+jdk_dest_dir: "/u01"
+jdk_archive: "{{ (jdk_catalog[jdk_choice | string]).archive }}"
+jdk_version: "{{ (jdk_catalog[jdk_choice | string]).version_dir }}"
+jdk_installer_src: "{{ jdk_source_dir }}/{{ jdk_archive }}"
+java_home: "{{ jdk_dest_dir }}/{{ jdk_version }}"
+
+# --- FMW (WebLogic Server) Installation ---
+# Accept either the .jar or the .tar.gz payload from Oracle downloads.
+fmw_installer_src: "/resources/fmw_14.1.2.0.0_infrastructure.tar.gz"
+fmw_installer_jar_name: "fmw_14.1.2.0.0_infrastructure.jar"
+fmw_installer_dest: "/tmp/{{ fmw_installer_jar_name }}"
+fmw_response_file_name: "wls_install.rsp"
+fmw_response_file_path: "/tmp/{{ fmw_response_file_name }}"
+
+# --- RCU (Repository Creation Utility) ---
+rcu_enabled: false
+rcu_connect_string: "host:1521/pdb"
+rcu_db_user: SYS
+rcu_schema_prefix: WLS
+rcu_component_list: "STB,OPSS,IAU,IAU_APPEND,IAU_VIEWER,WLS"
+rcu_response_file_name: "rcu.rsp"
+rcu_response_file_path: "/tmp/{{ rcu_response_file_name }}"
+rcu_schema_password: "{{ vault_rcu_schema_password | default(RCU_SCHEMA_PASSWORD | default(lookup('env', 'RCU_SCHEMA_PASSWORD', default=''), true), true) }}"
+rcu_db_password: "{{ vault_rcu_db_password | default(RCU_DB_PASSWORD | default(lookup('env', 'RCU_DB_PASSWORD', default=''), true), true) }}"
+
+# --- Systemd Service Naming ---
+admin_systemd_service_name: "wls{{ domain_service_key }}{{ admin_port }}.service"
+managed_systemd_service_prefix: "wls{{ domain_service_key }}"
+admin_start_script_name: "startWeblogic_{{ domain_script_key }}_{{ admin_port }}.sh"
+admin_stop_script_name: "stopWeblogic_{{ domain_script_key }}_{{ admin_port }}.sh"
+
+# --- OS Packages (Oracle Linux 9 / RHEL 9) ---
+os_prereqs_enabled: true
+wls_os_packages_redhat:
+  - binutils
+  - compat-openssl11
+  - gcc
+  - gcc-c++
+  - glibc
+  - glibc-devel
+  - libaio
+  - libaio-devel
+  - libgcc
+  - libstdc++
+  - libstdc++-devel
+  - libX11
+  - libXau
+  - libxcb
+  - libXi
+  - libXrender
+  - make
+  - sysstat
+  - ksh
+  - libnsl
+  - libnsl2
+  - motif
+  - xorg-x11-utils
+  - xorg-x11-xauth
+
+# --- OS Kernel Parameter Tuning ---
+os_tuning_enabled: true
+fs_file_max: 6815744
+vm_max_map_count: 262144
+net_ipv4_tcp_tw_reuse: 1
+net_ipv4_ip_local_port_range: "9000 65500"
+net_core_rmem_default: 262144
+net_core_wmem_default: 262144
+net_core_rmem_max: 4194304
+net_core_wmem_max: 1048576
+
+# --- Systemd Behavior ---
+managed_server_enable: true
+manage_admin_systemd: true
+manage_managed_systemd: true
+auto_start_admin: true
+auto_start_managed: true
+
+# --- Bootstrap / Prechecks ---
+bootstrap_python: false
+precheck_mounts_enabled: true
+min_free_gb_u01: 20
+min_free_gb_domains: 5
+min_free_gb_apps: 5
+min_free_gb_logs: 5
+
+# --- Crontab (Optional) ---
+crontab_enabled: true
+dangerous_pkill_enabled: true
+crontab_pkill_hour: "23"
+crontab_pkill_minute: "53"
+crontab_stop_hour: "23"
+crontab_stop_minute: "55"
+crontab_start_hour: "00"
+crontab_start_minute: "02"
+
+# --- Firewall (firewalld) ---
+firewall_manage_enabled: true
+firewall_extra_ports: []
+
+# --- JVM Memory/GC Runtime Args ---
+weblogic_gc_log_dir: "{{ logs_base_dir }}/{{ domain_name }}/gc"
+weblogic_gc_log_file: "{{ weblogic_gc_log_dir }}/{{ domain_name | lower }}.log"
+weblogic_primary_gc_log_file: "{{ weblogic_gc_log_file }}"
+weblogic_gc_logging_jvm_args: >-
+  {{
+    ((jdk_choice | int) >= 11)
+    | ternary(
+      '-Xlog:gc*:file=' ~ weblogic_gc_log_file ~ ':time,uptime,level,tags:filecount=5,filesize=5M',
+      '-Xloggc:' ~ weblogic_gc_log_file ~ ' -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=5m -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -XX:+PrintHeapAtGC -XX:+PrintTenuringDistribution'
+    )
+  }}
+weblogic_user_mem_args: >-
+  -Xms6144m -Xmx6144m -XX:MetaspaceSize=512m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=1000 -XX:ConcGCThreads=4 -XX:ParallelGCThreads=10 -XX:G1HeapWastePercent=2 -XX:G1ReservePercent=15 -XX:+UseCompressedOops {{ weblogic_gc_logging_jvm_args }}
+
+# --- WebLogic Tunneling ---
+weblogic_tunneling_enabled: true
+
+# --- Compact Domain / ADF Template Profile ---
+# Equivalent to selecting in config wizard:
+# - Oracle Enterprise Manager [em]
+# - Oracle JRF SOAPS/JMS Web Services [oracle_common] (auto-selects Oracle JRF)
+compact_domain_profile_enabled: true
+compact_domain_enable_soapjms: false
+compact_domain_jrf_templates:
+  - "{{ oracle_middleware_home }}/oracle_common/common/templates/wls/oracle.jrf_restricted_template.jar"
+  - "{{ oracle_middleware_home }}/oracle_common/common/templates/wls/oracle.jrf_cs_template.jar"
+  - "{{ oracle_middleware_home }}/oracle_common/common/templates/wls/oracle.jrf_template.jar"
+compact_domain_soapjms_templates:
+  - "{{ oracle_middleware_home }}/oracle_common/common/templates/wls/oracle.jrf.ws.soapjms_template.jar"
+  - "{{ oracle_middleware_home }}/oracle_common/common/templates/wls/oracle.jrf.ws.soapjms_cs_template.jar"
+compact_domain_em_templates:
+  - "{{ oracle_middleware_home }}/em/common/templates/wls/oracle.em_wls_restricted_template.jar"
+  - "{{ oracle_middleware_home }}/em/common/templates/wls/oracle.emas_wls_restricted_template.jar"
+  - "{{ oracle_middleware_home }}/em/common/templates/wls/oracle.em_wls_cs_template.jar"
+  - "{{ oracle_middleware_home }}/em/common/templates/wls/oracle.emas_wls_cs_template.jar"
+  - "{{ oracle_middleware_home }}/em/common/templates/wls/oracle.em_wls_template.jar"
+  - "{{ oracle_middleware_home }}/em/common/templates/wls/oracle.emas_wls_template.jar"
+compact_domain_set_default_jdbc_passwords: true
+compact_domain_jdbc_password_datasources:
+  - "fmwxa-data-source"
+  - "fmw-data-source"
+  - "WLSSchemaDataSource"
+  - "opss-data-source"
+  - "opss-audit-viewDS"
+  - "opss-audit-DBDS"
+compact_domain_jrf_template: "{{ compact_domain_jrf_templates[-1] }}"
+compact_domain_soapjms_template: "{{ compact_domain_soapjms_templates[-1] }}"

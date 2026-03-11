@@ -1,0 +1,42 @@
+<?php
+// Zabbix GUI configuration file.
+{% set use_hashicorp_vault = (zabbix_db_credentials_store == 'hashicorp') %}
+
+$DB['TYPE']				= 'POSTGRESQL';
+$DB['SERVER']			= {{ zabbix_db_host_effective | string | to_json }};
+$DB['PORT']				= {{ zabbix_db_port | string | to_json }};
+$DB['DATABASE']			= {{ zabbix_db_name | string | to_json }};
+$DB['USER']				= {{ (use_hashicorp_vault | ternary('', zabbix_db_user)) | string | to_json }};
+$DB['PASSWORD']			= {{ (use_hashicorp_vault | ternary('', zabbix_db_password)) | string | to_json }};
+
+// Schema name. Used for PostgreSQL.
+$DB['SCHEMA']			= {{ zabbix_db_schema | default("", true) | string | to_json }};
+
+// Used for TLS connection.
+$DB['ENCRYPTION']		= false;
+$DB['KEY_FILE']			= '';
+$DB['CERT_FILE']		= '';
+$DB['CA_FILE']			= '';
+$DB['VERIFY_HOST']		= true;
+$DB['CIPHER_LIST']		= '';
+
+// Vault configuration. Used if database credentials are stored in Vault secrets manager.
+$DB['VAULT']			= {{ (use_hashicorp_vault | ternary('HashiCorp', '')) | to_json }};
+$DB['VAULT_URL']		= {{ (use_hashicorp_vault | ternary(zabbix_db_vault_url, '')) | string | to_json }};
+$DB['VAULT_PREFIX']		= {{ (use_hashicorp_vault | ternary(zabbix_db_vault_prefix, '')) | string | to_json }};
+$DB['VAULT_DB_PATH']	= {{ (use_hashicorp_vault | ternary(zabbix_db_vault_db_path, '')) | string | to_json }};
+$DB['VAULT_TOKEN']		= {{ (use_hashicorp_vault | ternary(zabbix_db_vault_token, '')) | string | to_json }};
+$DB['VAULT_CERT_FILE']	= '';
+$DB['VAULT_KEY_FILE']	= '';
+{% if use_hashicorp_vault and (zabbix_db_vault_cache | bool) %}
+// Uncomment to bypass local caching of credentials.
+$DB['VAULT_CACHE']		= true;
+{% endif %}
+
+// Uncomment and set to desired values to override Zabbix hostname/IP and port.
+// $ZBX_SERVER			= '';
+// $ZBX_SERVER_PORT		= '';
+
+$ZBX_SERVER_NAME		= {{ zabbix_frontend_server_name | default("", true) | string | to_json }};
+
+$IMAGE_FORMAT_DEFAULT	= IMAGE_FORMAT_PNG;

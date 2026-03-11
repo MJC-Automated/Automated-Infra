@@ -1,0 +1,11 @@
+#!/bin/bash
+# Stop WebLogic Node Manager
+
+export JAVA_HOME="{{ java_home }}"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+echo "INFO: Stopping Node Manager for {{ domain_name }}"
+
+cd "{{ domain_home }}/bin" || { echo "ERROR: Cannot change to domain bin directory"; exit 1; }
+
+./stopNodeManager.sh || true

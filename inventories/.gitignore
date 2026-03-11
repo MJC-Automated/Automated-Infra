@@ -1,0 +1,11 @@
+# Generated inventory files
+*/inventory.ini
+*/inventory-*.ini
+
+# Keep only dev group_vars tracked as canonical scaffolding.
+# Other env group_vars can exist locally but should not be staged by default.
+*/group_vars/*.yml
+!dev/group_vars/*.yml
+
+# Optional ansible inventory cache
+*.cache

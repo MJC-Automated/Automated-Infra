@@ -1,0 +1,26 @@
+# templates/wls_install.rsp.j2
+# Response file for silent installation of Oracle WebLogic Server 14c.
+
+[ENGINE]
+# DO NOT CHANGE THIS.
+Response File Version=1.0.0.0.0
+
+[GENERIC]
+# Oracle Home location
+ORACLE_HOME={{ oracle_middleware_home }}
+
+# Software-only install
+SOFTWARE_ONLY=FALSE
+
+# Skip configuration tools
+SKIP_CONFIG=FALSE
+
+# Installation Type:
+# "Fusion Middleware Infrastructure" | "WebLogic Server" | "Coherence" | "Complete With Examples"
+INSTALL_TYPE=Fusion Middleware Infrastructure
+
+# Apply updates from local cache
+APPLY_UPDATES=FALSE
+
+# Inventory location
+INVENTORY_LOCATION={{ oracle_inventory_dir }}

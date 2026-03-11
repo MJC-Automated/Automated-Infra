@@ -1,0 +1,55 @@
+---
+- name: Ensure backup mount point directory exists
+  ansible.builtin.file:
+    path: "{{ zabbix_backup_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: zabbix_backup_enabled | bool
+
+- name: Ensure backup directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ zabbix_backup_dir }}"
+    - "{{ zabbix_backup_dir }}/archive"
+  when: zabbix_backup_enabled | bool
+
+- name: Ensure backup log file exists
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ zabbix_backup_log_path }}"
+    force: false
+    owner: root
+    group: root
+    mode: "0600"
+  when: zabbix_backup_enabled | bool
+
+- name: Install Zabbix DB backup script
+  ansible.builtin.template:
+    src: zabbix-db-backup.sh.j2
+    dest: "{{ zabbix_backup_script_path }}"
+    owner: root
+    group: root
+    mode: "0700"
+  when: zabbix_backup_enabled | bool
+
+- name: Remove Zabbix DB backup script when backups are disabled
+  ansible.builtin.file:
+    path: "{{ zabbix_backup_script_path }}"
+    state: absent
+  when: not (zabbix_backup_enabled | bool)
+
+- name: Configure daily Zabbix DB backup cron
+  ansible.builtin.cron:
+    name: zabbix-db-daily-backup
+    user: root
+    minute: "{{ zabbix_backup_schedule_minute | int }}"
+    hour: "{{ zabbix_backup_schedule_hour | int }}"
+    job: "{{ zabbix_backup_script_path }} >> {{ zabbix_backup_log_path }} 2>&1"
+    state: "{{ (zabbix_backup_enabled | bool) | ternary('present', 'absent') }}"

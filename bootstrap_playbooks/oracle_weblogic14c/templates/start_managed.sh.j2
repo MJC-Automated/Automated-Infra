@@ -1,0 +1,28 @@
+# templates/start_managed.sh.j2
+#!/bin/bash
+# Start a WebLogic Managed Server
+
+unset DISPLAY
+TIME=`/usr/bin/date +%b-%d-%Y-%H%M%S`
+
+export JAVA_HOME="{{ java_home }}"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+export USER_MEM_ARGS="{{ weblogic_user_mem_args }}"
+
+# Ensure GC log target exists before JVM startup so rotation does not fail on missing paths.
+GC_LOG_FILE="{{ weblogic_gc_log_file | default('') }}"
+if [ -n "$GC_LOG_FILE" ]; then
+  /usr/bin/mkdir -p "$(dirname "$GC_LOG_FILE")"
+  /usr/bin/touch "$GC_LOG_FILE"
+fi
+
+echo "INFO: Starting managed server {{ managed_server_name }} for {{ domain_name }}"
+
+echo "INFO: Admin URL: {{ admin_url }}"
+
+cd "{{ domain_home }}/bin" || { echo "ERROR: Cannot change to domain bin directory"; exit 1; }
+
+/usr/bin/nohup ./startManagedWebLogic.sh "{{ managed_server_name }}" "{{ admin_url }}" > "{{ managed_server_logs_dir }}/start_{{ managed_server_name }}_$TIME.log" 2>&1 &
+
+echo "INFO: Start command issued."

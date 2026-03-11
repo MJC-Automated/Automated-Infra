@@ -1,0 +1,6 @@
+---
+oracle_enable_rman: false
+oracle_rman_backup_dir: "{{ oracle_base }}/backup"
+oracle_rman_retention_days: 7
+oracle_rman_parallelism: 1
+oracle_rman_validate: false

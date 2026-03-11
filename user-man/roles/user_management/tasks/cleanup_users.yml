@@ -1,0 +1,86 @@
+# ===========================================
+# roles/user_management/tasks/cleanup_users.yml
+# ===========================================
+---
+- name: Kill all processes for users to be removed
+  ansible.builtin.shell: |
+    if id "{{ item.name }}" >/dev/null 2>&1; then
+      pkill -9 -u "{{ item.name }}" 2>/dev/null || true
+      sleep 2
+    fi
+  # Loop directly over the 'remove_users' list as defined in group_vars/all.yml
+  loop: "{{ remove_users | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  ignore_errors: true
+  changed_when: false
+  tags:
+    - users
+    - remove_users
+
+- name: Remove user accounts
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: absent
+    remove: "{{ item.remove_home | default(default_user_settings.remove_home) }}"
+    force: "{{ item.force | default(default_user_settings.force) }}"
+  # Loop directly over the 'remove_users' list
+  loop: "{{ remove_users | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags:
+    - users
+    - remove_users
+
+- name: Get home directory stat for users to be removed
+  ansible.builtin.stat:
+    path: "/home/{{ item.name }}"
+  register: home_dir_stat_results
+  loop: "{{ remove_users | selectattr('remove_home', 'defined') | selectattr('remove_home', 'equalto', true) | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags:
+    - users
+    - remove_users
+    - cleanup
+
+- name: Ensure user home directories are removed (fallback)
+  ansible.builtin.file:
+    path: "/home/{{ item.item.name }}"
+    state: absent
+  # Loop over the results of the stat task
+  loop: "{{ home_dir_stat_results.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  # Only attempt to remove if the home directory exists and is a directory
+  when: item.stat.exists is defined and item.stat.isdir is defined and item.stat.isdir
+  tags:
+    - users
+    - remove_users
+    - cleanup
+
+- name: Construct list of all additional cleanup paths
+  ansible.builtin.set_fact:
+    all_cleanup_paths: >-
+      {{ remove_users |
+         selectattr('additional_cleanup_paths', 'defined') |
+         map(attribute='additional_cleanup_paths') |
+         flatten | list }}
+  changed_when: false
+  tags:
+    - users
+    - remove_users
+    - cleanup
+
+- name: Remove additional user directories if requested
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ all_cleanup_paths }}"
+  loop_control:
+    label: "{{ item }}"
+  when: all_cleanup_paths is defined and all_cleanup_paths | length > 0
+  tags:
+    - users
+    - remove_users
+    - cleanup

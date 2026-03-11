@@ -1,0 +1,22 @@
+#!/usr/bin/expect -f
+
+set timeout -1
+
+# Read passwords from file (SYS password first, then schema password)
+set fp [open "/tmp/rcu_passwords.txt" r]
+set sys_pass [string trim [gets $fp]]
+set schema_pass [string trim [gets $fp]]
+close $fp
+
+# Run RCU in silent mode
+spawn {{ oracle_middleware_home }}/oracle_common/bin/rcu -silent -responseFile /tmp/rcu.rsp
+
+expect "Enter the database password*" {
+    send "$sys_pass\r"
+}
+
+expect "Enter the schema password*" {
+    send "$schema_pass\r"
+}
+
+expect eof

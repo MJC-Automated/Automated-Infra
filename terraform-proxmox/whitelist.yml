@@ -1,0 +1,25 @@
+prohibited:
+  uuid: "Non-deterministic, breaks reproducibility"
+  timestamp: "Non-deterministic, breaks reproducibility"
+  plantimestamp: "Non-deterministic, breaks reproducibility"
+
+restricted:
+  file:
+    reason: "Requires security review for path validation"
+    severity: CRITICAL
+  base64decode:
+    reason: "Requires security review for handling decoded data"
+    severity: WARNING
+  rsadecrypt:
+    reason: "Requires security review for key management"
+    severity: CRITICAL
+  nonsensitive:
+    reason: "Requires security review to prevent secret exposure"
+    severity: WARNING
+
+approved:
+  - split
+  - merge
+  - replace
+  - join
+  - templatefile

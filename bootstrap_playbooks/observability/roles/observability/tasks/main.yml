@@ -1,0 +1,15 @@
+---
+- name: Validate input variables
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Install package prerequisites
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Render stack configuration
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Start observability stack
+  ansible.builtin.import_tasks: service.yml
+
+- name: Verify observability endpoints
+  ansible.builtin.import_tasks: verify.yml

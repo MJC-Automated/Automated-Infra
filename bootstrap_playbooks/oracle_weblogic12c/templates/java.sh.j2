@@ -1,0 +1,6 @@
+# templates/java.sh.j2
+# This script sets JAVA_HOME and adds it to the PATH for the system.
+# It is sourced by the system for all users.
+
+export JAVA_HOME={{ java_home }}
+export PATH=$JAVA_HOME/bin:$PATH

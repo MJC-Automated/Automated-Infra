@@ -1,0 +1,13 @@
+---
+# group_vars/ntp_clients.yml
+# Variables for the NTP client hosts.
+# Clients prioritize internal NTP servers from the ntp_servers inventory group.
+
+time_sync_is_server: false
+
+# Use hosts in the ntp_servers group as client sources.
+time_sync_client_use_internal_servers: true
+
+# Keep this false for air-gapped targets.
+# Set true in connected environments if you want public fallback on each VM.
+time_sync_client_add_public_fallback: false

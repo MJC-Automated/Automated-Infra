@@ -1,0 +1,158 @@
+# ===========================================
+# roles/user_management/tasks/enforce_account_baseline.yml
+# ===========================================
+---
+- name: Assert account enforcement mode is supported
+  ansible.builtin.assert:
+    that:
+      - (account_enforcement_mode | lower) in ['fail', 'lock', 'remove']
+    fail_msg: >-
+      Unsupported account_enforcement_mode={{ account_enforcement_mode }}.
+      Supported values: fail, lock, remove.
+  when: account_enforcement_enabled | bool
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Build managed account allowlist
+  ansible.builtin.set_fact:
+    managed_accounts_allowlist: >-
+      {{
+        (
+          (managed_present_users | default([]))
+          + (automation_account_usernames | default([]))
+          + (breakglass_accounts | default([]))
+          + (allowed_unmanaged_accounts | default([]))
+          + (allowed_unmanaged_accounts_by_host[inventory_hostname] | default([]))
+          + (sshd_allowlist_extra_users | default([]))
+        )
+        | unique
+        | list
+      }}
+  changed_when: false
+  when: account_enforcement_enabled | bool
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Read passwd database for account baseline enforcement
+  ansible.builtin.command: getent passwd
+  register: account_baseline_passwd_entries
+  changed_when: false
+  failed_when: account_baseline_passwd_entries.rc != 0
+  check_mode: false
+  when: account_enforcement_enabled | bool
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Initialize interactive local user list
+  ansible.builtin.set_fact:
+    interactive_local_users: []
+  changed_when: false
+  when: account_enforcement_enabled | bool
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Build interactive local user list
+  ansible.builtin.set_fact:
+    interactive_local_users: "{{ interactive_local_users + [passwd_parts[0]] }}"
+  vars:
+    passwd_parts: "{{ item.split(':') }}"
+    passwd_uid: "{{ passwd_parts[2] | default('0') }}"
+    passwd_home: "{{ passwd_parts[5] | default('') }}"
+    passwd_shell: "{{ passwd_parts[6] | default('') }}"
+  loop: "{{ account_baseline_passwd_entries.stdout_lines | default([]) }}"
+  when:
+    - account_enforcement_enabled | bool
+    - passwd_parts | length >= 7
+    - passwd_shell | length > 0
+    - passwd_shell not in (interactive_shell_blacklist | default([]))
+    - (passwd_uid | int) >= (interactive_uid_min | int) or passwd_home is match('^/home/.+')
+  changed_when: false
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Build unmanaged interactive user list
+  ansible.builtin.set_fact:
+    unmanaged_interactive_users: >-
+      {{
+        (interactive_local_users | default([]) | unique | list)
+        | difference(managed_accounts_allowlist | default([]))
+        | list
+      }}
+  changed_when: false
+  when: account_enforcement_enabled | bool
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Report unmanaged interactive user findings
+  ansible.builtin.debug:
+    msg: >-
+      Unmanaged interactive users detected: {{ unmanaged_interactive_users | join(', ') }}.
+      Enforcement mode is {{ account_enforcement_mode | lower }}.
+  when:
+    - account_enforcement_enabled | bool
+    - (unmanaged_interactive_users | default([])) | length > 0
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Fail when unmanaged interactive users are present
+  ansible.builtin.assert:
+    that:
+      - (unmanaged_interactive_users | default([])) | length == 0
+    fail_msg: >-
+      Unmanaged interactive users detected: {{ unmanaged_interactive_users | join(', ') }}.
+      Add approved accounts to managed users/breakglass/allowed_unmanaged_accounts
+      or remove them from the host.
+  when:
+    - account_enforcement_enabled | bool
+    - (account_enforcement_mode | lower) == 'fail'
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Lock unmanaged interactive users (disable access)
+  ansible.builtin.user:
+    name: "{{ item }}"
+    password_lock: true
+    shell: "{{ account_enforcement_lock_shell }}"
+    groups: ""
+    append: false
+  loop: "{{ unmanaged_interactive_users | default([]) }}"
+  when:
+    - account_enforcement_enabled | bool
+    - (account_enforcement_mode | lower) == 'lock'
+    - (unmanaged_interactive_users | default([])) | length > 0
+  tags:
+    - users
+    - security
+    - account_enforcement
+
+- name: Remove unmanaged interactive users
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: absent
+    remove: "{{ account_enforcement_remove_home | bool }}"
+    force: "{{ account_enforcement_force_remove | bool }}"
+  loop: "{{ unmanaged_interactive_users | default([]) }}"
+  when:
+    - account_enforcement_enabled | bool
+    - (account_enforcement_mode | lower) == 'remove'
+    - (unmanaged_interactive_users | default([])) | length > 0
+  tags:
+    - users
+    - security
+    - account_enforcement

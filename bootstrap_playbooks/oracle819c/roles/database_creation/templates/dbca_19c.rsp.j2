@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# Oracle Database Configuration Assistant Response File (dbca_19c.rsp.j2)
+# Template for Ansible
+# For Oracle Database 19c
+# ---------------------------------------------------------------------------
+
+responseFileVersion=/oracle/assistants/rspfmt_dbcaresponse_schema_v12.2.0
+
+# --- Operation Type ---
+gdbName={{ item.global_db_name }}
+sid={{ item.sid }}
+databaseConfigType=SI
+
+# --- Database Creation Mode ---
+createAsContainerDatabase={{ item.is_container_db | default(true) | string | lower }}
+{% if item.is_container_db | default(true) %}
+numberOfPDBs={{ item.num_pdbs | default(1) }}
+pdbName={{ item.pdb_name }}
+{% endif %}
+
+# --- Template Selection ---
+templateName={{ item.template_name | default('General_Purpose.dbc') }}
+
+# --- Passwords ---
+sysPassword={{ item.db_admin_password | default(oracle_db_admin_password) }}
+systemPassword={{ item.db_admin_password | default(oracle_db_admin_password) }}
+{% if item.is_container_db | default(true) and item.num_pdbs | default(1) | int > 0 %}
+pdbAdminPassword={{ item.db_admin_password | default(oracle_db_admin_password) }}
+{% endif %}
+
+# --- Enterprise Manager (EM) Configuration ---
+emConfiguration=NONE
+
+# --- Storage Configuration ---
+storageType=FS
+datafileDestination={{ item.data_dir }}
+
+# --- Fast Recovery Area (FRA) ---
+recoveryAreaDestination={{ oracle_base }}/fast_recovery_area
+
+# --- Character Sets ---
+characterSet={{ item.char_set | default('AL32UTF8') }}
+nationalCharacterSet=AL16UTF16
+
+# --- Memory Configuration ---
+# totalMemory=2048
+# automaticMemoryManagement=false
+
+# --- Listener Configuration ---
+listeners={{ item.listener_name | default(oracle_listener_name) }}

@@ -1,0 +1,14 @@
+# templates/rcu.rsp.j2
+# Response file for silent creation of RCU schemas.
+
+operation=createRepository
+connectString={{ rcu_connect_string }}
+databaseType=ORACLE
+dbUser={{ rcu_db_user }}
+dbRole=SYSDBA
+schemaPrefix={{ rcu_schema_prefix }}
+componentList={{ rcu_component_list }}
+useSamePasswordForAllSchemaUsers=true
+schemaPassword={{ rcu_schema_password }}
+skipCleanupOnFailure=no
+skipTableSpaceDropOnFailure=no

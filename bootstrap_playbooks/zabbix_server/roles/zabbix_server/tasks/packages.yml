@@ -1,0 +1,48 @@
+---
+- name: Install Zabbix server packages
+  ansible.builtin.package:
+    name: "{{ zabbix_platform.server_packages }}"
+    state: present
+
+- name: Install optional Zabbix agent2 plugin packages
+  ansible.builtin.package:
+    name: "{{ zabbix_platform.plugin_packages }}"
+    state: present
+  when: zabbix_manage_agent2_plugins | bool
+
+- name: Install PostgreSQL server packages for internal DB mode
+  ansible.builtin.package:
+    name: "{{ zabbix_platform.postgresql_packages }}"
+    state: present
+  when: zabbix_db_mode == 'internal'
+
+- name: Install PostgreSQL client packages for external DB mode
+  ansible.builtin.package:
+    name: "{{ zabbix_platform.postgresql_client_packages }}"
+    state: present
+  when:
+    - zabbix_db_mode == 'external'
+    - zabbix_db_import_schema | bool or zabbix_db_manage_user_and_db | bool
+
+- name: Check PostgreSQL initdb marker (Oracle Linux internal DB)
+  ansible.builtin.stat:
+    path: "{{ zabbix_platform.postgresql_initdb_check }}"
+  register: zabbix_pg_initdb
+  when:
+    - zabbix_db_mode == 'internal'
+    - zabbix_platform.postgresql_initdb_check is defined
+
+- name: Initialize PostgreSQL data directory (Oracle Linux internal DB)
+  ansible.builtin.command: "{{ zabbix_platform.postgresql_initdb_command }}"
+  when:
+    - zabbix_db_mode == 'internal'
+    - zabbix_platform.postgresql_initdb_command is defined
+    - zabbix_pg_initdb.stat.exists is defined
+    - not zabbix_pg_initdb.stat.exists
+
+- name: Ensure PostgreSQL service is enabled and running (internal DB mode)
+  ansible.builtin.service:
+    name: "{{ zabbix_platform.postgresql_service }}"
+    state: started
+    enabled: true
+  when: zabbix_db_mode == 'internal'

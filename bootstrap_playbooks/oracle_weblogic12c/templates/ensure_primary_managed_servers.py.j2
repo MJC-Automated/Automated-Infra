@@ -1,0 +1,55 @@
+# templates/ensure_primary_managed_servers.py.j2
+# WLST online script: ensure primary-domain managed servers exist in a running domain.
+
+admin_user = '{{ weblogic_admin_user }}'
+admin_password = '{{ weblogic_password }}'
+admin_url = 't3://{{ ansible_host | default(inventory_hostname) }}:{{ admin_port }}'
+managed_servers = {{ managed_servers | default([]) | to_json }}
+tunneling_enabled = {{ 'True' if weblogic_tunneling_enabled else 'False' }}
+nodemanager_enabled = {{ 'True' if nodemanager_enabled else 'False' }}
+nodemanager_machine_name = '{{ nodemanager_machine_name }}'
+
+print 'INFO: Connecting to AdminServer at ' + admin_url
+connect(admin_user, admin_password, admin_url)
+domainConfig()
+
+existing_names = []
+for s in cmo.getServers():
+    existing_names.append(s.getName())
+
+servers_to_create = []
+for s in managed_servers:
+    sname = s.get('name')
+    if sname and sname not in existing_names:
+        servers_to_create.append(s)
+
+if len(servers_to_create) == 0:
+    print 'INFO: Managed servers already exist; no create action needed.'
+    disconnect()
+    exit()
+
+print 'INFO: Creating ' + str(len(servers_to_create)) + ' managed server(s).'
+edit()
+startEdit()
+
+for server in servers_to_create:
+    sname = server.get('name')
+    cd('/')
+    create(sname, 'Server')
+    cd('/Servers/' + sname)
+    if server.get('listen_address'):
+        set('ListenAddress', server.get('listen_address'))
+    if server.get('listen_port'):
+        set('ListenPort', int(server.get('listen_port')))
+    if tunneling_enabled:
+        set('TunnelingEnabled', 'true')
+    else:
+        set('TunnelingEnabled', 'false')
+    if nodemanager_enabled and nodemanager_machine_name:
+        assign('Server', sname, 'Machine', nodemanager_machine_name)
+
+save()
+activate(block='true')
+print 'INFO: Managed server creation complete.'
+disconnect()
+exit()

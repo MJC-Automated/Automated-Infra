@@ -1,0 +1,29 @@
+# Host-group overrides for WebLogic 14c nodes in dev.
+# Keep domain-specific runtime configuration here instead of role defaults.
+
+domain_name: WLS14C_DOMAIN
+domain_home: "{{ domain_base }}/WLS14C_DOMAIN"
+admin_port: 7001
+managed_server_enable: true
+
+additional_weblogic_domains:
+  - domain_name: WLS14C_APP1
+    domain_home: "{{ domain_base }}/WLS14C_APP1"
+    admin_port: 7008
+    admin_server_name: AdminServer
+    extra_ports: []
+    managed_servers:
+      - name: ManagedServerA1
+        listen_port: 8101
+      - name: ManagedServerA2
+        listen_port: 8102
+  - domain_name: WLS14C_APP2
+    domain_home: "{{ domain_base }}/WLS14C_APP2"
+    admin_port: 8001
+    admin_server_name: AdminServer
+    extra_ports: []
+    managed_servers:
+      - name: ManagedServerB1
+        listen_port: 8201
+      - name: ManagedServerB2
+        listen_port: 8202

@@ -1,0 +1,31 @@
+---
+# roles/time_sync/tasks/validate-vars.yml
+# Early validation of critical variables
+
+- name: "VALIDATE | Check boolean variables"
+  ansible.builtin.assert:
+    that:
+      - time_sync_is_server | type_debug in ['bool', 'boolean']
+      - time_sync_client_use_internal_servers | type_debug in ['bool', 'boolean']
+      - time_sync_client_add_public_fallback | type_debug in ['bool', 'boolean']
+      - time_sync_server_enable_local_fallback | type_debug in ['bool', 'boolean']
+    fail_msg: "Time sync boolean variables must use true/false values."
+
+- name: "VALIDATE | Check list variables"
+  ansible.builtin.assert:
+    that:
+      - time_sync_public_servers is iterable
+      - time_sync_public_servers is not string
+      - time_sync_client_ntp_servers is iterable
+      - time_sync_client_ntp_servers is not string
+    fail_msg: "time_sync_public_servers and time_sync_client_ntp_servers must be lists."
+
+- name: "VALIDATE | Check server variables"
+  ansible.builtin.assert:
+    that:
+      - time_sync_allowed_subnet is defined
+      - (time_sync_public_servers | default([]) | length > 0) or (time_sync_server_enable_local_fallback | bool)
+      - (time_sync_server_local_stratum | int) >= 1
+      - (time_sync_server_local_stratum | int) <= 15
+    fail_msg: "Server needs time_sync_allowed_subnet and at least one upstream source or local fallback."
+  when: time_sync_is_server | bool

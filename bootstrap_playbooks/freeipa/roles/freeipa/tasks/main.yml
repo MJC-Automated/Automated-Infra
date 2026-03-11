@@ -1,0 +1,15 @@
+---
+- name: Validate input variables
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Install package prerequisites
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Run FreeIPA server install flow
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure firewall
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Verify FreeIPA health
+  ansible.builtin.import_tasks: verify.yml

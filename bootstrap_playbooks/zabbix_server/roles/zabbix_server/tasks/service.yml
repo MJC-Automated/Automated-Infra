@@ -1,0 +1,7 @@
+---
+- name: Ensure Zabbix runtime services are in desired state
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: "{{ zabbix_service_enable | bool }}"
+    state: "{{ (zabbix_service_start | bool) | ternary('started', 'stopped') }}"
+  loop: "{{ zabbix_runtime_services }}"

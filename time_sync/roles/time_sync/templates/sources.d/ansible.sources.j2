@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+{% if time_sync_is_server %}
+{% for s in time_sync_public_servers %}
+server {{ s }} iburst
+{% endfor %}
+{% else %}
+server {{ time_sync_server_host }} iburst
+{% endif %}

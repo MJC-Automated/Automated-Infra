@@ -1,0 +1,25 @@
+---
+- name: Validate input variables
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Install package prerequisites
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Configure PostgreSQL for Keycloak
+  ansible.builtin.import_tasks: database.yml
+  when: keycloak_manage_database | bool
+
+- name: Install Keycloak binaries
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure Keycloak service
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Start and validate Keycloak service
+  ansible.builtin.import_tasks: service.yml
+
+- name: Reconcile Keycloak admin credentials
+  ansible.builtin.import_tasks: admin.yml
+
+- name: Verify Keycloak health
+  ansible.builtin.import_tasks: verify.yml

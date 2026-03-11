@@ -1,0 +1,20 @@
+#cloud-config
+autoinstall:
+  version: 1
+  identity:
+    hostname: ubuntu-noble
+    username: ubuntu
+    password: "*"
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGeneratedForPublicDocs sanitized@example.invalid
+    - qemu-guest-agent
+    - curl
+    - rsync
+  storage:
+    layout:
+      name: direct
+  late-commands:
+    - curtin in-target --target=/target -- systemctl enable qemu-guest-agent

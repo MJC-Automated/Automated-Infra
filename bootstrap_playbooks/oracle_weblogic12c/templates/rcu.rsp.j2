@@ -1,0 +1,35 @@
+# templates/rcu.rsp.j2
+# Response file for silent creation of RCU schemas.
+
+#RCU Operation - createRepository, generateScript, dataLoad, dropRepository
+operation=createRepository
+
+#Enter the database connection details in the supported format.
+connectString={{ rcu_connect_string }}
+
+#Database Type - [ORACLE|SQLSERVER|IBMDB2|EBR|MYSQL] - default is ORACLE
+databaseType=ORACLE
+
+#Database User
+dbUser={{ rcu_db_user }}
+
+#Database Role - sysdba or Normal
+dbRole=SYSDBA
+
+#Prefix to be used for the schema.
+schemaPrefix={{ rcu_schema_prefix }}
+
+#List of components separated by comma.
+componentList={{ rcu_component_list }}
+
+#If below property is set to true, then all the schemas specified will be set to the same password.
+useSamePasswordForAllSchemaUsers=true
+
+#Schema password (used when useSamePasswordForAllSchemaUsers=true)
+schemaPassword={{ rcu_schema_password }}
+
+#This allows user to skip cleanup on failure. yes | no. Default is no.
+skipCleanupOnFailure=no
+
+#This allows user to skip dropping of table spaces during cleanup on failure. yes | no. Default is no.
+skipTableSpaceDropOnFailure=no

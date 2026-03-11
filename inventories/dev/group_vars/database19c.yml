@@ -1,0 +1,3 @@
+# Account baseline exceptions for Oracle 19c database hosts.
+allowed_unmanaged_accounts:
+  - oracle

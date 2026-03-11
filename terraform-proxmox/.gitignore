@@ -1,0 +1,52 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log
+*.tfvars
+!environments/dev.tfvars
+environments/*.bootstrap.env
+environments/*.autodiscover.env
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ansible
+*.retry
+*.log
+ansible_facts/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+.env.*
+!.env.example
+
+# Project specific
+logs/
+plans/
+backups/
+inventories/
+summaries/
+snippets/*-partitioning.yaml
+IMPROVEMENTS.md
+vault.log
+kubespray/
+tmp_venv/
+bin/
+secrets.auto.tfvars
+packer/**/vars.pkrvars.hcl
+packer/**/vars.auto.pkrvars.hcl
+packer/**/vars.*.pkrvars.hcl
+!packer/**/vars.example.pkrvars.hcl
+tmp/
+vault-init.json
+vault-unseal-keys.json
+.vault-token

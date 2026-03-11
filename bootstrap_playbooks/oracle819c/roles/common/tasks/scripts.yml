@@ -1,0 +1,67 @@
+
+- name: SCRIPTS | Check if setEnv.sh marker file exists
+  ansible.builtin.stat:
+    path: "{{ oracle_scripts_dir }}/.setenv_sh_configured"
+  register: setenv_marker
+  tags: [scripts]
+
+- name: SCRIPTS | Create scripts directory for oracle user
+  ansible.builtin.file:
+    path: "{{ oracle_scripts_dir }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0755'
+  tags: [scripts]
+
+- name: SCRIPTS | Template setEnv.sh script
+  ansible.builtin.template:
+    src: setEnv.sh.j2
+    dest: "{{ oracle_scripts_dir }}/setEnv.sh"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0755'
+  tags: [scripts]
+
+- name: SCRIPTS | Add reference to setEnv.sh in .bash_profile
+  ansible.builtin.blockinfile:
+    path: "{{ oracle_user_home }}/.bash_profile"
+    block: |
+      # Oracle Environment Settings
+      if [ -f {{ oracle_scripts_dir }}/setEnv.sh ]; then
+        . {{ oracle_scripts_dir }}/setEnv.sh
+      fi
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: Oracle Environment"
+    state: present
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+  when: not setenv_marker.stat.exists
+  tags: [scripts]
+
+- name: SCRIPTS | Create marker file for setEnv.sh configuration
+  ansible.builtin.file:
+    path: "{{ oracle_scripts_dir }}/.setenv_sh_configured"
+    state: touch
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0644'
+  when: not setenv_marker.stat.exists
+  tags: [scripts]
+
+- name: SCRIPTS | Template start_all.sh script
+  ansible.builtin.template:
+    src: start_all.sh.j2
+    dest: "{{ oracle_scripts_dir }}/start_all.sh"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0755'
+  tags: [scripts]
+
+- name: SCRIPTS | Template stop_all.sh script
+  ansible.builtin.template:
+    src: stop_all.sh.j2
+    dest: "{{ oracle_scripts_dir }}/stop_all.sh"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0755'
+  tags: [scripts]

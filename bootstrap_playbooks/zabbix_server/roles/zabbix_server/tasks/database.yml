@@ -1,0 +1,117 @@
+---
+- name: Internal PostgreSQL bootstrap
+  when:
+    - zabbix_db_mode == 'internal'
+    - zabbix_db_manage_user_and_db | bool
+  block:
+    - name: Check if Zabbix DB role exists (internal)
+      ansible.builtin.shell: >-
+        sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ zabbix_db_user }}';"
+      args:
+        executable: /bin/bash
+      register: zabbix_internal_role
+      changed_when: false
+
+    - name: Create Zabbix DB role (internal)
+      ansible.builtin.shell: >-
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c
+        "CREATE USER \"{{ zabbix_db_user }}\" WITH PASSWORD '{{ zabbix_db_password }}';"
+      args:
+        executable: /bin/bash
+      when: (zabbix_internal_role.stdout | trim) != '1'
+      no_log: true
+
+    - name: Check if Zabbix database exists (internal)
+      ansible.builtin.shell: >-
+        sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='{{ zabbix_db_name }}';"
+      args:
+        executable: /bin/bash
+      register: zabbix_internal_db
+      changed_when: false
+
+    - name: Create Zabbix database (internal)
+      ansible.builtin.shell: >-
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c
+        "CREATE DATABASE \"{{ zabbix_db_name }}\" OWNER \"{{ zabbix_db_user }}\";"
+      args:
+        executable: /bin/bash
+      when: (zabbix_internal_db.stdout | trim) != '1'
+
+- name: External PostgreSQL bootstrap
+  when:
+    - zabbix_db_mode == 'external'
+    - zabbix_db_manage_user_and_db | bool
+  block:
+    - name: Check if Zabbix DB role exists (external)
+      ansible.builtin.shell: >-
+        psql -h {{ zabbix_db_host }} -p {{ zabbix_db_port }} -U {{ zabbix_db_admin_user }} -d postgres
+        -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ zabbix_db_user }}';"
+      args:
+        executable: /bin/bash
+      environment:
+        PGPASSWORD: "{{ zabbix_db_admin_password }}"
+      register: zabbix_external_role
+      changed_when: false
+      no_log: true
+
+    - name: Create Zabbix DB role (external)
+      ansible.builtin.shell: >-
+        psql -h {{ zabbix_db_host }} -p {{ zabbix_db_port }} -U {{ zabbix_db_admin_user }} -d postgres
+        -v ON_ERROR_STOP=1 -c "CREATE USER \"{{ zabbix_db_user }}\" WITH PASSWORD '{{ zabbix_db_password }}';"
+      args:
+        executable: /bin/bash
+      environment:
+        PGPASSWORD: "{{ zabbix_db_admin_password }}"
+      when: (zabbix_external_role.stdout | trim) != '1'
+      no_log: true
+
+    - name: Check if Zabbix database exists (external)
+      ansible.builtin.shell: >-
+        psql -h {{ zabbix_db_host }} -p {{ zabbix_db_port }} -U {{ zabbix_db_admin_user }} -d postgres
+        -tAc "SELECT 1 FROM pg_database WHERE datname='{{ zabbix_db_name }}';"
+      args:
+        executable: /bin/bash
+      environment:
+        PGPASSWORD: "{{ zabbix_db_admin_password }}"
+      register: zabbix_external_db
+      changed_when: false
+      no_log: true
+
+    - name: Create Zabbix database (external)
+      ansible.builtin.shell: >-
+        psql -h {{ zabbix_db_host }} -p {{ zabbix_db_port }} -U {{ zabbix_db_admin_user }} -d postgres
+        -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"{{ zabbix_db_name }}\" OWNER \"{{ zabbix_db_user }}\";"
+      args:
+        executable: /bin/bash
+      environment:
+        PGPASSWORD: "{{ zabbix_db_admin_password }}"
+      when: (zabbix_external_db.stdout | trim) != '1'
+      no_log: true
+
+- name: Check if Zabbix schema already exists
+  ansible.builtin.shell: >-
+    psql -h {{ zabbix_db_host_effective }} -p {{ zabbix_db_port }}
+    -U {{ zabbix_db_user }} -d {{ zabbix_db_name }}
+    -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='dbversion';"
+  args:
+    executable: /bin/bash
+  environment:
+    PGPASSWORD: "{{ zabbix_db_password }}"
+  register: zabbix_schema_present
+  changed_when: false
+  when: zabbix_db_import_schema | bool
+  no_log: true
+
+- name: Import Zabbix schema and data
+  ansible.builtin.shell: >-
+    zcat /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz |
+    psql -h {{ zabbix_db_host_effective }} -p {{ zabbix_db_port }}
+    -U {{ zabbix_db_user }} -d {{ zabbix_db_name }}
+  args:
+    executable: /bin/bash
+  environment:
+    PGPASSWORD: "{{ zabbix_db_password }}"
+  when:
+    - zabbix_db_import_schema | bool
+    - (zabbix_schema_present.stdout | trim) != '1'
+  no_log: true

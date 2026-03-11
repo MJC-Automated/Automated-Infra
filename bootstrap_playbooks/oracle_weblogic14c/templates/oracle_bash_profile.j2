@@ -1,0 +1,13 @@
+# templates/oracle_bash_profile.j2
+# Environment variables for Oracle WebLogic user
+
+export ORACLE_BASE={{ oracle_base }}
+export ORACLE_HOME={{ oracle_middleware_home }}
+export MW_HOME=$ORACLE_HOME
+export WLS_HOME=$MW_HOME/wlserver
+export WL_HOME=$WLS_HOME
+export DOMAIN_BASE={{ domain_base }}
+export DOMAIN_HOME={{ domain_home }}
+export APPLICATIONS_BASE={{ applications_base }}
+export JAVA_HOME={{ java_home }}
+export PATH=$JAVA_HOME/bin:$PATH:$MW_HOME/oracle_common/common/bin:$WLS_HOME/common/bin

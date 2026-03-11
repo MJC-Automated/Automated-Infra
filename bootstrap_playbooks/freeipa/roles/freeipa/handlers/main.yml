@@ -1,0 +1,5 @@
+---
+- name: restart ipa
+  ansible.builtin.systemd:
+    name: ipa
+    state: restarted

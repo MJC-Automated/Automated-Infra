@@ -1,0 +1,25 @@
+---
+- name: Validate input and platform
+  ansible.builtin.include_tasks: validate.yml
+
+- name: Configure package repository
+  ansible.builtin.include_tasks: repo.yml
+
+- name: Install required packages
+  ansible.builtin.include_tasks: packages.yml
+
+- name: Configure PostgreSQL database
+  ansible.builtin.include_tasks: database.yml
+
+- name: Configure Zabbix server settings
+  ansible.builtin.include_tasks: config.yml
+
+- name: Configure backups
+  ansible.builtin.include_tasks: backups.yml
+
+- name: Configure firewall (optional)
+  ansible.builtin.include_tasks: firewall.yml
+  when: zabbix_manage_firewall | bool
+
+- name: Ensure service state
+  ansible.builtin.include_tasks: service.yml

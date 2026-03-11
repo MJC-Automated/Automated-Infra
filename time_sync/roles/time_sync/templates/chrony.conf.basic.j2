@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+{% if time_sync_is_server %}
+{% for s in time_sync_public_servers %}
+server {{ s }} iburst
+{% endfor %}
+allow {{ time_sync_allowed_subnet }}
+local stratum 10
+{% else %}
+server {{ time_sync_server_host }} iburst
+{% endif %}
+
+driftfile /var/lib/chrony/chrony.drift
+rtcsync
+makestep 1.0 3
+ntsdumpdir /var/lib/chrony
+leapseclist /usr/share/zoneinfo/leap-seconds.list
+logdir /var/log/chrony

@@ -1,0 +1,15 @@
+# Managed by Ansible
+
+db=postgres
+db-url=jdbc:postgresql://{{ keycloak_db_host }}:{{ keycloak_db_port }}/{{ keycloak_db_name }}
+db-username={{ keycloak_db_user }}
+
+hostname={{ keycloak_hostname }}
+http-enabled={{ keycloak_http_enabled | bool | ternary('true', 'false') }}
+http-port={{ keycloak_http_port }}
+https-port={{ keycloak_https_port }}
+http-management-port={{ keycloak_health_port }}
+proxy-headers={{ keycloak_proxy_headers }}
+
+health-enabled=true
+metrics-enabled=true

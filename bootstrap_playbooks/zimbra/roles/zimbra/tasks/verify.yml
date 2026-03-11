@@ -1,0 +1,94 @@
+---
+- name: Wait for zmcontrol binary after installation
+  ansible.builtin.wait_for:
+    path: /opt/zimbra/bin/zmcontrol
+    timeout: "{{ zimbra_verify_timeout }}"
+
+- name: Capture current Zimbra status
+  ansible.builtin.command: su - zimbra -c "zmcontrol status"
+  register: zimbra_status_before
+  changed_when: false
+  failed_when: false
+
+- name: Detect IMAPD-related failure from pre-check status
+  ansible.builtin.set_fact:
+    zimbra_imapd_failure_detected: >-
+      {{
+        (zimbra_status_before.rc | int != 0)
+        and (
+          (
+            (zimbra_status_before.stdout | default(''))
+            ~ '\n'
+            ~ (zimbra_status_before.stderr | default(''))
+          ) | regex_search('(?im)\\bimapd\\b.*\\b(not running|stopped|failed)\\b')
+        ) is not none
+      }}
+
+- name: Derive effective IMAPD mitigation setting
+  ansible.builtin.set_fact:
+    zimbra_disable_imapd_effective: >-
+      {{
+        (zimbra_disable_imapd_when_mailbox | bool)
+        or (
+          (zimbra_imapd_auto_disable_on_failure | bool)
+          and (zimbra_imapd_failure_detected | bool)
+        )
+      }}
+
+- name: Read mailbox embedded IMAP setting
+  ansible.builtin.command: su - zimbra -c "zmlocalconfig -s nio_imap_enabled"
+  register: zimbra_nio_imap_enabled
+  changed_when: false
+  when: zimbra_disable_imapd_effective | bool
+
+- name: Ensure mailbox embedded IMAP is enabled
+  ansible.builtin.command: su - zimbra -c "zmlocalconfig -e nio_imap_enabled=true"
+  register: zimbra_enable_embedded_imap
+  changed_when: true
+  when:
+    - zimbra_disable_imapd_effective | bool
+    - "'nio_imap_enabled = true' not in (zimbra_nio_imap_enabled.stdout | default(''))"
+
+- name: Disable imapd service when mitigation is required
+  ansible.builtin.command: >
+    su - zimbra -c
+    "host=$(zmhostname);
+    if zmprov gs $host zimbraServiceEnabled | grep -q '^zimbraServiceEnabled: mailbox$' &&
+       zmprov gs $host zimbraServiceEnabled | grep -q '^zimbraServiceEnabled: imapd$'; then
+      zmprov ms $host -zimbraServiceEnabled imapd &&
+      echo imapd_disabled;
+    fi"
+  register: zimbra_imapd_disable
+  changed_when: "'imapd_disabled' in zimbra_imapd_disable.stdout"
+  when: zimbra_disable_imapd_effective | bool
+
+- name: Start Zimbra services if not healthy yet
+  ansible.builtin.command: su - zimbra -c "zmcontrol start"
+  register: zimbra_start_result
+  changed_when: true
+  when:
+    - zimbra_status_before.rc != 0
+      or ('imapd_disabled' in (zimbra_imapd_disable.stdout | default('')))
+      or (zimbra_enable_embedded_imap is defined and zimbra_enable_embedded_imap.changed)
+
+- name: Verify Zimbra status is healthy
+  ansible.builtin.command: su - zimbra -c "zmcontrol status"
+  register: zimbra_status_after
+  changed_when: false
+  retries: 6
+  delay: 20
+  until: zimbra_status_after.rc == 0
+
+- name: Read default domain from Zimbra config
+  ansible.builtin.command: su - zimbra -c "zmprov gacf zimbraDefaultDomainName"
+  register: zimbra_default_domain
+  changed_when: false
+  failed_when: false
+
+- name: Show installation summary
+  ansible.builtin.debug:
+    msg:
+      - "Zimbra hostname: {{ zimbra_hostname }}"
+      - "Zimbra admin account: {{ zimbra_admin_email }}"
+      - "Zimbra default domain output: {{ zimbra_default_domain.stdout | default('unavailable') }}"
+      - "Status command: {{ zimbra_status_after.stdout_lines | default([]) }}"

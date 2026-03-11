@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="{{ zabbix_backup_dir }}"
+ARCHIVE_DIR="${BACKUP_DIR}/archive"
+KEEP_ARCHIVED={{ zabbix_backup_keep_archived | int }}
+KEEP_MAX={{ zabbix_backup_keep_max | int }}
+STAMP="$(date +%Y%m%d-%H%M%S)"
+RAW_BACKUP="${BACKUP_DIR}/zabbix-db-${STAMP}.sql"
+
+mkdir -p "${BACKUP_DIR}" "${ARCHIVE_DIR}"
+
+DB_PASSWORD="$(awk -F= '/^DBPassword=/{print substr($0,12)}' /etc/zabbix/zabbix_server.conf | head -n1)"
+if [[ -z "${DB_PASSWORD}" ]]; then
+  echo "DBPassword is missing in /etc/zabbix/zabbix_server.conf" >&2
+  exit 1
+fi
+
+export PGPASSWORD="${DB_PASSWORD}"
+pg_dump \
+  -h "{{ zabbix_db_host_effective }}" \
+  -p "{{ zabbix_db_port }}" \
+  -U "{{ zabbix_db_user }}" \
+  "{{ zabbix_db_name }}" \
+  > "${RAW_BACKUP}"
+unset PGPASSWORD
+unset DB_PASSWORD
+
+# Keep the newest raw dump and archive the rest.
+while IFS= read -r RAW_FILE; do
+  [[ -n "${RAW_FILE}" ]] || continue
+  gzip -f "${RAW_FILE}"
+  mv -f "${RAW_FILE}.gz" "${ARCHIVE_DIR}/"
+done < <(ls -1t "${BACKUP_DIR}"/zabbix-db-*.sql 2>/dev/null | tail -n +2 || true)
+
+# Keep only the most recent archived dumps.
+while IFS= read -r OLD_FILE; do
+  [[ -n "${OLD_FILE}" ]] || continue
+  rm -f "${OLD_FILE}"
+done < <(ls -1t "${ARCHIVE_DIR}"/zabbix-db-*.sql.gz 2>/dev/null | tail -n "+$((KEEP_ARCHIVED + 1))" || true)
+
+# Enforce global max count across raw and archived dumps.
+while IFS= read -r OLD_FILE; do
+  [[ -n "${OLD_FILE}" ]] || continue
+  rm -f "${OLD_FILE}"
+done < <(ls -1t "${BACKUP_DIR}"/zabbix-db-*.sql "${ARCHIVE_DIR}"/zabbix-db-*.sql.gz 2>/dev/null | tail -n "+$((KEEP_MAX + 1))" || true)

@@ -1,0 +1,13 @@
+#!/bin/bash
+# Start WebLogic Node Manager
+
+unset DISPLAY
+
+export JAVA_HOME="{{ java_home }}"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+echo "INFO: Starting Node Manager for {{ domain_name }}"
+
+cd "{{ domain_home }}/bin" || { echo "ERROR: Cannot change to domain bin directory"; exit 1; }
+
+./startNodeManager.sh

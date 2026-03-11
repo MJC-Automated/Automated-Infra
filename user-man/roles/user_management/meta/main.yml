@@ -1,0 +1,24 @@
+# ===========================================
+# roles/user_management/meta/main.yml
+# ===========================================
+---
+galaxy_info:
+  author: Emmanuel Kirui
+  description: Role to manage system users with full attributes including SSH key generation and management
+  license: MIT
+  min_ansible_version: "2.17"
+  platforms:
+    - name: EL
+      versions: [ "8", "9" ]
+    - name: Ubuntu
+      versions: [ "20.04", "22.04", "24.04" ]
+    - name: Debian
+      versions: [ "11", "12" ]
+  galaxy_tags:
+    - users
+    - system
+    - security
+    - accounts
+    - ssh
+
+dependencies: []

@@ -1,0 +1,16 @@
+[Unit]
+Description=Oracle Database Service ({{ oracle_systemd_service_name }})
+After=network.target
+
+[Service]
+Type=oneshot
+User={{ oracle_user }}
+Group={{ oracle_group_inventory }}
+Environment=ORACLE_HOME={{ oracle_home }}
+Environment=ORACLE_BASE={{ oracle_base }}
+ExecStart={{ oracle_scripts_dir }}/start_all.sh
+ExecStop={{ oracle_scripts_dir }}/stop_all.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

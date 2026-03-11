@@ -1,0 +1,111 @@
+# templates/wls_install.rsp.j2
+# Response file for silent installation of Oracle WebLogic Server 12c.
+
+[ENGINE]
+#DO NOT CHANGE THIS.
+Response File Version=1.0.0.0.0
+
+[GENERIC]
+#This variable will hold the Oracle Home location.
+ORACLE_HOME={{ oracle_middleware_home }}
+
+#By default this is FALSE.
+#Set this to TRUE to make the installation a software only installation.
+SOFTWARE_ONLY=FALSE
+
+#Set this to true if you want to skip configuration tools.
+SKIP_CONFIG=FALSE
+
+#The Installation Type selected. This can be one of the following:
+# "Fusion Middleware Infrastructure"
+# "WebLogic Server"
+# "Coherence"
+# "Complete With Examples"
+INSTALL_TYPE=Fusion Middleware Infrastructure
+
+#Sets the product registration to be with Oracle My Oracle Support.
+#MYORACLESUPPORT_SETTINGS="IAM_ONLY"
+#MYORACLESUPPORT_USERNAME=""
+#MYORACLESUPPORT_PASSWORD=<SECURE VALUE>
+
+#If the value is set to true, then the patches will be applied from the
+# software updates downloaded to the Oracle Home.
+APPLY_UPDATES=FALSE
+
+#This value specifies the security updates option.
+#SECURITY_UPDATES_VIA_MOS="false"
+
+#This indicates whether the Plug-ins were selected or not.
+#DECLINE_SECURITY_UPDATES=false
+
+#Specify the inventory location.
+#The default inventory location is USER_HOME/oraInventory.
+# If you are performing a software only installation, this variable cannot be empty.
+# If this variable is not specified the existing inventory will be used.
+# If the inventory does not exist, it will be created.
+# If a value for INVENTORY_LOCATION is provided it will be created.
+INVENTORY_LOCATION=/u01/app/oraInventory
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a Standalone domain.
+#IS_STANDALONE_DOMAIN=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a WebLogic JRF domain.
+#IS_WLS_JRF_DOMAIN=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a Coherence installation.
+#IS_COHERENCE_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a Data Integrator Installation.
+#IS_DATA_INTEGRATOR_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is an Enterprise Manager Installation.
+#IS_EM_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a Forms and Reports Installation.
+#IS_FORMS_REPORTS_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a SOA Installation.
+#IS_SOA_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a BPM Installation.
+#IS_BPM_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a B2B Installation.
+#IS_B2B_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a WebCenter Installation.
+#IS_WEBCENTER_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is a Business Intelligence Installation.
+#IS_BUSINESS_INTELLIGENCE_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is an Oracle HTTP Server Installation.
+#IS_OHS_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is an Oracle Traffic Director Installation.
+#IS_OTD_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is an Oracle GoldenGate Installation.
+#IS_GOLDENGATE_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is an Oracle BigData Preparation Installation.
+#IS_BIGDATA_PREPARATION_INSTALLATION=FALSE
+
+#By default this is FALSE.
+#Set this to TRUE to indicate that this is an Oracle MapViewer Installation.
+#IS_MAPVIEWER_INSTALLATION=FALSE

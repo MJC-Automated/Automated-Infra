@@ -1,0 +1,45 @@
+---
+- name: Configure Zabbix server DB parameters
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+    create: false
+  loop:
+    - { key: 'DBHost', value: "{{ zabbix_db_host_effective }}" }
+    - { key: 'DBPort', value: "{{ zabbix_db_port }}" }
+    - { key: 'DBName', value: "{{ zabbix_db_name }}" }
+    - { key: 'DBUser', value: "{{ zabbix_db_user }}" }
+  notify: restart zabbix stack
+
+- name: Configure Zabbix server DB password
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    regexp: '^DBPassword='
+    line: "DBPassword={{ zabbix_db_password }}"
+    state: present
+    create: false
+  notify: restart zabbix stack
+  no_log: true
+
+- name: Configure frontend PHP timezone
+  ansible.builtin.lineinfile:
+    path: "{{ zabbix_platform.apache_conf_path }}"
+    regexp: '^\s*php_value\s+date.timezone'
+    line: "        php_value date.timezone {{ zabbix_php_timezone }}"
+    state: present
+    create: false
+  when:
+    - zabbix_php_timezone | string | trim | length > 0
+  notify: restart zabbix stack
+
+- name: Configure Zabbix frontend DB settings file
+  ansible.builtin.template:
+    src: zabbix.conf.php.j2
+    dest: "{{ zabbix_platform.web_config_path }}"
+    owner: root
+    group: "{{ zabbix_platform.web_group }}"
+    mode: "0640"
+  no_log: true
+  notify: restart zabbix stack

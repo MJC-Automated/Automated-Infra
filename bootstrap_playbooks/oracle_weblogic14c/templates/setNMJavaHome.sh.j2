@@ -1,0 +1,31 @@
+#!/bin/sh
+
+# Managed by Ansible to keep Node Manager Java aligned with selected JDK.
+
+BEA_JAVA_HOME=""
+export BEA_JAVA_HOME
+
+DEFAULT_BEA_JAVA_HOME=""
+export DEFAULT_BEA_JAVA_HOME
+
+SUN_JAVA_HOME="{{ java_home }}"
+export SUN_JAVA_HOME
+
+DEFAULT_SUN_JAVA_HOME="{{ java_home }}"
+export DEFAULT_SUN_JAVA_HOME
+
+if [ "${VM_TYPE}" = "JRockit" ] ; then
+	JAVA_HOME="${BEA_JAVA_HOME}"
+else
+	if [ "${JAVA_VENDOR}" = "Sun" ] ; then
+		JAVA_HOME="${SUN_JAVA_HOME}"
+	else
+		JAVA_VENDOR="Oracle"
+		export JAVA_VENDOR
+		JAVA_HOME="{{ java_home }}"
+		VM_TYPE="HotSpot"
+	fi
+fi
+
+JAVA_HOME="${JAVA_HOME}"
+export JAVA_HOME

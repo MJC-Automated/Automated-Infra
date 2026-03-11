@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+{% if time_sync_is_server %}
+allow {{ time_sync_allowed_subnet }}
+local stratum 10
+{% endif %}

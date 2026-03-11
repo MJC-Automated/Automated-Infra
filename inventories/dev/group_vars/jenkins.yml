@@ -1,0 +1,3 @@
+# Account baseline exceptions for Jenkins hosts.
+allowed_unmanaged_accounts:
+  - ubuntu
