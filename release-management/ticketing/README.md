@@ -5,7 +5,6 @@
 The `gerrit-report.sh` script is a sophisticated release management tool that analyzes the production status of software tickets by examining commit history across multiple release branches. It provides Release Managers with detailed insights into which changes have been deployed, which are new, and which have mixed deployment status.
 
 This script is particularly valuable in environments using:
-
 - **Gerrit** for code review and change management
 - **Git** for version control with multiple release branches
 - **Change-Id** based commit tracking (standard in Gerrit workflows)
@@ -14,33 +13,25 @@ This script is particularly valuable in environments using:
 ## Core Features
 
 ### 🎯 **Interactive Branch Selection**
-
 The script dynamically discovers all available branches and presents them in a user-friendly numbered menu, allowing precise selection of:
-
 - **Last Release Branch**: The most recent production deployment
 - **Baseline Branch**: The reference point for determining what's "already in production"
 
 ### 🔍 **Comprehensive Commit Discovery**
-
 Uses multiple search patterns to find ticket-related commits:
-
-- Direct ticket references: `GIS-28422`
-- Colon-separated format: `GIS-28422:`
-- Space-separated format: `GIS-28422`
-- Word boundary matching: `\bGIS-28422\b`
+- Direct ticket references: `TICKET-28422`
+- Colon-separated format: `TICKET-28422:`
+- Space-separated format: `TICKET-28422 `
+- Word boundary matching: `\bPROJECT-28422\b`
 
 ### 🏷️ **Change-Id Based Tracking**
-
 Leverages Gerrit's Change-Id system to track commits across branches, enabling accurate detection of:
-
 - Cherry-picked commits
 - Backported fixes
 - Cross-branch deployments
 
 ### 📊 **Intelligent Status Analysis**
-
 Provides four distinct status categories with visual indicators:
-
 - ✅ **NEW FOR RELEASE**: Ready for deployment
 - 🟡 **PARTIALLY IN PRODUCTION**: Mixed deployment status (requires review)
 - 🔴 **FULLY IN PRODUCTION**: Already deployed
@@ -54,14 +45,13 @@ Understanding how tickets move through the development and deployment pipeline i
 
 When developers work on a ticket, they create commits with the ticket ID in the subject line. Each commit receives a unique **Change-Id** from Gerrit:
 
-**Example: GIS-28422 (Budget Assignment Feature)**
-
+**Example: TICKET-28422 (Budget Assignment Feature)**
 ```
 Commit: 8f24fc448c27ad123bbeebc2748387d27568b69f
 Date: Saturday, Mar 29, 2025, 01:43:36 PM EAST
 Owner: Paul.gachau
 Change-Id: Ie5e3c9a73c934677bedbaa5a915ec52f66e1a524
-Subject: GIS-28422-Ability to Assign Budget To A Unit
+Subject: TICKET-28422-Ability to Assign Budget To A Unit
 ```
 
 This represents the initial implementation of the feature, creating new database tables, UI components, and business logic.
@@ -70,8 +60,7 @@ This represents the initial implementation of the feature, creating new database
 
 Most tickets involve multiple commits as developers refine the implementation:
 
-**GIS-28422 Evolution:**
-
+**TICKET-28422 Evolution:**
 1. **March 29**: Initial implementation (38 files changed)
 2. **April 12**: Refinements and additional features (45 files changed)  
 3. **May 02**: Bug fixes and audit trails (6 files changed)
@@ -83,16 +72,13 @@ Most tickets involve multiple commits as developers refine the implementation:
 The script determines production status using two key mechanisms:
 
 #### **Mechanism A: Baseline Date Comparison**
-
 The script establishes a "Production Cutoff Timestamp" from the baseline branch. Any commit before this date is considered deployed.
 
-**Example Analysis for GIS-28422:**
-
-- **Baseline**: RE_004.0.0_MUTUAL (May 15, 2025, 05:31:56 PM)
+**Example Analysis for TICKET-28422:**
+- **Baseline**: RE_004.0.0_CLIENT_A (May 15, 2025, 05:31:56 PM)
 - **Cutoff Timestamp**: 1747319516
 
 **Commits Analysis:**
-
 - **Commit 1** (Mar 29): ✅ Before cutoff → **IN PRODUCTION**
 - **Commit 2** (Apr 12): ✅ Before cutoff → **IN PRODUCTION**  
 - **Commit 3** (May 02): ✅ Before cutoff → **IN PRODUCTION**
@@ -100,26 +86,23 @@ The script establishes a "Production Cutoff Timestamp" from the baseline branch.
 - **Commit 5** (Jun 12): ❌ After cutoff → **NEW**
 
 #### **Mechanism B: Cross-Branch Change-Id Detection**
-
 The script searches for matching Change-Ids in subsequent release branches to identify cherry-picked commits.
 
-**Example: GIS-28676 (Loss Participation Report)**
-
+**Example: TICKET-28676 (Loss Participation Report)**
 ```
 Commit: c28beae8a7481fe9c9ce27115db54b84deb81754
 Date: Saturday, May 17, 2025, 09:41:10 PM EAST (After baseline)
-Status: 🔴 IN PRODUCTION (Cherry-picked in branch: 002.1.0_MUTUAL)
+Status: 🔴 IN PRODUCTION (Cherry-picked in branch: 002.1.0_CLIENT_A)
 Change-Id: Ieeb6b02f28695b02bf353ea1304300edf3aaa4b6
 ```
 
-Even though this commit was made after the baseline date, the script detected its Change-Id in the `002.1.0_MUTUAL` branch, confirming it was cherry-picked for production deployment.
+Even though this commit was made after the baseline date, the script detected its Change-Id in the `002.1.0_CLIENT_A` branch, confirming it was cherry-picked for production deployment.
 
 ## Detailed Status Categories with Real Examples
 
 ### ✅ **NEW FOR RELEASE Status**
 
-**Example: GIS-30315 (Refund Processing Fix)**
-
+**Example: TICKET-30315 (Refund Processing Fix)**
 ```
 Total Commits: 1
 All Commits: After baseline date
@@ -129,8 +112,7 @@ Status: ✅ NEW FOR RELEASE
 
 **Interpretation**: This is a pure new ticket. The single commit was made on June 5, 2025 (after the May 15 baseline), and its Change-Id doesn't exist in any subsequent release branches. This ticket is ready for inclusion in the next release.
 
-**Example: GIS-30068 (Claim Revision Feedback)**
-
+**Example: TICKET-30068 (Claim Revision Feedback)**
 ```
 Total Commits: 3
 Commit Dates: Jun 26, Jul 01, Sep 03, 2025
@@ -143,28 +125,25 @@ Status: ✅ NEW FOR RELEASE
 
 ### 🟡 **PARTIALLY IN PRODUCTION Status**
 
-**Example: GIS-28477 (Budget Print Feature)**
-
+**Example: TICKET-28477 (Budget Print Feature)**
 ```
 Total Commits: 4
 Production Status:
 - Commit 1 (Apr 19): 🔴 Before baseline → IN PRODUCTION
 - Commit 2 (May 26): ❌ After baseline → NEW
-- Commit 3 (May 27): 🔴 Cherry-picked to 002.1.0_MUTUAL → IN PRODUCTION  
+- Commit 3 (May 27): 🔴 Cherry-picked to 002.1.0_CLIENT_A → IN PRODUCTION  
 - Commit 4 (May 29): ❌ After baseline, not cherry-picked → NEW
 Status: 🟡 PARTIALLY IN PRODUCTION
 ```
 
 **Interpretation**: This represents a complex scenario where the ticket has mixed deployment status:
-
 - 50% of commits are already in production (2 out of 4)
 - 50% are new and need deployment
 - The cherry-picking of commit 3 suggests urgent bug fixes were deployed selectively
 
 **⚠️ Action Required**: Manual review needed to understand why not all commits were deployed together and whether the remaining commits are still needed.
 
-**Example: GIS-28676 (Loss Participation Report)**
-
+**Example: TICKET-28676 (Loss Participation Report)**
 ```
 Total Commits: 6
 Production Status:
@@ -177,8 +156,7 @@ Status: 🟡 PARTIALLY IN PRODUCTION
 
 ### 🔴 **FULLY IN PRODUCTION Status**
 
-**Example: Hypothetical GIS-29000**
-
+**Example: Hypothetical TICKET-29000**
 ```
 Total Commits: 3
 All Commit Dates: Before May 15, 2025 baseline
@@ -190,8 +168,7 @@ Status: 🔴 FULLY IN PRODUCTION
 
 ### ❌ **NOT FOUND Status**
 
-**Example: Hypothetical GIS-99999**
-
+**Example: Hypothetical TICKET-99999**
 ```
 Search Results: No commits found
 Possible Causes:
@@ -209,9 +186,8 @@ Status: ❌ NOT FOUND
 ### **Scenario 1: Emergency Hotfixes**
 
 **Example Pattern**:
-
 ```
-Ticket: GIS-URGENT-001
+Ticket: TICKET-URGENT-001
 Commit 1: May 10 (Before baseline) → Original implementation
 Commit 2: May 20 (After baseline) → Critical bug fix
 Status: 🟡 PARTIALLY IN PRODUCTION
@@ -224,9 +200,8 @@ Follow-up Analysis:
 ### **Scenario 2: Feature Rollbacks**
 
 **Example Pattern**:
-
 ```
-Ticket: GIS-28422
+Ticket: TICKET-28422
 Commits 1-3: Before baseline → Original feature deployed
 Commit 4: After baseline → "Rollback changes due to production issue"  
 Status: 🟡 PARTIALLY IN PRODUCTION
@@ -238,11 +213,10 @@ Action: Review rollback commit to understand production impact
 ### **Scenario 3: Cross-Repository Dependencies**
 
 **Example Pattern**:
-
 ```
-Ticket: GIS-30000 (Frontend changes)
+Ticket: TICKET-30000 (Frontend changes)
 Status: ✅ NEW FOR RELEASE
-Related: GIS-30001 (Backend changes in different repo)
+Related: TICKET-30001 (Backend changes in different repo)
 Status: Unknown (requires separate analysis)
 
 Action Required: Ensure both repositories are analyzed for complete feature deployment
@@ -256,14 +230,13 @@ The script uses a sophisticated multi-pattern search:
 
 ```bash
 # Primary search patterns
-git log --all --no-merges --grep="GIS-28422" -i --format="%H|%ct|%aI|%an|%s"
-git log --all --no-merges --grep="GIS-28422:" -i --format="%H|%ct|%aI|%an|%s"
-git log --all --no-merges --grep="GIS-28422 " -i --format="%H|%ct|%aI|%an|%s"
-git log --all --no-merges --grep="\bGIS-28422\b" -i --format="%H|%ct|%aI|%an|%s"
+git log --all --no-merges --grep="TICKET-28422" -i --format="%H|%ct|%aI|%an|%s"
+git log --all --no-merges --grep="TICKET-28422:" -i --format="%H|%ct|%aI|%an|%s"
+git log --all --no-merges --grep="TICKET-28422 " -i --format="%H|%ct|%aI|%an|%s"
+git log --all --no-merges --grep="\bPROJECT-28422\b" -i --format="%H|%ct|%aI|%an|%s"
 ```
 
 **Format String Breakdown**:
-
 - `%H`: Full 40-character commit hash (unique identifier)
 - `%ct`: Commit timestamp (Unix epoch seconds for comparison)
 - `%aI`: ISO 8601 author date (human-readable)
@@ -278,7 +251,6 @@ git show -s --format=%B "$commit_hash" | grep -i "Change-Id:" | awk '{print $2}'
 ```
 
 **Pipeline Explanation**:
-
 - `git show -s --format=%B`: Get full commit message body
 - `grep -i "Change-Id:"`: Find Change-Id line (case-insensitive)
 - `awk '{print $2}'`: Extract second field (the actual Change-Id)
@@ -292,7 +264,6 @@ git log "$branch" "origin/$branch" --grep="Change-Id: $change_id" -F --format="%
 ```
 
 **Command Breakdown**:
-
 - `"$branch" "origin/$branch"`: Search both local and remote refs
 - `--grep="Change-Id: $change_id"`: Exact Change-Id match
 - `-F`: Treat pattern as fixed string (not regex)
@@ -319,26 +290,25 @@ fi
 
 ```markdown
 ## Release Information
-- **Last Release Branch:** RE_004.1.0_MUTUAL
+- **Last Release Branch:** RE_004.1.0_CLIENT_A
 - **Last Release Date:** Saturday, May 31, 2025, 08:57:37 PM EAST
-- **Baseline Branch (Main Clone):** RE_004.0.0_MUTUAL  
+- **Baseline Branch (Main Clone):** RE_004.0.0_CLIENT_A  
 - **Baseline Date:** Thursday, May 15, 2025, 05:31:56 PM EAST
 - **Production Cutoff Timestamp:** 1747319516
 ```
 
 **Key Insights**:
-
 - **16-day window**: Between baseline (May 15) and last release (May 31)
-- **Consecutive branches**: Script will check RE_004.1.0_MUTUAL for cherry-picks
+- **Consecutive branches**: Script will check RE_004.1.0_CLIENT_A for cherry-picks
 - **Timestamp**: Any commit before 1747319516 is considered deployed
 
 ### **Ticket Subject Verification**
 
 ```markdown
 ### Ticket List with Subjects
-- **GIS-28422**: GIS-28422-Ability to Assign Budget To A Unit
-- **GIS-30315**: GIS-30315 Inability to Process Refunds for Inhouse Agents
-- **GIS-30526**: GIS-30526 Unauthorized Claim Data Entry Control...
+- **TICKET-28422**: TICKET-28422-Ability to Assign Budget To A Unit
+- **TICKET-30315**: TICKET-30315 Inability to Process Refunds for Inhouse Agents
+- **TICKET-30526**: TICKET-30526 Unauthorized Claim Data Entry Control...
 ```
 
 **Purpose**: Confirms the script found commits for each ticket and shows the actual functionality being tracked.
@@ -365,7 +335,6 @@ Each ticket section provides:
 ```
 
 **Analysis**:
-
 - **83% new tickets** (11/12): Healthy release with substantial new functionality
 - **8% partial tickets** (1/12): Minimal technical debt from mixed deployments
 - **0% already deployed**: No wasted effort on already-released features
@@ -396,14 +365,12 @@ Each ticket section provides:
 ### **Issue**: Script reports incorrect status
 
 **Possible Causes**:
-
 - Inconsistent commit message formatting
 - Missing or modified Change-Id values  
 - Branch selection errors
 - Clock synchronization issues between commits
 
 **Solutions**:
-
 - Standardize commit message templates
 - Verify Change-Id integrity in Gerrit
 - Double-check branch selection during script execution
@@ -412,14 +379,12 @@ Each ticket section provides:
 ### **Issue**: Missing commits for known tickets
 
 **Possible Causes**:
-
 - Typos in ticket numbers
-- Different formatting conventions (e.g., "JIRA-123" vs "GIS-123")
+- Different formatting conventions (e.g., "JIRA-123" vs "TICKET-123")
 - Commits in different repositories
 - Merge commits being excluded (by design)
 
 **Solutions**:
-
 - Verify exact ticket formatting in repository
 - Check related repositories for cross-cutting changes
 - Use `git log --grep="partial-ticket-id"` for broader searches
@@ -427,13 +392,11 @@ Each ticket section provides:
 ### **Issue**: Incorrect baseline or release branch selection
 
 **Possible Causes**:
-
 - Confusing branch naming conventions
 - Incomplete branch synchronization
 - Multiple release strategies
 
 **Solutions**:
-
 - Document branch naming conventions clearly
 - Use `git branch -a | grep release` to verify available branches
 - Confirm branch contents with `git log --oneline -10` before selection

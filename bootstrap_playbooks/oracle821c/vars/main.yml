@@ -112,8 +112,8 @@ oracle_app_sql_force: false
 oracle_app_sql_targets: []
 oracle_app_sql_defaults_from_pdbs: true
 oracle_app_sql_stage_dir: "{{ oracle_stage_dir }}/app_sql"
-oracle_app_sql_default_sql_id: "tq_app_bootstrap"
-oracle_app_sql_default_template: "tq_app_bootstrap_full.sql.j2"
+oracle_app_sql_default_sql_id: "app_bootstrap"
+oracle_app_sql_default_template: "app_bootstrap_full.sql.j2"
 
 # --- Post-PDB state + baseline tuning ---
 oracle_post_pdb_tuning_enabled: true

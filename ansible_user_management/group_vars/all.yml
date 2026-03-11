@@ -1,0 +1,116 @@
+# ===========================================
+# group_vars/all.yml
+# ===========================================
+---
+# Harden the automation account so team members cannot use a shared password
+# to SSH as `ansible` and bypass normal user lifecycle controls.
+automation_account_hardening_enabled: true
+automation_account_usernames:
+  - ansible
+automation_account_lock_password: true
+automation_account_disable_password_auth: true
+
+# Security baseline controls
+# For onboarding a brand-new host without pre-seeded authorized_keys,
+# temporarily use key_only_prereq_mode: warn, then switch back to fail.
+managed_accounts_key_only: true
+key_only_prereq_mode: fail
+password_history_enforcement_enabled: true
+password_history_remember: 12
+password_history_retry: 3
+password_history_enforce_for_root: true
+account_enforcement_enabled: true
+account_enforcement_mode: fail
+breakglass_accounts: []
+allowed_unmanaged_accounts:
+  - root
+allowed_unmanaged_accounts_by_host:
+  public-database19c-01:
+    - oracle
+  public-database21c-01:
+    - oracle
+  public-weblogic12c-01:
+    - oracle
+  public-weblogic14c-01:
+    - oracle
+  public-jenkins-01:
+    - ubuntu
+enforce_sshd_allowlist: true
+
+users:
+  - name: user2         # This user is the template for user creation. Contains comments for ease of understanding.
+    state: present
+    uid: 1040
+    groups:
+      - wheel            # Will be converted to 'sudo' on Debian/Ubuntu systems automatically.
+    comment: "Example User Two" # Optionally sets the description (aka GECOS) of user account. We can use this to set the full name of the user.
+    password: "{{ users_secrets.user2.password }}"
+    expires: -1          # Account never expires. Change to a specific timestamp (e.g., 1704067200 for 2024-01-01) to set an expiration date. Can be used for Interns/Attachment students with limited time. []
+                         # eg. For a user account that willl expire on 2030-01-01, execute this command to generate the epoch timestamp. [date -d "2030-01-01" +%s] and paste the output here as expires: 1704067200
+    ssh_keys: "{{ users_secrets.user2.ssh_keys }}"
+    ssh_key_comment: "user2@server"
+    ssh_key_passphrase: "{{ users_secrets.user2.ssh_key_passphrase | default(omit) }}" # Optional passphrase for the SSH key. Leave empty if not needed.
+# Other defaults for user accounts have been set in the [roles/user_management/defaults/main.yml] file.
+
+  # Example of additional users to create
+  - name: user1
+    state: present
+    uid: 1041
+    groups:
+      - wheel
+    comment: "Example Maintainer"
+    password: "{{ users_secrets.user1.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.user1.ssh_keys }}"
+    ssh_key_comment: "user1@server"
+
+  - name: user3
+    state: present
+    uid: 1042
+    groups:
+      - wheel
+    comment: "Example User Three"
+    password: "{{ users_secrets.user3.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.user3.ssh_keys }}"
+    ssh_key_comment: "user3@server"
+
+
+  - name: user4
+    state: present
+    uid: 1043
+    groups:
+      - wheel
+    comment: "Example User Four"
+    password: "{{ users_secrets.user4.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.user4.ssh_keys }}"
+    ssh_key_comment: "user4@server"
+
+  - name: user5
+    state: present
+    uid: 1044
+    groups:
+      - wheel
+    comment: "Example User Five"
+    password: "{{ users_secrets.user5.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.user5.ssh_keys }}"
+    ssh_key_comment: "user5@server"
+
+# Example users to remove (uncomment and modify as needed)
+# Users marked for removal - these will be deleted along with their home directories
+remove_users:
+  - name: cloud-user  # Template for user removal (Defaulc cloud-init users). 
+    state: absent
+    remove_home: true
+    force: true
+  - name: ubuntu
+    state: absent
+    remove_home: true
+    force: true
+    # Uncomment and add any additional paths to clean up after user removal.
+    # additional_cleanup_paths:
+    #   - /path/to/cleanup1
+    #   - /path/to/cleanup2
+    # Note: Ensure that the paths are safe to remove and do not contain critical data.

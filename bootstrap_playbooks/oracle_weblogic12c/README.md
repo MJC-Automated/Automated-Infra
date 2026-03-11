@@ -5,7 +5,6 @@ This playbook installs/configures WebLogic 12.2.1.4 on hosts in the `weblogic12c
 ## Configuration Sources
 
 Runtime values come from three layers:
-
 1. Role defaults: `bootstrap_playbooks/oracle_weblogic12c/vars/weblogic_vars.yml`
 2. Environment overrides (recommended): `inventories/<env>/group_vars/weblogic12c.yml`
 3. Secret env vars (recommended): `bootstrap_playbooks/oracle_weblogic12c/.env` (copy from `.env.example`, chmod 600)
@@ -15,7 +14,6 @@ Use group vars for environment-specific domain names, ports, managed servers, an
 ## Required Installer Archives
 
 Place compressed installers on the control node under `/resources`:
-
 - `jdk-8u411-linux-x64.tar.gz`
 - `fmw_12.2.1.4.0_infrastructure_Disk1_1of1.zip`
 
@@ -24,9 +22,7 @@ The playbook copies installer payloads to target hosts and supports `.zip`, `.ta
 ## Defining Additional Resources
 
 ### Primary domain
-
 Configure primary domain settings with:
-
 - `domain_name`
 - `domain_home`
 - `admin_port`
@@ -50,10 +46,8 @@ managed_servers:
 Managed server startup uses AdminServer URL `t3://<ansible_host>:<admin_port>` unless you set `admin_url` per managed server. The playbook ensures AdminServer is started before managed server setup.
 
 ### Additional domains on the same host
-
 Define them with `additional_weblogic_domains` in inventory group vars.
 For 12c, these entries are domain-creation aware:
-
 - WLST scripts are generated per additional domain.
 - Domain creation is idempotent (`creates: <domain_home>/config/config.xml`).
 - After creation, admin/managed services, scripts, firewall, and cron can be managed.
@@ -63,8 +57,8 @@ Set `managed_server_enable: true` to manage additional-domain managed-server ser
 managed_server_enable: true
 
 additional_weblogic_domains:
-  - domain_name: MUTUAL_domain2
-    domain_home: "{{ oracle_middleware_home }}/user_projects/domains/MUTUAL_domain2"
+  - domain_name: CLIENT_A_domain2
+    domain_home: "{{ oracle_middleware_home }}/user_projects/domains/CLIENT_A_domain2"
     admin_port: 8106
     managed_servers:
       - name: ms2
@@ -74,14 +68,12 @@ additional_weblogic_domains:
 ## Inventory
 
 Preferred inventory is centralized via repo root `ansible.cfg`:
-
 - `inventories/<env>/inventory.ini`
 - `inventories/aliases.ini`
 
 ## Python Environment
 
 This project uses a shared pyenv virtualenv name:
-
 - `v3.9.21-weblogic`
 
 Setup example:
@@ -150,7 +142,6 @@ $ORACLE_HOME/oracle_common/common/bin/config.sh
 ```
 
 In the wizard choose:
-
 1. `Create Domain`
 2. `Create a Compact Domain without Database (Uses Embedded Database JavaDB)`
 3. Enable EM/JRF profile options per your target mode (no-db restricted by default in automation).
@@ -159,7 +150,7 @@ In the wizard choose:
 
 ```bash
 # Service state (example names)
-ssh ansible@<weblogic12c-host> "sudo systemctl status wlsMUTUALDOMAIN8006.service wlsMUTUALDOMAIN8001.service wlsMUTUALDOMAIN28106.service wlsMUTUALDOMAIN28101.service"
+ssh ansible@<weblogic12c-host> "sudo systemctl status wlsCLIENT_ADOMAIN8006.service wlsCLIENT_ADOMAIN8001.service wlsCLIENT_ADOMAIN28106.service wlsCLIENT_ADOMAIN28101.service"
 
 # Port checks (example)
 ssh ansible@<weblogic12c-host> "sudo ss -ltnp | egrep ':8006|:8001|:8106|:8101'"

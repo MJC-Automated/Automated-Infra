@@ -59,10 +59,10 @@
 | ------------- | ------------- |
 | Device        | enp6s18       |
 | Boot Protocol | Static        |
-| IP Address    | 198.51.100.10 |
-| Netmask       | 198.51.100.11 |
-| Gateway       | 198.51.100.12   |
-| DNS           | 198.51.100.13       |
+| IP Address    | 198.51.100.16 |
+| Netmask       | 198.51.100.17 |
+| Gateway       | 198.51.100.18   |
+| DNS           | 198.51.100.19       |
 
 ## Installed Package Groups
 
@@ -86,5 +86,4 @@
 * Clears all partitions and initializes GPT label
 * Configures LVM with `vg_root`
 * Auto reboot after installation
-
 ****

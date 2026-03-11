@@ -58,7 +58,7 @@ PACKER_VAULT_PATH ?= $(VAULT_CREDS_PATH_FOR_ENV)
 
 # Proxmox snippet upload defaults (override via .env if needed)
 PROXMOX_USER ?= root
-PROXMOX_HOST_FOR_ENV = $(if $(PROXMOX_HOST),$(PROXMOX_HOST),$(shell ENVIRONMENT="$(ENVIRONMENT)" REPO_ROOT="$(MAKEFILE_DIR)" ENV_FILE="$(ENV_FILE)" TFVARS_FILE="$(TFVARS_FILE_FOR_ENV)" VAULT_KV_MOUNT_PATH="$(VAULT_KV_MOUNT_PATH_EFFECTIVE)" VAULT_SECRET_PREFIX="$(VAULT_SECRET_PREFIX_EFFECTIVE)" "$(RESOLVE_PROXMOX_HOST_SCRIPT)" 2>/dev/null || true))
+PROXMOX_HOST_FOR_ENV = $(if $(PROXMOX_HOST),$(PROXMOX_HOST),$(shell ENVIRONMENT="$(ENVIRONMENT)" REPO_ROOT="$(MAKEFILE_DIR)" ENV_FILE="$(ENV_FILE)" "$(RESOLVE_PROXMOX_HOST_SCRIPT)" 2>/dev/null || true))
 ANSIBLE_HOST_FOR_ENV = $(if $(ANSIBLE_HOST),$(ANSIBLE_HOST),$(shell ENVIRONMENT="$(ENVIRONMENT)" REPO_ROOT="$(MAKEFILE_DIR)" ENV_FILE="$(ENV_FILE)" TARGET_HOST="$(PROXMOX_HOST_FOR_ENV)" "$(RESOLVE_ANSIBLE_HOST_SCRIPT)" 2>/dev/null || true))
 SNIPPET_STORAGE_FOR_ENV = $(if $(SNIPPET_STORAGE),$(SNIPPET_STORAGE),$(shell awk -F= '/^[[:space:]]*snippet_storage[[:space:]]*=/{val=$$2; sub(/[[:space:]]*(\/\/|#).*$$/,"",val); sub(/[[:space:]]*\/\*.*\*\/[[:space:]]*$$/,"",val); gsub(/^[[:space:]]+|[[:space:]]+$$/,"",val); sub(/^"/,"",val); sub(/"$$/,"",val); print val; exit}' "environments/$(ENVIRONMENT).tfvars" 2>/dev/null || true))
 
@@ -78,7 +78,7 @@ DATA_STORAGE ?=
 BASE_VM_BRIDGE ?= vmbr0
 BASE_VM_IPCIDR ?= dhcp
 BASE_VM_GATEWAY ?=
-BASE_VM_DNS ?= 198.51.100.17
+BASE_VM_DNS ?= 198.51.100.23
 BASE_VM_OS_STORAGE ?= local-lvm
 BASE_VM_DATA_STORAGE ?= local-lvm
 BASE_VM_EFI_STORAGE ?= local-lvm
@@ -108,31 +108,16 @@ BASE_VM_NAME_UBUNTU2404 ?= ubuntu2404-packer-base
 
 ORACLE8_IMAGE_URL ?= https://yum.oracle.com/templates/OracleLinux/OL8/u10/x86_64/OL8U10_x86_64-kvm-b271.qcow2
 ORACLE9_IMAGE_URL ?= https://yum.oracle.com/templates/OracleLinux/OL9/u7/x86_64/OL9U7_x86_64-kvm-b269.qcow2
-UBUNTU22_IMAGE_URL ?= https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
 UBUNTU24_IMAGE_URL ?= https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
-DEBIAN12_IMAGE_URL ?= https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
-ROCKY9_IMAGE_URL ?= https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2
-ALMA9_IMAGE_URL ?= https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
-FEDORA43_IMAGE_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2
 UBUNTU_IMAGE_URL ?= $(UBUNTU24_IMAGE_URL)
 
-ORACLE8_CHECKSUM_URL ?= https://yum.oracle.com/templates/OracleLinux/ol8-template.json
-ORACLE9_CHECKSUM_URL ?= https://yum.oracle.com/templates/OracleLinux/ol9-template.json
-UBUNTU22_CHECKSUM_URL ?= https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS
+ORACLE8_CHECKSUM_URL ?=
+ORACLE9_CHECKSUM_URL ?=
 UBUNTU24_CHECKSUM_URL ?=
-DEBIAN12_CHECKSUM_URL ?= https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS
-ROCKY9_CHECKSUM_URL ?= https://dl.rockylinux.org/pub/rocky/9/images/x86_64/CHECKSUM
-ALMA9_CHECKSUM_URL ?= https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM
-FEDORA43_CHECKSUM_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-43-1.6-x86_64-CHECKSUM
 
 ORACLE8_IMAGE_SHA256 ?=
 ORACLE9_IMAGE_SHA256 ?=
-UBUNTU22_IMAGE_SHA256 ?=
 UBUNTU24_IMAGE_SHA256 ?=
-DEBIAN12_IMAGE_SHA512 ?=
-ROCKY9_IMAGE_SHA256 ?=
-ALMA9_IMAGE_SHA256 ?=
-FEDORA43_IMAGE_SHA256 ?=
 
 BASE_VM_UBUNTU_IMAGE ?= $(PVE_IMAGE_DIR)/noble-server-cloudimg-amd64.img
 BASE_VM_ORACLE8_IMAGE ?= $(PVE_IMAGE_DIR)/OL8U10_x86_64-kvm-b271.qcow2
@@ -276,9 +261,9 @@ help:
 	    @echo "${YELLOW}Examples:${NC}"
 	    @echo "  make deploy ENVIRONMENT=dev"
 	    @echo "  make plan ENVIRONMENT=prod"
-	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.18"
-	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.18 AUTO_DISCOVER=true"
-	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.18 PROXMOX_NODE=proxmox"
+	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.24"
+	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.24 AUTO_DISCOVER=true"
+	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.24 PROXMOX_NODE=proxmox"
 	    @echo "  make workspace-create ENVIRONMENT=testing"
 	    @echo "  make backup ENVIRONMENT=prod"
 	    @echo "  make tree"
@@ -378,20 +363,7 @@ env-cloud-images:
 	    @IMAGE_SET="$(CLOUD_IMAGES)"; \
 	    if [ "$$IMAGE_SET" = "common" ] && [ "$(BASE_VM_BUILD_ORACLE)" != "true" ]; then IMAGE_SET="ubuntu24"; fi; \
 	    echo "Syncing image set '$$IMAGE_SET' to $(PVE_IMAGE_DIR) on $(PROXMOX_HOST_FOR_ENV)"; \
-	    PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" IMAGE_DIR="$(PVE_IMAGE_DIR)" IMAGES="$$IMAGE_SET" \
-	    ORACLE8_IMAGE_URL="$(ORACLE8_IMAGE_URL)" ORACLE9_IMAGE_URL="$(ORACLE9_IMAGE_URL)" \
-	    UBUNTU22_IMAGE_URL="$(UBUNTU22_IMAGE_URL)" UBUNTU24_IMAGE_URL="$(UBUNTU24_IMAGE_URL)" \
-	    DEBIAN12_IMAGE_URL="$(DEBIAN12_IMAGE_URL)" ROCKY9_IMAGE_URL="$(ROCKY9_IMAGE_URL)" \
-	    ALMA9_IMAGE_URL="$(ALMA9_IMAGE_URL)" FEDORA43_IMAGE_URL="$(FEDORA43_IMAGE_URL)" \
-	    ORACLE8_IMAGE_SHA256="$(ORACLE8_IMAGE_SHA256)" ORACLE9_IMAGE_SHA256="$(ORACLE9_IMAGE_SHA256)" \
-	    UBUNTU22_IMAGE_SHA256="$(UBUNTU22_IMAGE_SHA256)" UBUNTU24_IMAGE_SHA256="$(UBUNTU24_IMAGE_SHA256)" \
-	    DEBIAN12_IMAGE_SHA512="$(DEBIAN12_IMAGE_SHA512)" ROCKY9_IMAGE_SHA256="$(ROCKY9_IMAGE_SHA256)" \
-	    ALMA9_IMAGE_SHA256="$(ALMA9_IMAGE_SHA256)" FEDORA43_IMAGE_SHA256="$(FEDORA43_IMAGE_SHA256)" \
-	    ORACLE8_CHECKSUM_URL="$(ORACLE8_CHECKSUM_URL)" ORACLE9_CHECKSUM_URL="$(ORACLE9_CHECKSUM_URL)" \
-	    UBUNTU22_CHECKSUM_URL="$(UBUNTU22_CHECKSUM_URL)" UBUNTU24_CHECKSUM_URL="$(UBUNTU24_CHECKSUM_URL)" \
-	    DEBIAN12_CHECKSUM_URL="$(DEBIAN12_CHECKSUM_URL)" ROCKY9_CHECKSUM_URL="$(ROCKY9_CHECKSUM_URL)" \
-	    ALMA9_CHECKSUM_URL="$(ALMA9_CHECKSUM_URL)" FEDORA43_CHECKSUM_URL="$(FEDORA43_CHECKSUM_URL)" \
-	    "$(DOWNLOAD_CLOUD_IMAGE_SCRIPT)" --host "$(PROXMOX_HOST_FOR_ENV)" --user "$(PROXMOX_USER)" --image-dir "$(PVE_IMAGE_DIR)" --images "$$IMAGE_SET"
+	    PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" IMAGE_DIR="$(PVE_IMAGE_DIR)" IMAGES="$$IMAGE_SET" ORACLE8_IMAGE_URL="$(ORACLE8_IMAGE_URL)" ORACLE9_IMAGE_URL="$(ORACLE9_IMAGE_URL)" UBUNTU24_IMAGE_URL="$(UBUNTU24_IMAGE_URL)" ORACLE8_IMAGE_SHA256="$(ORACLE8_IMAGE_SHA256)" ORACLE9_IMAGE_SHA256="$(ORACLE9_IMAGE_SHA256)" UBUNTU24_IMAGE_SHA256="$(UBUNTU24_IMAGE_SHA256)" ORACLE8_CHECKSUM_URL="$(ORACLE8_CHECKSUM_URL)" ORACLE9_CHECKSUM_URL="$(ORACLE9_CHECKSUM_URL)" UBUNTU24_CHECKSUM_URL="$(UBUNTU24_CHECKSUM_URL)" "$(DOWNLOAD_CLOUD_IMAGE_SCRIPT)" --host "$(PROXMOX_HOST_FOR_ENV)" --user "$(PROXMOX_USER)" --image-dir "$(PVE_IMAGE_DIR)" --images "$$IMAGE_SET"
 	    @echo "${GREEN}✓ Cloud images synchronized on $(PROXMOX_HOST_FOR_ENV)${NC}"
 
 env-base-vm:

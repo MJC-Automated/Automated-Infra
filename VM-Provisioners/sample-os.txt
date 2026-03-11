@@ -56,7 +56,7 @@ lang en_US.UTF-8
 # Firewall configuration
 firewall --disabled
 # Network information
-network  --bootproto=static --device=enp6s18 --gateway=198.51.100.12 --ip=198.51.100.10 --nameserver=198.51.100.13 --netmask=198.51.100.11 --activate
+network  --bootproto=static --device=enp6s18 --gateway=198.51.100.18 --ip=198.51.100.16 --nameserver=198.51.100.19 --netmask=198.51.100.17 --activate
 network  --hostname=localhost.localdomain
 
 # Use CDROM installation media

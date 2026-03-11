@@ -389,13 +389,13 @@ rewrite_network "${target_tfvars}" "${NETWORK_CIDR}" "${NETWORK_GW}"
 
 tmp_file="$(mktemp)"
 {
-  echo "// Generated from environments/${TEMPLATE_ENV}.tfvars by scripts/scaffold-env.sh"
-  echo "// Review and edit this file before plan/apply (especially VMIDs, node_groups, storage, and IPs)."
+  echo "# Generated from environments/${TEMPLATE_ENV}.tfvars by scripts/scaffold-env.sh"
+  echo "# Review and edit this file before plan/apply (especially VMIDs, node_groups, storage, and IPs)."
   if [[ -n "${DISCOVERED_VMDISK_STORAGES:-}" ]]; then
-    echo "// Auto-discovered VM-disk storage pools: ${DISCOVERED_VMDISK_STORAGES}"
+    echo "# Auto-discovered VM-disk storage pools: ${DISCOVERED_VMDISK_STORAGES}"
   fi
   if [[ -n "${DISCOVERED_SNIPPET_STORAGES:-}" ]]; then
-    echo "// Auto-discovered snippet storage pools: ${DISCOVERED_SNIPPET_STORAGES}"
+    echo "# Auto-discovered snippet storage pools: ${DISCOVERED_SNIPPET_STORAGES}"
   fi
   echo
   cat "${target_tfvars}"
@@ -512,7 +512,7 @@ fi
   echo "AUTO_DOWNLOAD_IMAGE=true"
   echo "BASE_VM_IPCIDR=dhcp"
   echo "BASE_VM_GATEWAY=${NETWORK_GW:-}"
-  echo "BASE_VM_DNS=198.51.100.17"
+  echo "BASE_VM_DNS=198.51.100.23"
   echo "BASE_VM_OS_STORAGE=${BASE_VM_OS_STORAGE:-${STORAGE_POOL:-local-lvm}}"
   echo "BASE_VM_DATA_STORAGE=${BASE_VM_DATA_STORAGE:-${DATA_STORAGE:-${STORAGE_POOL:-local-lvm}}}"
   echo "BASE_VM_EFI_STORAGE=${BASE_VM_EFI_STORAGE:-${STORAGE_POOL:-local-lvm}}"

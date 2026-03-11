@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-	<!--https://schneegans.de/windows/unattend-generator/?LanguageMode=Unattended&UILanguage=en-US&Locale=en-US&Keyboard=00000409&GeoLocation=129&ProcessorArchitecture=amd64&BypassRequirementsCheck=true&BypassNetworkCheck=true&KeepSensitiveFiles=true&ComputerNameMode=Custom&ComputerName=MBASA-STAR&CompactOsMode=Never&TimeZoneMode=Explicit&TimeZone=E.+Africa+Standard+Time&PartitionMode=Interactive&DiskAssertionMode=Skip&WindowsEditionMode=Generic&WindowsEdition=pro&InstallFromMode=Automatic&PEMode=Default&UserAccountMode=Unattended&AccountName0=Kirui&AccountDisplayName0=Kirui&AccountPassword0=Kirui&AccountGroup0=Administrators&AutoLogonMode=Own&PasswordExpirationMode=Unlimited&LockoutMode=Default&HideFiles=HiddenSystem&ShowFileExtensions=true&LaunchToThisPC=true&ShowEndTask=true&TaskbarSearch=Hide&TaskbarIconsMode=Empty&DisableWidgets=true&LeftTaskbar=true&DisableBingResults=true&StartTilesMode=Default&StartPinsMode=Empty&PreventAutomaticReboot=true&DisableAppSuggestions=true&HideEdgeFre=true&DisableEdgeStartupBoost=true&DisablePointerPrecision=true&DeleteWindowsOld=true&ProcessAudit=true&ProcessAuditCommandLine=true&EffectsMode=Default&DeleteEdgeDesktopIcon=true&DesktopIconsMode=Custom&IconRecycleBin=true&StartFoldersMode=Custom&StartFolderSettings=true&WifiMode=Interactive&ExpressSettings=DisableAll&LockKeysMode=Skip&StickyKeysMode=Default&ColorMode=Custom&SystemColorTheme=Dark&AppsColorTheme=Dark&AccentColor=%230078d4&WallpaperMode=Default&LockScreenMode=Default&Remove3DViewer=true&RemoveBingSearch=true&RemoveClipchamp=true&RemoveCopilot=true&RemoveCortana=true&RemoveDevHome=true&RemoveFamily=true&RemoveFeedbackHub=true&RemoveGameAssist=true&RemoveGetHelp=true&RemoveHandwriting=true&RemoveInternetExplorer=true&RemoveMaps=true&RemoveMathInputPanel=true&RemoveMediaFeatures=true&RemoveMixedReality=true&RemoveZuneVideo=true&RemoveNews=true&RemoveOffice365=true&RemoveOneDrive=true&RemoveOneNote=true&RemoveOneSync=true&RemoveOutlook=true&RemovePaint=true&RemovePaint3D=true&RemovePeople=true&RemovePowerAutomate=true&RemoveQuickAssist=true&RemoveRecall=true&RemoveRdpClient=true&RemoveSkype=true&RemoveSolitaire=true&RemoveSpeech=true&RemoveStepsRecorder=true&RemoveStickyNotes=true&RemoveTeams=true&RemoveGetStarted=true&RemoveToDo=true&RemoveVoiceRecorder=true&RemoveWallet=true&RemoveWeather=true&RemoveFaxAndScan=true&RemoveWindowsMediaPlayer=true&RemoveZuneMusic=true&RemoveXboxApps=true&RemoveYourPhone=true&WdacMode=Skip&AppLockerMode=Skip-->
+	<!--https://schneegans.de/windows/unattend-generator/?LanguageMode=Unattended&UILanguage=en-US&Locale=en-US&Keyboard=00000409&GeoLocation=129&ProcessorArchitecture=amd64&BypassRequirementsCheck=true&BypassNetworkCheck=true&KeepSensitiveFiles=true&ComputerNameMode=Custom&ComputerName=EXAMPLE-HOST&CompactOsMode=Never&TimeZoneMode=Explicit&TimeZone=E.+Africa+Standard+Time&PartitionMode=Interactive&DiskAssertionMode=Skip&WindowsEditionMode=Generic&WindowsEdition=pro&InstallFromMode=Automatic&PEMode=Default&UserAccountMode=Unattended&AccountName0=ExampleUser&AccountDisplayName0=ExampleUser&AccountPassword0=ExampleUser&AccountGroup0=Administrators&AutoLogonMode=Own&PasswordExpirationMode=Unlimited&LockoutMode=Default&HideFiles=HiddenSystem&ShowFileExtensions=true&LaunchToThisPC=true&ShowEndTask=true&TaskbarSearch=Hide&TaskbarIconsMode=Empty&DisableWidgets=true&LeftTaskbar=true&DisableBingResults=true&StartTilesMode=Default&StartPinsMode=Empty&PreventAutomaticReboot=true&DisableAppSuggestions=true&HideEdgeFre=true&DisableEdgeStartupBoost=true&DisablePointerPrecision=true&DeleteWindowsOld=true&ProcessAudit=true&ProcessAuditCommandLine=true&EffectsMode=Default&DeleteEdgeDesktopIcon=true&DesktopIconsMode=Custom&IconRecycleBin=true&StartFoldersMode=Custom&StartFolderSettings=true&WifiMode=Interactive&ExpressSettings=DisableAll&LockKeysMode=Skip&StickyKeysMode=Default&ColorMode=Custom&SystemColorTheme=Dark&AppsColorTheme=Dark&AccentColor=%230078d4&WallpaperMode=Default&LockScreenMode=Default&Remove3DViewer=true&RemoveBingSearch=true&RemoveClipchamp=true&RemoveCopilot=true&RemoveCortana=true&RemoveDevHome=true&RemoveFamily=true&RemoveFeedbackHub=true&RemoveGameAssist=true&RemoveGetHelp=true&RemoveHandwriting=true&RemoveInternetExplorer=true&RemoveMaps=true&RemoveMathInputPanel=true&RemoveMediaFeatures=true&RemoveMixedReality=true&RemoveZuneVideo=true&RemoveNews=true&RemoveOffice365=true&RemoveOneDrive=true&RemoveOneNote=true&RemoveOneSync=true&RemoveOutlook=true&RemovePaint=true&RemovePaint3D=true&RemovePeople=true&RemovePowerAutomate=true&RemoveQuickAssist=true&RemoveRecall=true&RemoveRdpClient=true&RemoveSkype=true&RemoveSolitaire=true&RemoveSpeech=true&RemoveStepsRecorder=true&RemoveStickyNotes=true&RemoveTeams=true&RemoveGetStarted=true&RemoveToDo=true&RemoveVoiceRecorder=true&RemoveWallet=true&RemoveWeather=true&RemoveFaxAndScan=true&RemoveWindowsMediaPlayer=true&RemoveZuneMusic=true&RemoveXboxApps=true&RemoveYourPhone=true&WdacMode=Skip&AppLockerMode=Skip-->
 	<settings pass="offlineServicing"></settings>
 	<settings pass="windowsPE">
 		<component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
@@ -39,7 +39,7 @@
 	<settings pass="generalize"></settings>
 	<settings pass="specialize">
 		<component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-			<ComputerName>MBASA-STAR</ComputerName>
+			<ComputerName>EXAMPLE-HOST</ComputerName>
 			<TimeZone>E. Africa Standard Time</TimeZone>
 		</component>
 		<component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
@@ -80,22 +80,22 @@
 			<UserAccounts>
 				<LocalAccounts>
 					<LocalAccount wcm:action="add">
-						<Name>Kirui</Name>
-						<DisplayName>Kirui</DisplayName>
+						<Name>ExampleUser</Name>
+						<DisplayName>ExampleUser</DisplayName>
 						<Group>Administrators</Group>
 						<Password>
-							<Value>Kirui</Value>
+							<Value>ExampleUser</Value>
 							<PlainText>true</PlainText>
 						</Password>
 					</LocalAccount>
 				</LocalAccounts>
 			</UserAccounts>
 			<AutoLogon>
-				<Username>Kirui</Username>
+				<Username>ExampleUser</Username>
 				<Enabled>true</Enabled>
 				<LogonCount>1</LogonCount>
 				<Password>
-					<Value>Kirui</Value>
+					<Value>ExampleUser</Value>
 					<PlainText>true</PlainText>
 				</Password>
 			</AutoLogon>
@@ -527,16 +527,10 @@ $scripts = @(
 		Remove-Item -LiteralPath 'C:\Users\Default\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk', 'C:\Windows\System32\OneDriveSetup.exe', 'C:\Windows\SysWOW64\OneDriveSetup.exe' -ErrorAction 'Continue';
 	};
 	{
-		reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive" /v DisableFileSyncNGSC /t REG_DWORD /d 1 /f;
-	};
-	{
 		Remove-Item -LiteralPath 'Registry::HKLM\Software\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' -Force -ErrorAction 'SilentlyContinue';
 	};
 	{
 		reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Communications" /v ConfigureChatAutoInstall /t REG_DWORD /d 0 /f;
-	};
-	{
-		reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot" /v TurnOffWindowsCopilot /t REG_DWORD /d 1 /f;
 	};
 	{
 		&amp; 'C:\Windows\Setup\Scripts\RemovePackages.ps1';
@@ -578,13 +572,6 @@ $scripts = @(
 	};
 	{
 		reg.exe add "HKLM\Software\Policies\Microsoft\Windows\CloudContent" /v "DisableWindowsConsumerFeatures" /t REG_DWORD /d 1 /f;
-	};
-	{
-		reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo" /v DisabledByGroupPolicy /t REG_DWORD /d 1 /f;
-		reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f;
-		reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v DoNotShowFeedbackNotifications /t REG_DWORD /d 1 /f;
-		reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v PublishUserActivities /t REG_DWORD /d 0 /f;
-		reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v UploadUserActivities /t REG_DWORD /d 0 /f;
 	};
 	{
 		reg.exe add "HKLM\Software\Policies\Microsoft\Edge" /v HideFirstRunExperience /t REG_DWORD /d 1 /f;
@@ -758,14 +745,6 @@ $scripts = @(
 		reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarAl /t REG_DWORD /d 0 /f;
 	};
 	{
-		reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarDa /t REG_DWORD /d 0 /f;
-		reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarMn /t REG_DWORD /d 0 /f;
-		reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v ShowTaskViewButton /t REG_DWORD /d 0 /f;
-	};
-	{
-		reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement" /v ScoobeSystemSettingEnabled /t REG_DWORD /d 0 /f;
-	};
-	{
 		$params = @{
 		  LiteralPath = 'Registry::HKU\DefaultUser\Control Panel\Mouse';
 		  Type = 'String';
@@ -812,275 +791,10 @@ $scripts = @(
   }
 } *&gt;&amp;1 | Out-String -Width 1KB -Stream &gt;&gt; "C:\Windows\Setup\Scripts\DefaultUser.log";
 		</File>
-		<File path="C:\Windows\Setup\Scripts\CommonApps.json">
-{
-  "packages": [
-    {
-      "id": "Google.Chrome",
-      "name": "Google Chrome",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Mozilla.Firefox",
-      "name": "Mozilla Firefox",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Brave.Brave",
-      "name": "Brave Browser",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "7zip.7zip",
-      "name": "7-Zip",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "VideoLAN.VLC",
-      "name": "VLC media player",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Mobatek.MobaXterm",
-      "name": "MobaXterm",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "OpenJS.NodeJS.LTS",
-      "name": "Node.js LTS",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Notepad++.Notepad++",
-      "name": "Notepad++",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "OpenVPNTechnologies.OpenVPNConnect",
-      "name": "OpenVPN Connect",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "tailscale.tailscale",
-      "name": "Tailscale",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Skillbrains.Lightshot",
-      "name": "Lightshot",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "RARLab.WinRAR",
-      "name": "WinRAR",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "writage.writage",
-      "name": "Writage",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "PowerSoftware.AnyBurn",
-      "name": "AnyBurn",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Python.Python.3.11",
-      "name": "Python 3.11",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Postman.Postman",
-      "name": "Postman",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "Gyan.FFmpeg",
-      "name": "FFmpeg",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "OBSProject.OBSStudio",
-      "name": "OBS Studio",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "iTop.iTopScreenRecorder",
-      "name": "iTop Screen Recorder",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "yt-dlp.yt-dlp",
-      "name": "yt-dlp",
-      "source": "winget",
-      "scope": "machine"
-    },
-    {
-      "id": "WinSCP.WinSCP",
-      "name": "WinSCP",
-      "source": "winget",
-      "scope": "machine"
-    }
-  ]
-}
-		</File>
-		<File path="C:\Windows\Setup\Scripts\InstallCommonApps.ps1">
-$manifestPath = 'C:\Windows\Setup\Scripts\CommonApps.json';
-$logPath = 'C:\Windows\Setup\Scripts\InstallCommonApps.log';
-
-function Write-Log {
-	param(
-		[string] $Message
-	);
-
-	$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss';
-	Add-Content -LiteralPath $logPath -Value "[$timestamp] $Message";
-}
-
-function Resolve-Winget {
-	$command = Get-Command winget.exe -ErrorAction 'SilentlyContinue';
-	if( $command ) {
-		return $command.Source;
-	}
-
-	$fallback = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\winget.exe';
-	if( Test-Path -LiteralPath $fallback ) {
-		return $fallback;
-	}
-
-	return $null;
-}
-
-function Test-InternetAccess {
-	$targets = @(
-		'https://cdn.winget.microsoft.com/cache/source.msix';
-		'https://www.msftconnecttest.com/connecttest.txt'
-	);
-
-	foreach( $target in $targets ) {
-		try {
-			$response = Invoke-WebRequest -Uri $target -Method 'Head' -TimeoutSec 10 -UseBasicParsing;
-			if( $response.StatusCode -ge 200 -and $response.StatusCode -lt 400 ) {
-				return $true;
-			}
-		} catch {
-		}
-	}
-
-	return $false;
-}
-
-function Install-Package {
-	param(
-		[pscustomobject] $Package,
-		[string] $WingetPath
-	);
-
-	$args = @(
-		'install';
-		'--id'; $Package.id;
-		'--exact';
-		'--silent';
-		'--disable-interactivity';
-		'--accept-package-agreements';
-		'--accept-source-agreements';
-		'--no-upgrade'
-	);
-
-	if( $Package.scope ) {
-		$args += @(
-			'--scope'; $Package.scope
-		);
-	}
-
-	if( $Package.source ) {
-		$args += @(
-			'--source'; $Package.source
-		);
-	}
-
-	$attempt = 0;
-	do {
-		$attempt++;
-		Write-Log "Installing $($Package.name) [$($Package.id)] (attempt $attempt/3).";
-		&amp; $WingetPath @args *>> $logPath;
-		$exitCode = $LASTEXITCODE;
-		if( $exitCode -eq 0 ) {
-			Write-Log "Installed $($Package.name) [$($Package.id)] successfully.";
-			return;
-		}
-
-		Write-Log "winget exited with code $exitCode for $($Package.id).";
-		if( $attempt -lt 3 ) {
-			Start-Sleep -Seconds 20;
-		}
-	} while( $attempt -lt 3 );
-
-	Write-Log "Giving up on $($Package.name) [$($Package.id)] after 3 attempts.";
-}
-
-try {
-	if( -not ( Test-Path -LiteralPath $manifestPath ) ) {
-		Write-Log "App manifest not found at $manifestPath; skipping common app installation.";
-		return;
-	}
-
-	$wingetPath = $null;
-	for( $i = 0; $i -lt 20; $i++ ) {
-		$wingetPath = Resolve-Winget;
-		if( $wingetPath ) {
-			break;
-		}
-
-		Start-Sleep -Seconds 15;
-	}
-
-	if( -not $wingetPath ) {
-		Write-Log 'winget.exe was not available during first logon; skipping common app installation.';
-		return;
-	}
-
-	if( -not ( Test-InternetAccess ) ) {
-		Write-Log 'No internet connectivity detected; skipping common app installation.';
-		return;
-	}
-
-	Write-Log "Using winget at $wingetPath.";
-	$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json;
-	foreach( $package in $manifest.packages ) {
-		Install-Package -Package $package -WingetPath $wingetPath;
-	}
-} catch {
-	Write-Log "Unexpected failure while installing common apps: $($_.Exception.Message)";
-}
-		</File>
 		<File path="C:\Windows\Setup\Scripts\FirstLogon.ps1">
 $scripts = @(
 	{
 		Set-ItemProperty -LiteralPath 'Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name 'AutoLogonCount' -Type 'DWord' -Force -Value 0;
-	};
-	{
-		&amp; 'C:\Windows\Setup\Scripts\InstallCommonApps.ps1';
 	};
 	{
 		cmd.exe /c "rmdir C:\Windows.old";

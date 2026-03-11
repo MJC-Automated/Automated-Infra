@@ -45,5 +45,5 @@ oracle_servers:
       - cdb_sid: "cdb1"
         pdb_name: "pdb1"
         database_name: "pdb1"
-        sql_id: "tq_app_bootstrap"
-        sql_template: "tq_app_bootstrap_full.sql.j2"
+        sql_id: "app_bootstrap"
+        sql_template: "app_bootstrap_full.sql.j2"

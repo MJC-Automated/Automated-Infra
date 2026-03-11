@@ -1,7 +1,6 @@
 # Zabbix Server Playbook (`zabbix_server`)
 
 Scalable, role-based automation for Zabbix 7.0 server deployment on:
-
 - Ubuntu 24.04
 - Oracle Linux 9
 
@@ -64,7 +63,6 @@ chmod 600 bootstrap_playbooks/zabbix_server/.env
 ```
 
 Important keys:
-
 - `ZABBIX_DB_MODE=internal|external`
 - `ZABBIX_DB_HOST`, `ZABBIX_DB_PORT`, `ZABBIX_DB_NAME`, `ZABBIX_DB_USER`, `ZABBIX_DB_PASSWORD`
 - `ZABBIX_DB_SCHEMA` (leave empty for default PostgreSQL `public` schema)
@@ -109,7 +107,6 @@ You can control the "Store credentials in" behavior from `.env`:
   - frontend reads DB credentials from Vault secret keys `username` and `password`
 
 For HashiCorp mode you must set:
-
 - `ZABBIX_DB_VAULT_URL`
 - `ZABBIX_DB_VAULT_DB_PATH`
 - `ZABBIX_DB_VAULT_TOKEN`
@@ -119,7 +116,6 @@ For HashiCorp mode you must set:
 ## Inventory Wiring
 
 Add your hosts to `zabbix_servers` in:
-
 - `inventories/aliases.ini`
 - and ensure real host definitions exist in `inventories/<env>/inventory.ini`
 
@@ -135,7 +131,7 @@ Example: external DB mode with pre-existing DB:
 
 ```bash
 ZABBIX_DB_MODE=external
-ZABBIX_DB_HOST=198.51.100.28
+ZABBIX_DB_HOST=198.51.100.33
 ZABBIX_DB_MANAGE_USER_AND_DB=false
 ZABBIX_DB_IMPORT_SCHEMA=false
 ```
@@ -156,6 +152,5 @@ ansible-inventory -i inventories/dev/inventory.ini -i inventories/aliases.ini --
 ## Source Alignment
 
 Package/repository commands are aligned with Zabbix official 7.0 package instructions for:
-
 - Ubuntu 24.04 + PostgreSQL + Apache
 - Oracle Linux 9 + PostgreSQL + Apache

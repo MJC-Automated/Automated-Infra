@@ -5,7 +5,7 @@
 .terraform.lock.hcl
 crash.log
 *.tfvars
-!environments/dev.tfvars
+!environments/*.tfvars
 environments/*.bootstrap.env
 environments/*.autodiscover.env
 *.tfplan

@@ -1,0 +1,114 @@
+# ===========================================
+# ./export_pubkeys.yml
+# ===========================================
+---
+- name: Export SSH Public Keys from Remote Servers
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Create local exported_keys directory
+      ansible.builtin.file:
+        path: "./exported_keys"
+        state: directory
+      delegate_to: localhost
+      run_once: true
+      check_mode: false
+
+    - name: Check if SSH public keys exist and read them
+      block:
+        - name: Check for RSA public keys
+          ansible.builtin.stat:
+            path: "/home/{{ item.name }}/.ssh/id_rsa.pub"
+          register: rsa_key_check
+          loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Check for Ed25519 public keys
+          ansible.builtin.stat:
+            path: "/home/{{ item.name }}/.ssh/id_ed25519.pub"
+          register: ed25519_key_check
+          loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Read RSA public key contents
+          ansible.builtin.slurp:
+            src: "/home/{{ item.item.name }}/.ssh/id_rsa.pub"
+          register: rsa_key_contents
+          loop: "{{ rsa_key_check.results }}"
+          when: item.stat.exists
+          loop_control:
+            label: "{{ item.item.name }}"
+
+        - name: Read Ed25519 public key contents
+          ansible.builtin.slurp:
+            src: "/home/{{ item.item.name }}/.ssh/id_ed25519.pub"
+          register: ed25519_key_contents
+          loop: "{{ ed25519_key_check.results }}"
+          when: item.stat.exists
+          loop_control:
+            label: "{{ item.item.name }}"
+
+        - name: Display RSA public keys
+          ansible.builtin.debug:
+            msg: |
+              Host: {{ ansible_hostname }}
+              User: {{ item.item.item.name }}
+              Key Type: RSA
+              Key File: /home/{{ item.item.item.name }}/.ssh/id_rsa.pub
+              Public Key: {{ item.content | b64decode | trim }}
+          loop: "{{ rsa_key_contents.results }}"
+          when:
+            - rsa_key_contents.results is defined
+            - item.content is defined
+          loop_control:
+            label: "{{ item.item.item.name }}"
+
+        - name: Display Ed25519 public keys
+          ansible.builtin.debug:
+            msg: |
+              Host: {{ ansible_hostname }}
+              User: {{ item.item.item.name }}
+              Key Type: Ed25519
+              Key File: /home/{{ item.item.item.name }}/.ssh/id_ed25519.pub
+              Public Key: {{ item.content | b64decode | trim }}
+          loop: "{{ ed25519_key_contents.results }}"
+          when:
+            - ed25519_key_contents.results is defined
+            - item.content is defined
+          loop_control:
+            label: "{{ item.item.item.name }}"
+
+        - name: Save RSA public keys to local files
+          ansible.builtin.copy:
+            content: "{{ item.content | b64decode }}"
+            dest: "./exported_keys/{{ ansible_hostname }}_{{ item.item.item.name }}_id_rsa.pub"
+          loop: "{{ rsa_key_contents.results }}"
+          when:
+            - rsa_key_contents.results is defined
+            - item.content is defined
+          loop_control:
+            label: "{{ item.item.item.name }}"
+          delegate_to: localhost
+
+        - name: Save Ed25519 public keys to local files
+          ansible.builtin.copy:
+            content: "{{ item.content | b64decode }}"
+            dest: "./exported_keys/{{ ansible_hostname }}_{{ item.item.item.name }}_id_ed25519.pub"
+          loop: "{{ ed25519_key_contents.results }}"
+          when:
+            - ed25519_key_contents.results is defined
+            - item.content is defined
+          loop_control:
+            label: "{{ item.item.item.name }}"
+          delegate_to: localhost
+
+    - name: Summary of exported keys
+      ansible.builtin.debug:
+        msg: |
+          Exported SSH public keys can be found in the './exported_keys/' directory
+          Files are named: HOSTNAME_USERNAME_KEYTYPE.pub
+      run_once: true

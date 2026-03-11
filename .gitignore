@@ -41,6 +41,5 @@ terraform.rc
 .env
 .env.*
 !.env.example
-test-runs/
 AGENTS.md
 GEMINI.md

@@ -7,11 +7,9 @@ This playbook installs and configures Oracle Database 19c on hosts in the `datab
 `bootstrap_playbooks/oracle819c/group_vars/oracle_servers.yml` is actively used.
 
 `main.yml` preloads host-specific state with:
-
 - `PRELOAD | Load host-specific desired state from oracle_servers map`
 
 For each host, values are resolved in this order:
-
 1. `oracle_servers.<inventory_hostname>` from `group_vars/oracle_servers.yml`
 2. Fallback defaults from `vars/main.yml` (`oracle_databases` projection)
 3. Controller `.env` values for base defaults
@@ -21,25 +19,19 @@ If a host key is missing from `oracle_servers.yml`, fallback logic still works, 
 ## Where To Define Resources
 
 Define CDBs/PDBs/listeners under the host key in:
-
 - `bootstrap_playbooks/oracle819c/group_vars/oracle_servers.yml`
-
-Repository rule:
-
-- The committed desired-state map tracks the canonical `dev` host key only (`public-database19c-01`).
-- For other environments, copy the same structure under that environment's exact `inventory_hostname` instead of tracking parallel non-dev host keys in this repo.
 
 Example structure:
 
 ```yaml
 oracle_servers:
-  public-database19c-01:  # must match inventory_hostname exactly
-    oracle_hostname: "public-database19c-02.example.internal"
+  public-database19c-02:  # must match inventory_hostname exactly
+    oracle_hostname: "public-database19c-03.example.internal"
 
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "public-database19c-02.example.internal"
+        host: "public-database19c-03.example.internal"
 
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
@@ -60,14 +52,14 @@ Optional app SQL bootstrap for a host can also be defined there:
 
 ```yaml
 oracle_servers:
-  public-database19c-01:
+  public-database19c-02:
     oracle_app_sql_enabled: true
     oracle_app_sql_targets:
       - cdb_sid: "cdb1"
         pdb_name: "pdb1"
         database_name: "pdb1"
-        sql_id: "tq_app_bootstrap"
-        sql_template: "tq_app_bootstrap_minimal.sql.j2"
+        sql_id: "app_bootstrap"
+        sql_template: "app_bootstrap_minimal.sql.j2"
 ```
 
 ## Add More CDBs/PDBs
@@ -76,7 +68,7 @@ To add a second CDB and PDB, extend both lists for the same host key:
 
 ```yaml
 oracle_servers:
-  public-database19c-01:
+  public-database19c-02:
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
         sid: "cdb1"
@@ -103,7 +95,6 @@ oracle_servers:
 ```
 
 Notes:
-
 - `cdb_sid` in each `oracle_pdbs` item must match one `oracle_cdbs[].sid`.
 - If a host key is present in `oracle_servers`, those lists are authoritative for that host.
 - `ORACLE_SID_2`/`ORACLE_PDB_NAME_2` fallback in `vars/main.yml` only applies when host-level lists are empty.
@@ -117,9 +108,8 @@ Notes:
 - Before template SQL runs, the role ensures a `USERS` tablespace exists in the target PDB.
 
 Template options:
-
-- `tq_app_bootstrap_full.sql.j2`: full `TQ_*` users/tablespaces/grants bootstrap
-- `tq_app_bootstrap_minimal.sql.j2`: minimal bootstrap (core tablespaces + baseline user/grants)
+- `app_bootstrap_full.sql.j2`: full `APP_*` users/tablespaces/grants bootstrap
+- `app_bootstrap_minimal.sql.j2`: minimal bootstrap (core tablespaces + baseline user/grants)
 
 ## Mandatory Prerequisites
 
@@ -134,14 +124,12 @@ Template options:
 ## Inventory
 
 Preferred inventory is centralized in repo root `ansible.cfg`:
-
 - `inventories/dev/inventory.ini`
 - `inventories/aliases.ini`
 
 ## Python Environment
 
 This project uses a shared pyenv virtualenv name:
-
 - `v3.13.0-oracle`
 
 Setup example:
@@ -174,8 +162,7 @@ ansible-playbook main.yml -l database19c --tags verify
 
 ## CRUD Scenario
 
-End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `TQ_*` logins, delete/reconcile) plus WebLogic follow-up checks:
-
+End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `APP_*` logins, delete/reconcile) plus WebLogic follow-up checks:
 - Admin Console validation should target AdminServer ports.
 - Managed-server `/console` endpoints returning HTTP `404` are expected.
 

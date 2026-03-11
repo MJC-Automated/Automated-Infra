@@ -103,7 +103,6 @@ variable "group_os_profile" {
     weblogic14c = "oracle9"
     cicd        = "ubuntu2404"
     jenkins     = "ubuntu2404"
-    zimbra      = "oracle9"
   }
   validation {
     condition     = alltrue([for v in values(var.group_os_profile) : contains(keys(var.os_profiles), v)])

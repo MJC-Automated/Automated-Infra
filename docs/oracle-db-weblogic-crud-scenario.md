@@ -14,7 +14,6 @@ This scenario validates Oracle 19c desired-state CRUD and application bootstrap 
 ## Prerequisites
 
 - Inventory host key in `oracle_servers` must match `inventory_hostname` exactly.
-- The tracked repo examples use the canonical `dev` host key (`public-database19c-01`). For other environments, copy the same structure under that environment's exact generated inventory hostname.
 - Oracle DB admin password is set (`ORACLE_DB_ADMIN_PASSWORD` or vault variable).
 - `DUMP_DIR` base path is available and writable by `oracle:oinstall`.
 
@@ -24,13 +23,13 @@ Example for one host with two CDBs and two PDBs:
 
 ```yaml
 oracle_servers:
-  public-database19c-01:
-    oracle_hostname: "public-database19c-02.example.internal"
+  public-database19c-02:
+    oracle_hostname: "public-database19c-03.example.internal"
 
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "public-database19c-02.example.internal"
+        host: "public-database19c-03.example.internal"
 
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
@@ -62,13 +61,13 @@ oracle_servers:
       - cdb_sid: "cdb1"
         pdb_name: "LIFECO_19C"
         database_name: "LIFECO_19C"
-        sql_id: "tq_app_bootstrap"
-        sql_template: "tq_app_bootstrap_full.sql.j2"
+        sql_id: "app_bootstrap"
+        sql_template: "app_bootstrap_full.sql.j2"
       - cdb_sid: "cdb2"
         pdb_name: "LIFECO_19C_2"
         database_name: "LIFECO_19C_2"
-        sql_id: "tq_app_bootstrap"
-        sql_template: "tq_app_bootstrap_full.sql.j2"
+        sql_id: "app_bootstrap"
+        sql_template: "app_bootstrap_full.sql.j2"
 ```
 
 ## 2) Apply Oracle 19c
@@ -76,13 +75,13 @@ oracle_servers:
 Run from `bootstrap_playbooks/oracle819c`:
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --skip-tags artifacts
+ansible-playbook -i ../../inventories/dot2/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --skip-tags artifacts
 ```
 
 ## 3) Verify Oracle State
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags verify
+ansible-playbook -i ../../inventories/dot2/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags verify
 ```
 
 Expected:
@@ -111,7 +110,7 @@ oracle_app_sql_force: true
 Or run only SQL/bootstrap tags:
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags app_sql
+ansible-playbook -i ../../inventories/dot2/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags app_sql
 ```
 
 ## 5) Delete/Reconcile (Optional)
@@ -124,8 +123,8 @@ Set destructive lists for host-level desired deletes:
 Then run with delete tags:
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags pdb_delete
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags cdb_delete
+ansible-playbook -i ../../inventories/dot2/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags pdb_delete
+ansible-playbook -i ../../inventories/dot2/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags cdb_delete
 ```
 
 ## 6) WebLogic Follow-Up Checks

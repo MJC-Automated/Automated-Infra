@@ -1,0 +1,78 @@
+-- app_bootstrap_minimal.sql.j2
+-- Minimal bootstrap for fresh environments:
+--   1) Ensure core tablespaces exist
+--   2) Ensure default app user exists
+--   3) Apply baseline role grants and quotas
+
+prompt Applying minimal SQL bootstrap for {{ oracle_app_database_name }} in {{ oracle_app_pdb_name }} (CDB {{ oracle_app_cdb_sid }})
+
+DECLARE
+  l_exists NUMBER;
+BEGIN
+  FOR ts IN (
+    SELECT 'FMSDATA' ts_name, '/u02/oradata/{{ oracle_app_database_name }}/fms01.dbf' file_name, '5G' size_clause FROM dual
+    UNION ALL SELECT 'CRMDATA', '/u02/oradata/{{ oracle_app_database_name }}/crm01.dbf', '400M' FROM dual
+    UNION ALL SELECT 'GISDATA', '/u02/oradata/{{ oracle_app_database_name }}/gis01.dbf', '2G' FROM dual
+    UNION ALL SELECT 'LMSDATA', '/u02/oradata/{{ oracle_app_database_name }}/lms01.dbf', '3G' FROM dual
+    UNION ALL SELECT 'MEDDATA', '/u02/oradata/{{ oracle_app_database_name }}/med01.dbf', '100M' FROM dual
+    UNION ALL SELECT 'HRMSDATA', '/u02/oradata/{{ oracle_app_database_name }}/hrms01.dbf', '300M' FROM dual
+  ) LOOP
+    SELECT COUNT(*) INTO l_exists
+    FROM dba_tablespaces
+    WHERE tablespace_name = ts.ts_name;
+
+    IF l_exists = 0 THEN
+      EXECUTE IMMEDIATE
+        'CREATE TABLESPACE ' || ts.ts_name ||
+        ' DATAFILE ''' || ts.file_name || '''' ||
+        ' SIZE ' || ts.size_clause ||
+        ' AUTOEXTEND ON NEXT 1M MAXSIZE UNLIMITED' ||
+        ' LOGGING ONLINE EXTENT MANAGEMENT LOCAL AUTOALLOCATE' ||
+        ' BLOCKSIZE 8K SEGMENT SPACE MANAGEMENT MANUAL FLASHBACK ON';
+    END IF;
+  END LOOP;
+END;
+/
+
+DECLARE
+  l_exists NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO l_exists
+  FROM dba_users
+  WHERE username = 'APP_CRM';
+
+  IF l_exists = 0 THEN
+    EXECUTE IMMEDIATE q'[
+      CREATE USER APP_CRM
+      IDENTIFIED BY "APP_CRM"
+      HTTP DIGEST DISABLE
+      DEFAULT TABLESPACE CRMDATA
+      TEMPORARY TABLESPACE TEMP
+      PROFILE DEFAULT
+      ACCOUNT UNLOCK
+    ]';
+  ELSE
+    EXECUTE IMMEDIATE q'[
+      ALTER USER APP_CRM
+      IDENTIFIED BY "APP_CRM"
+      DEFAULT TABLESPACE CRMDATA
+      TEMPORARY TABLESPACE TEMP
+      ACCOUNT UNLOCK
+    ]';
+  END IF;
+END;
+/
+
+GRANT CONNECT TO APP_CRM;
+GRANT RESOURCE TO APP_CRM;
+GRANT DBA TO APP_CRM;
+ALTER USER APP_CRM DEFAULT ROLE ALL;
+
+ALTER USER APP_CRM QUOTA UNLIMITED ON FMSDATA;
+ALTER USER APP_CRM QUOTA UNLIMITED ON CRMDATA;
+ALTER USER APP_CRM QUOTA UNLIMITED ON GISDATA;
+ALTER USER APP_CRM QUOTA UNLIMITED ON LMSDATA;
+ALTER USER APP_CRM QUOTA UNLIMITED ON MEDDATA;
+ALTER USER APP_CRM QUOTA UNLIMITED ON HRMSDATA;
+
+prompt Minimal SQL bootstrap completed for {{ oracle_app_database_name }}

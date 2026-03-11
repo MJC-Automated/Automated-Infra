@@ -218,7 +218,7 @@
         - "{{ oracle_base }}/config/applications" # New directory
         - "{{ logs_base_dir }}" # /Logs
         - "{{ scripts_dir }}" # /home/oracle/scripts
-        - "{{ domain_logs_dir }}" # /Logs/MUTUAL_DOMAIN_LOGS/8006
+        - "{{ domain_logs_dir }}" # /Logs/CLIENT_A_DOMAIN_LOGS/8006
         - "{{ weblogic_gc_log_dir }}"
       tags:
         - directories
