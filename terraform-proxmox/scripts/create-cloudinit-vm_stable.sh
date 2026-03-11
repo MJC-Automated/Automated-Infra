@@ -54,10 +54,10 @@ IFS=$'\n\t'
 #    PASSWORD="<set-strong-cloud-init-password>"                                #
 #    SSH_KEYS_FILE="/root/.ssh/authorized_keys"                                 #
 #    # Backward-compatible single target (sets both Server and ServerActive)    #
-#    ZABBIX_SERVER="198.51.100.28"                                                #
+#    ZABBIX_SERVER="198.51.100.27"                                                #
 #    # Optional explicit split targets                                            #
-#    ZABBIX_SERVER_PASSIVE="198.51.100.28"                                        #
-#    ZABBIX_SERVER_ACTIVE="198.51.100.28:10051"                                   #
+#    ZABBIX_SERVER_PASSIVE="198.51.100.27"                                        #
+#    ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"                                   #
 #                                                                              #
 ################################################################################
 
@@ -82,10 +82,10 @@ Required content:
   CIUSER="ansible"
   PASSWORD="<set-strong-cloud-init-password>"
   SSH_KEYS_FILE="/root/.ssh/authorized_keys"
-  ZABBIX_SERVER="198.51.100.28"
+  ZABBIX_SERVER="198.51.100.27"
   # Optional explicit split targets:
-  # ZABBIX_SERVER_PASSIVE="198.51.100.28"
-  # ZABBIX_SERVER_ACTIVE="198.51.100.28:10051"
+  # ZABBIX_SERVER_PASSIVE="198.51.100.27"
+  # ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"
 
 EOF
   exit 1
@@ -127,10 +127,10 @@ if [[ -z "${ZABBIX_SERVER_PASSIVE}" || -z "${ZABBIX_SERVER_ACTIVE}" ]]; then
 ERROR: Zabbix target is not configured in ${ENV_FILE}
 
 Set either:
-  ZABBIX_SERVER="198.51.100.28"
+  ZABBIX_SERVER="198.51.100.27"
 or explicit split values:
-  ZABBIX_SERVER_PASSIVE="198.51.100.28"
-  ZABBIX_SERVER_ACTIVE="198.51.100.28:10051"
+  ZABBIX_SERVER_PASSIVE="198.51.100.27"
+  ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"
 EOF
   exit 1
 fi
