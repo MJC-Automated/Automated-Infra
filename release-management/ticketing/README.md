@@ -49,7 +49,7 @@ When developers work on a ticket, they create commits with the ticket ID in the 
 ```
 Commit: 8f24fc448c27ad123bbeebc2748387d27568b69f
 Date: Saturday, Mar 29, 2025, 01:43:36 PM EAST
-Owner: Paul.gachau
+Owner: example.owner
 Change-Id: Ie5e3c9a73c934677bedbaa5a915ec52f66e1a524
 Subject: TICKET-28422-Ability to Assign Budget To A Unit
 ```
