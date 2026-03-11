@@ -7,6 +7,7 @@ on:
     branches: [ main ]
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TF_VAR_vault_address: ${{ secrets.VAULT_ADDRESS }}
   TF_VAR_vault_token: ${{ secrets.VAULT_TOKEN }}
   PM_API_URL: ${{ secrets.PM_API_URL }}
@@ -19,10 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.5.0
 
