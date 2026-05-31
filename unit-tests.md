@@ -10,6 +10,7 @@ This runbook is designed for one final high-signal test cycle:
 ## Scope
 
 Automations covered:
+
 - `bootstrap_playbooks/oracle819c` (database19c)
 - `bootstrap_playbooks/oracle821c` (database21c)
 - `bootstrap_playbooks/oracle_weblogic12c` (weblogic12c)
@@ -17,6 +18,7 @@ Automations covered:
 - `ansible_user_management` (all 5 hosts)
 
 Hosts covered:
+
 - `public-weblogic14c-01` (`198.51.100.13`)
 - `public-weblogic12c-01` (`198.51.100.12`)
 - `public-database19c-01` (`198.51.100.10`)
@@ -50,6 +52,7 @@ export SSH_STRICT_HOST_KEY_CHECKING='accept-new'
 ```
 
 What this script does:
+
 - `make destroy` then `make apply` (serial).
 - Waits for host readiness on all 5 hosts with generous allowances:
   - TCP/22 reachable
@@ -68,6 +71,7 @@ export ANSIBLE_BECOME_TIMEOUT=600
 ```
 
 Artifacts:
+
 - `test-runs/final-series-<timestamp>/progress.log`
 - `test-runs/final-series-<timestamp>/master.log`
 - `test-runs/final-series-<timestamp>/logs/*.log`
@@ -108,9 +112,11 @@ cd ansible_user_management && ansible-playbook main.yml --limit "public-weblogic
 ## A) Database CRUD (19c/21c)
 
 Use the existing scenario doc for full add/update/delete sequence:
+
 - [`docs/oracle-db-weblogic-crud-scenario.md`](docs/oracle-db-weblogic-crud-scenario.md)
 
 Minimum CRUD cycle to validate:
+
 1. Create extra `cdb2` + `pdb2`.
 2. Validate service and logins.
 3. Update listener/firewall (`LISTENER2` if needed).
@@ -120,6 +126,7 @@ Minimum CRUD cycle to validate:
 ## B) WebLogic CRUD/idempotency
 
 12c:
+
 ```bash
 cd ~/IaC-Homelab/bootstrap_playbooks/oracle_weblogic12c
 ansible-playbook main.yml --limit weblogic12c --forks 1
@@ -127,6 +134,7 @@ ansible-playbook main.yml --limit weblogic12c --forks 1
 ```
 
 14c (includes managed server validation):
+
 ```bash
 cd ~/IaC-Homelab/bootstrap_playbooks/oracle_weblogic14c
 ansible-playbook main.yml --limit weblogic14c --forks 1
@@ -136,12 +144,14 @@ ansible-playbook main.yml --limit weblogic14c --forks 1
 ## C) User management CRUD
 
 Create/update pass:
+
 ```bash
 cd ~/IaC-Homelab/ansible_user_management
 ansible-playbook main.yml --limit "public-weblogic14c-01,public-weblogic12c-01,public-database21c-01,public-database19c-01,public-jenkins-01" --forks 1 --vault-password-file .vault_password
 ```
 
 Read verification:
+
 ```bash
 ansible all -i ~/IaC-Homelab/inventories/dev/inventory.ini \
   -l "public-weblogic14c-01,public-weblogic12c-01,public-database21c-01,public-database19c-01,public-jenkins-01" \
@@ -149,11 +159,13 @@ ansible all -i ~/IaC-Homelab/inventories/dev/inventory.ini \
 ```
 
 Update test (example):
+
 1. Change one user comment/group/shell in `ansible_user_management/group_vars/all.yml`.
 2. Rerun playbook.
 3. Verify with `getent passwd <user>` and `id <user>`.
 
 Delete test (example):
+
 1. Add user under `remove_users` in `ansible_user_management/group_vars/all.yml`.
 2. Run playbook.
 3. Verify user absent with `id <user>` (non-zero expected).
@@ -163,6 +175,7 @@ Delete test (example):
 ## DB checks
 
 19c:
+
 ```bash
 ssh -o StrictHostKeyChecking=accept-new ansible@198.51.100.10 "sudo bash -lc '
 systemctl is-active firewalld
@@ -172,6 +185,7 @@ ss -ltnp | egrep \":1521|:1522\" || true
 ```
 
 21c:
+
 ```bash
 ssh -o StrictHostKeyChecking=accept-new ansible@198.51.100.11 "sudo bash -lc '
 systemctl is-active firewalld
@@ -181,6 +195,7 @@ ss -ltnp | egrep \":1521|:1522\" || true
 ```
 
 Remote login checks from DB hosts:
+
 ```bash
 # 19c
 ssh -o StrictHostKeyChecking=accept-new ansible@198.51.100.10 'sudo -iu oracle bash -s' <<'EOF'
@@ -232,6 +247,7 @@ EOF
 ## WebLogic checks
 
 12c:
+
 ```bash
 ssh -o StrictHostKeyChecking=accept-new ansible@198.51.100.12 "sudo bash -lc '
 systemctl is-active wlsCLIENT_ADOMAIN8006.service
@@ -242,6 +258,7 @@ curl -k -sS -o /dev/null -w "%{http_code}\n" http://198.51.100.12:8006/console
 ```
 
 14c (managed servers):
+
 ```bash
 ssh -o StrictHostKeyChecking=accept-new ansible@198.51.100.13 "sudo bash -lc '
 systemctl is-active wlsWLS14CDOMAINNM.service
@@ -277,6 +294,7 @@ test -f /etc/ssh/sshd_config.d/98-account-allowlist.conf
 ```
 
 Expected:
+
 - managed users exist on all 5 hosts
 - `maxdays=31`
 - `ansible` password locked (`!` or `*` prefix)

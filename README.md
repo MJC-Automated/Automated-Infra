@@ -14,12 +14,14 @@
 
 ## Overview
 
-Environment-aware infrastructure automation platform for Proxmox-based homelab operations, combining Terraform, Packer, Vault, and Ansible in a single monorepo.
+Environment-aware infrastructure automation platform for Proxmox-based homelab operations, combining Terraform, Packer, Vault, and Ansible in a single monorepo
+
 ---
 
 <img src="./project-wallpaper.png" alt="isolated" width="1000"/>
 
 ---
+
 ## Monorepo Layout
 
 - `terraform-proxmox/`: VM provisioning, Vault integration, Packer image builds.
@@ -53,7 +55,6 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 - Oracle WebLogic projects (`oracle_weblogic12c`, `oracle_weblogic14c`): `v3.9.21-weblogic`
 - Zabbix project (`bootstrap_playbooks/zabbix_server`): `v3.10.19-zabbix`
 - User/time projects (`ansible_user_management`, `time_sync`): `v3.10.19-users`
-
 
 ## 1. Ansible-Based Linux User Management Automation
 

@@ -54,10 +54,10 @@ IFS=$'\n\t'
 #    PASSWORD="<set-strong-cloud-init-password>"                                #
 #    SSH_KEYS_FILE="/root/.ssh/authorized_keys"                                 #
 #    # Backward-compatible single target (sets both Server and ServerActive)    #
-#    ZABBIX_SERVER="198.51.100.32"                                                #
+#    ZABBIX_SERVER="198.51.100.27"                                                #
 #    # Optional explicit split targets                                            #
-#    ZABBIX_SERVER_PASSIVE="198.51.100.32"                                        #
-#    ZABBIX_SERVER_ACTIVE="198.51.100.32:10051"                                   #
+#    ZABBIX_SERVER_PASSIVE="198.51.100.27"                                        #
+#    ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"                                   #
 #                                                                              #
 ################################################################################
 
@@ -82,10 +82,10 @@ Required content:
   CIUSER="ansible"
   PASSWORD="<set-strong-cloud-init-password>"
   SSH_KEYS_FILE="/root/.ssh/authorized_keys"
-  ZABBIX_SERVER="198.51.100.32"
+  ZABBIX_SERVER="198.51.100.27"
   # Optional explicit split targets:
-  # ZABBIX_SERVER_PASSIVE="198.51.100.32"
-  # ZABBIX_SERVER_ACTIVE="198.51.100.32:10051"
+  # ZABBIX_SERVER_PASSIVE="198.51.100.27"
+  # ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"
 
 EOF
   exit 1
@@ -127,10 +127,10 @@ if [[ -z "${ZABBIX_SERVER_PASSIVE}" || -z "${ZABBIX_SERVER_ACTIVE}" ]]; then
 ERROR: Zabbix target is not configured in ${ENV_FILE}
 
 Set either:
-  ZABBIX_SERVER="198.51.100.32"
+  ZABBIX_SERVER="198.51.100.27"
 or explicit split values:
-  ZABBIX_SERVER_PASSIVE="198.51.100.32"
-  ZABBIX_SERVER_ACTIVE="198.51.100.32:10051"
+  ZABBIX_SERVER_PASSIVE="198.51.100.27"
+  ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"
 EOF
   exit 1
 fi
@@ -151,7 +151,7 @@ VMID="${VMID:-999999991}"
 NAME="${NAME:-}"          # Leave empty → auto-derived from OS_TYPE + IP last octet
 OS_TYPE="${OS_TYPE:-oracle-linux-8}"  # See detect_os_config() for supported values
 IPCIDR="${IPCIDR:-203.0.113.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
-GATEWAY="${GATEWAY:-198.51.100.18}"
+GATEWAY="${GATEWAY:-198.51.100.26}"
 FORCE="${FORCE:-1}"       # 1 = destroy existing VM, 0 = abort if exists
 DRY_RUN="${DRY_RUN:-0}"   # 1 = show what would happen without executing
 
@@ -174,7 +174,7 @@ readonly FEDORA_43_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-
 # │ Network Configuration                                                   │
 # └─────────────────────────────────────────────────────────────────────────┘
 readonly BRIDGE="vmbr0"
-readonly DNS="198.51.100.19"
+readonly DNS="198.51.100.29"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Resource Allocation                                                     │

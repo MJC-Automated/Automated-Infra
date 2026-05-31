@@ -5,6 +5,7 @@ This playbook installs/configures WebLogic 14.1.2 on hosts in the `weblogic14c` 
 ## Configuration Sources
 
 Runtime values come from two layers:
+
 1. Role defaults: `bootstrap_playbooks/oracle_weblogic14c/vars/weblogic_vars.yml`
 2. Environment overrides (recommended): `inventories/<env>/group_vars/weblogic14c.yml`
 
@@ -13,16 +14,20 @@ Use group vars for environment-specific domains, managed servers, and extra port
 ## Required Installer Archives
 
 Place compressed installers on the control node under `/resources`:
+
 - `jdk-17.0.12_linux-x64_bin.tar.gz` (default via `jdk_choice: "17"`)
 - `fmw_14.1.2.0.0_infrastructure.tar.gz`
 
 Optional JDK 8 fallback (if `jdk_choice: "8"`):
+
 - `jdk-8u411-linux-x64.tar.gz`
 
 ## Defining Additional Resources
 
 ### Primary domain + managed servers
+
 Set these in vars or inventory overrides:
+
 - `domain_name`, `domain_home`, `admin_port`
 - `managed_server_enable` (toggle managed server automation)
 - `managed_servers` list
@@ -41,9 +46,11 @@ managed_servers:
 ```
 
 ### Additional domains on the same host
+
 `additional_weblogic_domains` supports domain-level and managed-server-level entries:
 
 For 14c, additional-domain tasks are **manage-existing only**. Each additional domain is activated only when:
+
 - `{{ item.domain_home }}/bin/startWebLogic.sh` exists.
 - Then scripts/systemd/firewall/cron are managed for that domain.
 
@@ -62,12 +69,14 @@ additional_weblogic_domains:
 ## Inventory
 
 Preferred inventory is centralized via repo root `ansible.cfg`:
+
 - `inventories/<env>/inventory.ini`
 - `inventories/aliases.ini`
 
 ## Python Environment
 
 This project uses a shared pyenv virtualenv name:
+
 - `v3.9.21-weblogic`
 
 Setup example:
@@ -140,6 +149,7 @@ $ORACLE_HOME/oracle_common/common/bin/config.sh
 ```
 
 In the wizard choose:
+
 1. `Create Domain`
 2. `Create a Compact Domain without Database (Uses Embedded Database JavaDB)`
 3. Enable EM/JRF profile options per your target mode (no-db restricted by default in automation).

@@ -91,7 +91,7 @@ node_groups = {
     "weblogic14c-dot80" = {
       vmid      = 10000
       name      = "public-weblogic14c-01"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.20"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.24"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -125,7 +125,7 @@ node_groups = {
     "weblogic12c-dot81" = {
       vmid      = 10001
       name      = "public-weblogic12c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.20"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.24"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -150,7 +150,7 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.20"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.24"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -172,8 +172,8 @@ node_groups = {
   "database21c" = {
     "database21c-dot83" = {
       vmid      = 10003
-      name      = "public-database21c-03"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.20"
+      name      = "public-database21c-02"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.24"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -196,7 +196,7 @@ node_groups = {
     "jenkins-dot84" = {
       vmid      = 10004
       name      = "public-jenkins-02"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.20"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.24"
       cores     = 8
       memory    = 10240
       disk_size = "50G"

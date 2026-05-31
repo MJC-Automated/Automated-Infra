@@ -10,7 +10,7 @@ This directory is the central inventory location for all environments.
 
 Example:
 
-```
+```text
 ansible-inventory -i inventories/dev/inventory.ini -i inventories/aliases.ini --graph
 
 For example: 

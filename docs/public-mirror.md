@@ -10,11 +10,13 @@ Use this workflow when you need private development branches but a public saniti
 ## Branch Strategy
 
 Private source branches:
+
 - `main`
 - `develop`
 - `terraform-proxmox-automated-infra`
 
 Public mirror branches:
+
 - `main`
 - `develop`
 - `terraform-proxmox-automated-infra`
@@ -49,10 +51,12 @@ Set these in the private source repository where CI runs:
 - `.github/workflows/public-mirror.yml`
 
 Triggers:
+
 - Pushes to `main`, `develop`, `terraform-proxmox-automated-infra`
 - Manual run (`workflow_dispatch`) with optional dry-run mode
 
 Behavior:
+
 1. Applies deterministic replacements from `.github/sanitize/replacements.regex.tsv`
 2. Applies path/file renames from `.github/sanitize/path-renames.tsv`
 3. Fails if denylist patterns remain (`.github/sanitize/denylist.regex`)

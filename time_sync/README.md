@@ -1,6 +1,7 @@
 # Time Synchronization Playbook (`time_sync`)
 
 This playbook manages Chrony time synchronization with an internal NTP topology:
+
 - `ntp_servers` contains the Ansible control node, which acts as the fallback NTP server.
 - `ntp_clients` hosts sync from those internal servers.
 - Optional public upstream/fallback sources are configurable.
@@ -37,6 +38,7 @@ time_sync/
 ### NTP server hosts (`ntp_servers`)
 
 `group_vars/ntp_servers.yml` controls server behavior:
+
 - `time_sync_public_servers`: Upstream sources used by the server (set `[]` when fully isolated).
 - `time_sync_allowed_subnet`: CIDR allowed to query the server.
 - `time_sync_server_advertise_ip`: Optional explicit address that clients should use.
@@ -44,6 +46,7 @@ time_sync/
 - `time_sync_server_local_stratum`: Local fallback stratum (default `10`).
 
 Inventory requirement:
+
 - `ntp_servers` should point to the Ansible control node (not a VM in `all_nodes`).
 - Example in `inventories/aliases.ini`:
 
@@ -55,11 +58,13 @@ ansible-control-node ansible_connection=local ansible_python_interpreter=/usr/bi
 ### NTP client hosts (`ntp_clients`)
 
 `group_vars/ntp_clients.yml` controls client behavior:
+
 - `time_sync_client_use_internal_servers`: Use hosts from the `ntp_servers` inventory group.
 - `time_sync_client_add_public_fallback`: Append public sources on clients (`false` for air-gapped).
 - `time_sync_client_ntp_servers`: Optional explicit list to override automatic source selection.
 
 Source selection order on clients:
+
 1. `time_sync_client_ntp_servers` if defined.
 2. `ntp_servers` group hosts, resolved in this order:
    `time_sync_server_advertise_ip` -> `ansible_host` -> `ansible_default_ipv4.address`.
@@ -74,6 +79,7 @@ cp time_sync/.env.example time_sync/.env
 ```
 
 Common keys:
+
 - `TIME_SYNC_ALLOWED_SUBNET`
 - `TIME_SYNC_SERVER_ADVERTISE_IP`
 - `TIME_SYNC_PUBLIC_SERVERS` (comma-separated)
@@ -105,6 +111,7 @@ ansible-playbook -i inventories/testing/inventory.ini -i inventories/aliases.ini
 ```
 
 Useful tags:
+
 - `configuration`
 - `verification`
 

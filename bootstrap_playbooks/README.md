@@ -21,6 +21,7 @@ Service bootstrap playbooks are grouped here to keep app/db automation modular a
 ## Inventory Convention
 
 From inside `bootstrap_playbooks/*`, `ansible.cfg` points to:
+
 - `../../inventories/dev/inventory.ini`
 - `../../inventories/aliases.ini`
 
