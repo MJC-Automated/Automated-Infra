@@ -1,0 +1,198 @@
+---
+# vars/main.yml
+
+# Default configuration from Environment Variables
+# This maintains backward compatibility with the single-DB .env approach
+oracle_db_admin_password: "{{ vault_oracle_db_admin_password | default(ORACLE_DB_ADMIN_PASSWORD | default(lookup('env', 'ORACLE_DB_ADMIN_PASSWORD', default=''), true), true) }}"
+default_cdb:
+  global_db_name: "{{ ORACLE_GLOBAL_DB_NAME | default(lookup('env', 'ORACLE_GLOBAL_DB_NAME')) | default('cdb1', true) }}"
+  sid: "{{ ORACLE_SID | default(lookup('env', 'ORACLE_SID')) | default('cdb1', true) }}"
+  pdb_name: "{{ ORACLE_PDB_NAME | default(lookup('env', 'ORACLE_PDB_NAME')) | default('pdb1', true) }}"
+  db_admin_password: "{{ oracle_db_admin_password }}"
+  listener_name: "LISTENER"
+  listener_port: "1521"
+  data_dir: "{{ ORACLE_DATA_DIR | default(lookup('env', 'ORACLE_DATA_DIR')) | default('/u02/oradata', true) }}"
+  is_container_db: true
+  num_pdbs: 1
+  char_set: "AL32UTF8"
+  template_name: "General_Purpose.dbc"
+
+second_cdb_sid: "{{ ORACLE_SID_2 | default(lookup('env', 'ORACLE_SID_2')) | default('', true) }}"
+second_cdb_enabled: "{{ (second_cdb_sid | string | trim | length) > 0 }}"
+second_cdb:
+  global_db_name: "{{ ORACLE_GLOBAL_DB_NAME_2 | default(lookup('env', 'ORACLE_GLOBAL_DB_NAME_2')) | default((second_cdb_sid ~ '.example.internal'), true) }}"
+  sid: "{{ second_cdb_sid }}"
+  pdb_name: "{{ ORACLE_PDB_NAME_2 | default(lookup('env', 'ORACLE_PDB_NAME_2')) | default('pdb2', true) }}"
+  db_admin_password: "{{ oracle_db_admin_password }}"
+  listener_name: "{{ ORACLE_LISTENER_NAME_2 | default(lookup('env', 'ORACLE_LISTENER_NAME_2')) | default('LISTENER', true) }}"
+  listener_port: "{{ ORACLE_LISTENER_PORT_2 | default(lookup('env', 'ORACLE_LISTENER_PORT_2')) | default('1521', true) }}"
+  data_dir: "{{ ORACLE_DATA_DIR_2 | default(lookup('env', 'ORACLE_DATA_DIR_2')) | default('/u02/oradata', true) }}"
+  is_container_db: true
+  num_pdbs: 1
+  char_set: "AL32UTF8"
+  template_name: "General_Purpose.dbc"
+
+# List of databases to create.
+oracle_databases: "{{ [default_cdb] + ([second_cdb] if (second_cdb_enabled | bool) else []) }}"
+
+# Optional desired-state overrides (define in inventory/group_vars if needed):
+# - oracle_cdbs: list of CDB dicts (sid, global_db_name, data_dir, listener_name, listener_port, etc.)
+# - oracle_pdbs: list of PDB dicts (cdb_sid, pdb_name, pdb_admin_user, pdb_admin_password, pdb_data_dir, open_state, save_state, service_name, etc.)
+# - oracle_listeners: list of listeners (name, port, host)
+# - oracle_homes: list of Oracle home dicts (path, version, inventory, ru_target)
+oracle_cdbs: []
+oracle_pdbs: []
+oracle_listeners: []
+
+# Precheck defaults
+oracle_supported_distros:
+  - name: "OracleLinux"
+    major_versions: ["9"]
+  - name: "RedHat"
+    major_versions: ["9"]
+oracle_min_kernel_version: "5.15.0"
+oracle_require_uek: true
+oracle_uek_kernel_pattern: "el9uek"
+oracle_u01_min_gb: 15
+oracle_u01_postinstall_min_gb: 5
+oracle_tmp_min_gb: 1
+oracle_dev_shm_min_gb: 1
+oracle_tmp_disallowed_options:
+  - "noexec"
+oracle_dev_shm_disallowed_options:
+  - "noexec"
+oracle_home_min_gb: 15
+oracle_home_postinstall_min_gb: 5
+oracle_fra_min_gb: 15
+oracle_fra_dir: "{{ ORACLE_FRA_DIR | default(lookup('env', 'ORACLE_FRA_DIR')) | default('/u02/fast_recovery_area', true) }}"
+oracle_manifest_dir: "{{ playbook_dir }}/artifacts/host_manifests"
+oracle_identity_policy_uid: 54321
+oracle_identity_policy_gid: 54321
+
+# Oracle Linux 9 package coverage follows the ORACLE-BASE OL9 19c guide.
+# The preinstall package remains required; extra packages are best-effort because
+# Oracle repositories can vary by minor release and enabled channels.
+oracle_required_packages:
+  - oracle-database-preinstall-19c
+  - ksh
+  - unzip
+  - libaio
+  - firewalld
+  - expect
+oracle_optional_packages:
+  - bc
+  - binutils
+  - compat-openssl11
+  - elfutils-libelf
+  - fontconfig
+  - glibc
+  - glibc-devel
+  - libasan
+  - liblsan
+  - libX11
+  - libXau
+  - libXi
+  - libXrender
+  - libXtst
+  - libxcrypt-compat
+  - libgcc
+  - libibverbs
+  - libnsl
+  - librdmacm
+  - libstdc++
+  - libxcb
+  - libvirt-libs
+  - make
+  - policycoreutils
+  - policycoreutils-python-utils
+  - smartmontools
+  - sysstat
+  - glibc-headers
+  - ipmiutil
+  - libnsl2
+  - libnsl2-devel
+  - net-tools
+  - nfs-utils
+  - gcc
+  - unixODBC
+
+# Desired-state home model (single home default)
+oracle_homes:
+  - path: "{{ oracle_home }}"
+    version: "19.0.0"
+    inventory: "{{ oracle_inventory_loc }}"
+    ru_target: ""
+
+# Listener/tnsnames management
+oracle_manage_tnsnames: true
+oracle_listener_cleanup_unmanaged: true
+oracle_manage_firewalld: true
+oracle_firewall_allow_ssh: true
+oracle_firewall_prune_stale_tcp_ports: true
+oracle_firewall_protected_tcp_ports: []
+
+# Security: password policy checks
+oracle_password_policy_enforce: true
+oracle_password_min_length: 12
+oracle_password_require_upper: true
+oracle_password_require_lower: true
+oracle_password_require_digit: true
+oracle_password_require_special: true
+
+
+# Lifecycle/ops
+oracle_oratab_autostart: "Y"
+oracle_manage_systemd: false
+oracle_systemd_service_name: "oracle19c"
+oracle_systemd_state: "started"
+oracle_artifacts_dir: "{{ playbook_dir }}/artifacts"
+oracle_dbca_async_timeout: 7200
+oracle_dbca_poll_interval: 30
+
+# RU patching is required for the OL9-supported 19c path.
+oracle_ol9_require_ru_patch: true
+oracle_ol9_allow_unpatched_poc: "{{ ORACLE_OL9_ALLOW_UNPATCHED_POC | default(lookup('env', 'ORACLE_OL9_ALLOW_UNPATCHED_POC')) | default(false, true) }}"
+oracle_default_ru_patch_id: "36582781"
+oracle_default_ru_patch_zip_filename: "p36582629_190000_Linux-x86-64.zip"
+oracle_default_ru_patch_apply_dir: "{{ oracle_stage_dir }}/patches/36582629/36582781"
+oracle_default_opatch_zip_filename: "p6880880_121010_Linux-x86-64.zip"
+oracle_ru_patch_id: "{{ ORACLE_RU_PATCH_ID | default(lookup('env', 'ORACLE_RU_PATCH_ID')) | default(oracle_default_ru_patch_id, true) }}"
+oracle_ru_patch_zip_filename: "{{ ORACLE_RU_PATCH_ZIP | default(lookup('env', 'ORACLE_RU_PATCH_ZIP')) | default(oracle_default_ru_patch_zip_filename, true) }}"
+oracle_ru_patch_stage_dir: "{{ oracle_stage_dir }}/patches"
+oracle_ru_patch_unzip_dir: "{{ oracle_ru_patch_stage_dir }}/{{ oracle_ru_patch_id }}"
+oracle_ru_patch_apply_dir: "{{ ORACLE_RU_PATCH_APPLY_DIR | default(lookup('env', 'ORACLE_RU_PATCH_APPLY_DIR')) | default((oracle_default_ru_patch_apply_dir if oracle_ru_patch_id == oracle_default_ru_patch_id else oracle_ru_patch_unzip_dir), true) }}"
+oracle_opatch_zip_filename: "{{ ORACLE_OPATCH_ZIP | default(lookup('env', 'ORACLE_OPATCH_ZIP')) | default(oracle_default_opatch_zip_filename, true) }}"
+oracle_opatch_enabled: "{{ (not (oracle_ol9_allow_unpatched_poc | bool)) and (oracle_opatch_zip_filename | string | trim | length > 0) }}"
+oracle_opatch_min_version: "12.2.0.1.42"
+oracle_opatch_log_dir: "{{ oracle_stage_dir }}/opatch_logs"
+oracle_install_log: "{{ oracle_stage_dir }}/runInstaller.log"
+oracle_opatch_inventory_log: "{{ oracle_opatch_log_dir }}/opatch_lsinventory.log"
+# Optional app bootstrap SQL (post PDB creation)
+oracle_app_sql_enabled: true
+oracle_app_sql_force: false
+oracle_app_sql_targets: []
+oracle_app_sql_defaults_from_pdbs: true
+oracle_app_sql_stage_dir: "{{ oracle_stage_dir }}/app_sql"
+oracle_app_sql_default_sql_id: "tq_app_bootstrap"
+oracle_app_sql_default_template: "tq_app_bootstrap_full.sql.j2"
+oracle_app_sql_users_tablespace_name: "USERS"
+oracle_app_sql_users_datafile_name: "users01.dbf"
+oracle_app_sql_users_tablespace_size_mb: 100
+oracle_app_sql_users_tablespace_autoextend_next_mb: 100
+
+# --- Post-PDB state + baseline tuning ---
+oracle_post_pdb_tuning_enabled: true
+oracle_post_pdb_processes: 3000
+oracle_post_pdb_sessions: "{{ ((oracle_post_pdb_processes | int) * 11 // 10) + 5 }}"
+oracle_post_pdb_transactions: "{{ ((oracle_post_pdb_sessions | int) * 11 // 10) }}"
+oracle_post_pdb_open_cursors: 4000
+# Keep db_domain empty by default so PDB services remain short (e.g., PDB1).
+oracle_post_pdb_db_domain: ""
+
+# Data Pump directory strategy:
+# - NFS path: <oracle_dump_dir_path>/DUMPS.<host_last_octet>/<PDBNAME>
+# - Local fallback: <oracle_dump_dir_local_base>/<PDBNAME>
+oracle_dump_dir_enabled: true
+oracle_dump_dir_path: "/Backup-Share/IAC-DUMPS"
+oracle_dump_dir_local_base: "/u02/DUMP_DIR"
+oracle_dump_dir_mode: "0775"

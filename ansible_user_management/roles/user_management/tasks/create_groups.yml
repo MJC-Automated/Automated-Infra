@@ -1,30 +1,30 @@
 # ===========================================
-# roles/user_management/tasks/create_groups.yml
+# roles/user_management/tasks/create_groups.yml (Corrected for Ansible 2.9)
 # ===========================================
 ---
+# FIX: Replaced all 'ansible.builtin.*' modules with their short names for 2.9 compatibility.
+
 - name: Determine OS-specific admin group
-  ansible.builtin.set_fact:
+  set_fact:
     admin_group: "{{ 'sudo' if ansible_os_family == 'Debian' else 'wheel' }}"
-  changed_when: false
   tags:
     - groups
     - create_groups
 
 - name: Set OS-specific groups to create
-  ansible.builtin.set_fact:
+  set_fact:
     os_specific_groups: >-
       {{
         groups_to_create |
         map('regex_replace', '^(sudo|wheel)$', admin_group) |
         list | unique
       }}
-  changed_when: false
   tags:
     - groups
     - create_groups
 
 - name: Ensure required system groups exist
-  ansible.builtin.group:
+  group:
     name: "{{ item }}"
     state: present
   loop: "{{ os_specific_groups }}"
@@ -34,7 +34,7 @@
     - create_groups
 
 - name: Ensure user-specific groups exist (if different from username)
-  ansible.builtin.group:
+  group:
     name: "{{ item.group }}"
     state: present
   loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
@@ -50,7 +50,7 @@
     - create_groups
 
 - name: Collect all additional groups from user definitions
-  ansible.builtin.set_fact:
+  set_fact:
     all_additional_groups: >-
       {{
         users |
@@ -61,13 +61,12 @@
         map('regex_replace', '^(sudo|wheel)$', admin_group) |
         list | unique
       }}
-  changed_when: false
   tags:
     - groups
     - create_groups
 
 - name: Create additional groups specified in user definitions
-  ansible.builtin.group:
+  group:
     name: "{{ item }}"
     state: present
   loop: "{{ all_additional_groups | default([]) }}"

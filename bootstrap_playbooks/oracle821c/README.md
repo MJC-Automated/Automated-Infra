@@ -24,17 +24,22 @@ Define CDBs/PDBs/listeners under the host key in:
 
 - `bootstrap_playbooks/oracle821c/group_vars/oracle_servers.yml`
 
+Repository rule:
+
+- The committed desired-state map tracks the canonical `dev` host key only (`public-database21c-02`).
+- For other environments, copy the same structure under that environment's exact `inventory_hostname` instead of tracking parallel non-dev host keys in this repo.
+
 Example structure:
 
 ```yaml
 oracle_servers:
-  public-database21c-01:
-    oracle_hostname: "oracle21c.example.internal"
+  public-database21c-02:
+    oracle_hostname: "public-database21c-03.example.internal"
 
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "oracle21c.example.internal"
+        host: "public-database21c-03.example.internal"
 
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
@@ -55,7 +60,7 @@ Optional app SQL bootstrap for a host can also be defined there:
 
 ```yaml
 oracle_servers:
-  public-database21c-01:
+  public-database21c-02:
     oracle_app_sql_enabled: true
     oracle_app_sql_targets:
       - cdb_sid: "cdb1"
@@ -118,7 +123,11 @@ ansible-playbook main.yml -l database21c --tags verify
 
 ## CRUD Scenario
 
+<<<<<<< HEAD
 End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `APP_*` logins, delete/reconcile) plus WebLogic follow-up checks:
+=======
+End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `TQ_*` logins, delete/reconcile) plus WebLogic follow-up checks:
+>>>>>>> terraform-proxmox-automated-infra
 
 - Admin Console validation should target AdminServer ports.
 - Managed-server `/console` endpoints returning HTTP `404` are expected.

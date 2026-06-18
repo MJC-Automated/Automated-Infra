@@ -1,0 +1,62 @@
+---
+- name: Verify IPA health endpoint
+  ansible.builtin.command:
+    argv:
+      - ipa-healthcheck
+      - --failures-only
+      - --output-type
+      - json
+  register: ipa_healthcheck
+  changed_when: false
+  failed_when: false
+
+- name: Parse ipa-healthcheck findings
+  ansible.builtin.set_fact:
+    ipa_healthcheck_findings: >-
+      {{
+        (ipa_healthcheck.stdout | trim | length > 0)
+        | ternary(ipa_healthcheck.stdout | from_json, [])
+      }}
+
+- name: Extract DNS-specific ipa-healthcheck findings
+  ansible.builtin.set_fact:
+    ipa_healthcheck_dns_findings: >-
+      {{
+        ipa_healthcheck_findings
+        | selectattr('source', 'equalto', 'ipahealthcheck.ipa.idns')
+        | list
+      }}
+
+- name: Fail when external DNS records required by FreeIPA are missing
+  ansible.builtin.fail:
+    msg: >-
+      ipa-healthcheck reported missing or invalid external DNS records while
+      freeipa_setup_dns=false. Either publish the required FreeIPA records in
+      your external DNS zone or enable integrated DNS by setting
+      freeipa_setup_dns=true. Findings:
+      {{ ipa_healthcheck_dns_findings }}
+  when:
+    - ipa_healthcheck.rc != 0
+    - not freeipa_setup_dns | bool
+    - ipa_healthcheck_dns_findings | length > 0
+
+- name: Fail when ipa-healthcheck reports FreeIPA issues
+  ansible.builtin.fail:
+    msg: >-
+      ipa-healthcheck reported failures (rc={{ ipa_healthcheck.rc }}):
+      {{ ipa_healthcheck_findings if (ipa_healthcheck_findings | length > 0) else (ipa_healthcheck.stdout | default(ipa_healthcheck.stderr, true) | default('no diagnostic output')) }}
+  when:
+    - ipa_healthcheck.rc != 0
+    - (freeipa_setup_dns | bool) or ((ipa_healthcheck_findings | difference(ipa_healthcheck_dns_findings)) | length > 0)
+
+- name: Perform Kerberos login check
+  ansible.builtin.shell: |
+    set -euo pipefail
+    printf '%s\n' "$FREEIPA_ADMIN_PASSWORD" | kinit admin
+    klist
+    kdestroy
+  environment:
+    FREEIPA_ADMIN_PASSWORD: "{{ freeipa_admin_password }}"
+  register: ipa_kinit_check
+  changed_when: false
+  no_log: true

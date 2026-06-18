@@ -4,7 +4,7 @@
 # 1) Explicit env vars: PROXMOX_HOST, PVE_HOST
 # 2) Env-scoped env vars: PVE_HOST_<ENV>, PROXMOX_HOST_<ENV>
 # 3) .env file keys (same order as above)
-# 4) Vault secret/terraform/<env>/creds -> proxmox_config_api_url
+# 4) Vault <mount>/<prefix>/<env>/creds -> proxmox_config_api_url
 # 5) Packer vars.<env>.pkrvars.hcl -> proxmox_api_url
 
 set -euo pipefail
@@ -15,6 +15,10 @@ REPO_ROOT_DEFAULT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 REPO_ROOT="${REPO_ROOT:-${REPO_ROOT_DEFAULT}}"
 ENV_FILE="${ENV_FILE:-}"
+TFVARS_FILE="${TFVARS_FILE:-${REPO_ROOT}/environments/${ENVIRONMENT}.tfvars}"
+VAULT_PATH="${VAULT_PATH:-}"
+VAULT_KV_MOUNT_PATH="${VAULT_KV_MOUNT_PATH:-}"
+VAULT_SECRET_PREFIX="${VAULT_SECRET_PREFIX:-}"
 ALLOW_VAULT=true
 ALLOW_PACKER=true
 VAULT_AUTH_SCRIPT="${VAULT_AUTH_SCRIPT:-${REPO_ROOT_DEFAULT}/scripts/vault-auth.sh}"
@@ -94,11 +98,64 @@ to_host_from_url() {
   printf '%s\n' "${url}" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#/.*$##; s#:[0-9]+$##'
 }
 
+trim_slashes() {
+  local value="$1"
+  value="${value#/}"
+  value="${value%/}"
+  printf '%s\n' "${value}"
+}
+
+normalize_env_key() {
+  local value="$1"
+  value="$(printf '%s' "${value}" | tr '[:lower:]' '[:upper:]')"
+  printf '%s\n' "${value}" | sed -E 's/[^A-Z0-9_]+/_/g'
+}
+
 read_env_file_value() {
   local key="$1"
   local file="$2"
   [[ -f "${file}" ]] || return 1
   sed -n "s/^${key}=//p" "${file}" | head -n 1
+}
+
+read_tfvars_value() {
+  local key="$1"
+  local file="$2"
+
+  [[ -f "${file}" ]] || return 1
+  awk -F= -v k="${key}" '
+    $1 ~ "^[[:space:]]*" k "[[:space:]]*$" {
+      value = $2
+      sub(/[[:space:]]*(\/\/|#).*/, "", value)
+      sub(/[[:space:]]*\/\*.*\*\/[[:space:]]*$/, "", value)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      sub(/^"/, "", value)
+      sub(/"$/, "", value)
+      print value
+      exit
+    }
+  ' "${file}"
+}
+
+resolve_vault_path() {
+  local kv_mount_path="${VAULT_KV_MOUNT_PATH}"
+  local secret_prefix="${VAULT_SECRET_PREFIX}"
+
+  if [[ -n "${VAULT_PATH}" ]]; then
+    printf '%s\n' "${VAULT_PATH}"
+    return 0
+  fi
+
+  if [[ -z "${kv_mount_path}" ]]; then
+    kv_mount_path="$(read_tfvars_value "vault_kv_mount_path" "${TFVARS_FILE}" || true)"
+  fi
+  if [[ -z "${secret_prefix}" ]]; then
+    secret_prefix="$(read_tfvars_value "vault_secret_prefix" "${TFVARS_FILE}" || true)"
+  fi
+
+  kv_mount_path="$(trim_slashes "${kv_mount_path:-secret}")"
+  secret_prefix="$(trim_slashes "${secret_prefix:-terraform}")"
+  printf '%s/%s/%s/creds\n' "${kv_mount_path}" "${secret_prefix}" "${ENVIRONMENT}"
 }
 
 resolve_from_explicit_env() {
@@ -169,8 +226,8 @@ resolve_from_packer_vars() {
   return 1
 }
 
-env_key="$(printf '%s' "${ENVIRONMENT}" | tr '[:lower:]' '[:upper:]')"
-vault_path="secret/terraform/${ENVIRONMENT}/creds"
+env_key="$(normalize_env_key "${ENVIRONMENT}")"
+vault_path="$(resolve_vault_path)"
 
 if host="$(resolve_from_explicit_env "${env_key}" || true)" && [[ -n "${host}" ]]; then
   printf '%s\n' "${host}"

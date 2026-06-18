@@ -1,0 +1,96 @@
+# ===========================================
+# roles/user_management/defaults/main.yml
+# ===========================================
+---
+# Default fallback in case users are not defined
+users: []
+
+# These are the default user settings that will be applied to all users created by the playbook.
+default_user_settings:
+  state: present                     # Can be overwritten by state: absent
+  group: users                       # Default group for all created users.
+  create_home: true                  # Create or replace home directory.
+  move_home: false                   # Do not move home_dir to a new path.
+  system: false                      # Not a system account.
+  append: false                      # Only add users to groups defined in groups:
+  generate_ssh_key: false            # Generate user's ssh-keys only when requested.
+  ssh_key_bits: 4096                 # Preference should be to use SSH keys with 4096 bits or more for security.
+  ssh_key_type: rsa                  # Type of SSH key to generate. Options: rsa, dsa, ecdsa, ed25519.
+  ssh_key_force: false               # Keep generated keys stable unless forced per-user.
+  ssh_keys_exclusive: true           # Keep only declared keys in authorized_keys (prevents stale/backdoor keys).
+  password_expire_max: 31            # Maximum number of days between password change.
+  password_expire_min: 5             # Minimum number of days between password change.
+  password_expire_warn: 7            # Number of days of warning before password expires.
+  password_expire_account_disable: 5 # Disable the account after 5 days when the password expires.
+  update_password: "on_create"       # Idempotent default; set to "always" per-user when rotating intentionally.
+  force: false                       # Safer default. Use force: true per removed account when required.
+  remove_home: false                 # Do not remove the user's home_dir.
+  password_lock: false               # Do not lock user password. Note that users can still login using other methods, eg. ssh-keys
+  remove: yes                        # This only affects state=absent, it attempts to remove directories associated with the user. The behavior is the same as userdel --remove
+  shell: /bin/bash                   # Default shell for all users
+
+# Security and output controls
+enforce_hashed_passwords: true
+show_generated_ssh_public_keys: false
+password_policy_no_log: true
+
+# Password history enforcement (PAM)
+password_history_enforcement_enabled: true
+password_history_remember: 12
+password_history_retry: 3
+password_history_enforce_for_root: true
+password_history_backup_pam_files: false
+# Optional automation-side reuse guard.
+# Define per-user password_history (list of old hashes) and this role will block reuse.
+password_history_inventory_assert_enabled: true
+password_history_pam_paths:
+  Debian:
+    - /etc/pam.d/common-password
+  RedHat:
+    - /etc/pam.d/system-auth
+    - /etc/pam.d/password-auth
+  Suse:
+    - /etc/pam.d/common-password
+
+# Harden the automation account so vault data cannot be used as an SSH password backdoor.
+automation_account_hardening_enabled: true
+automation_account_usernames:
+  - ansible
+automation_account_lock_password: true
+automation_account_disable_password_auth: true
+
+# Enforce key-only authentication for managed users (except breakglass accounts).
+managed_accounts_key_only: true
+key_only_lock_password: "{{ automation_account_lock_password }}"
+key_only_disable_password_auth: "{{ automation_account_disable_password_auth }}"
+# fail = stop run when key-only account lacks authorized_keys; warn = skip that account and continue.
+key_only_prereq_mode: fail
+key_only_sshd_dropin_path: /etc/ssh/sshd_config.d/99-key-only-account-hardening.conf
+key_only_authentication_methods_publickey: true
+
+# Optional emergency accounts that are intentionally allowed outside key-only constraints.
+breakglass_accounts: []
+
+# Enforce account baseline: detect users with interactive shells that are not in the allowlist.
+account_enforcement_enabled: true
+# fail = detect only, lock = disable account access, remove = delete account/home.
+account_enforcement_mode: fail
+interactive_uid_min: 1000
+interactive_shell_blacklist:
+  - /sbin/nologin
+  - /usr/sbin/nologin
+  - /usr/bin/nologin
+  - /bin/false
+  - /usr/bin/false
+account_enforcement_lock_shell: /usr/sbin/nologin
+account_enforcement_remove_home: true
+account_enforcement_force_remove: true
+allowed_unmanaged_accounts:
+  - root
+allowed_unmanaged_accounts_by_host: {}
+
+# Restrict SSH login to managed/breakglass allowlist users.
+enforce_sshd_allowlist: true
+sshd_allowlist_mode: users
+sshd_allowlist_extra_users: []
+sshd_allowlist_dropin_path: /etc/ssh/sshd_config.d/98-account-allowlist.conf

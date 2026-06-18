@@ -41,5 +41,15 @@ terraform.rc
 .env
 .env.*
 !.env.example
+test-runs/
 AGENTS.md
 GEMINI.md
+CLAUDE.md
+
+# Virtual environments (vendored packages trigger false-positive secret scans)
+tmp_venv/
+.venv/
+venv/
+
+# Generated structure dumps
+structure.txt

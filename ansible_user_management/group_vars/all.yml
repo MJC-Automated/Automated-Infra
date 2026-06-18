@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ===========================================
 # group_vars/all.yml
 # ===========================================
@@ -114,3 +115,83 @@ remove_users:
     #   - /path/to/cleanup1
     #   - /path/to/cleanup2
     # Note: Ensure that the paths are safe to remove and do not contain critical data.
+=======
+# ===========================================
+# group_vars/all.yml
+# ===========================================
+---
+users:
+  - name: lumala         # This user is the template for user creation. Contains comments for ease of understanding.
+    state: present
+    uid: 1040
+    groups:
+      - wheel            # Will be converted to 'sudo' on Debian/Ubuntu systems automatically.
+    comment: "Eugene Lumala" # Optionally sets the description (aka GECOS) of user account. We can use this to set the full name of the user.
+    password: "{{ users_secrets.lumala.password }}"
+    expires: -1          # Account never expires. Change to a specific timestamp (e.g., 1704067200 for 2024-01-01) to set an expiration date. Can be used for Interns/Attachment students with limited time. []
+                         # eg. For a user account that willl expire on 2030-01-01, execute this command to generate the epoch timestamp. [date -d "2030-01-01" +%s] and paste the output here as expires: 1704067200
+    ssh_keys: "{{ users_secrets.lumala.ssh_keys }}"
+    ssh_key_comment: "lumala@server"
+    ssh_key_passphrase: "{{ users_secrets.lumala.ssh_key_passphrase | default(omit) }}" # Optional passphrase for the SSH key. Leave empty if not needed.
+# Other defaults for user accounts have been set in the [roles/user_management/defaults/main.yml] file.
+
+  # Example of additional users to create
+  - name: kirui
+    state: present
+    uid: 1041
+    groups:
+      - wheel
+    comment: "Emmanuel Kirui"
+    password: "{{ users_secrets.kirui.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.kirui.ssh_keys }}"
+    ssh_key_comment: "kirui@server"
+
+  - name: mariga
+    state: present
+    uid: 1042
+    groups:
+      - wheel
+    comment: "Nicholas Mariga"
+    password: "{{ users_secrets.mariga.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.mariga.ssh_keys }}"
+    ssh_key_comment: "mariga@server"
+
+
+  - name: sostine
+    state: present
+    uid: 1043
+    groups:
+      - wheel
+    comment: "Waliaula Sostine"
+    password: "{{ users_secrets.sostine.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.sostine.ssh_keys }}"
+    ssh_key_comment: "sostine@server"
+
+  - name: felix
+    state: present
+    uid: 1044
+    groups:
+      - wheel
+    comment: "Felix Mukhabana"
+    password: "{{ users_secrets.felix.password }}"
+    expires: -1
+    ssh_keys: "{{ users_secrets.felix.ssh_keys }}"
+    ssh_key_comment: "felix@server"
+
+# Example users to remove (uncomment and modify as needed)
+# Users marked for removal - these will be deleted along with their home directories
+remove_users:
+  - name: ronald  # Template for user removal. 
+    state: absent
+    remove_home: true
+    force: true
+
+    # Uncomment and add any additional paths to clean up after user removal.
+    # additional_cleanup_paths:
+    #   - /path/to/cleanup1
+    #   - /path/to/cleanup2
+    # Note: Ensure that the paths are safe to remove and do not contain critical data.
+>>>>>>> terraform-proxmox-automated-infra

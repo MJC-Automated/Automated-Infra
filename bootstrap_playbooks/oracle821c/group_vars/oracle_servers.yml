@@ -5,7 +5,7 @@
 oracle_allow_destructive: true
 
 oracle_servers:
-  public-database21c-01:
+  public-database21c-02:
     oracle_hostname: "public-database21c-03.example.internal"
 
     # Define listeners required on this host.

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ===========================================
 # roles/user_management/meta/main.yml
 # ===========================================
@@ -22,3 +23,48 @@ galaxy_info:
     - ssh
 
 dependencies: []
+=======
+# ===========================================
+# roles/user_management/meta/main.yml
+# ===========================================
+---
+galaxy_info:
+  author: Emmanuel Kirui
+  description: Role to manage system users with full attributes including SSH key generation and management
+  license: MIT
+  min_ansible_version: "2.11"
+  platforms:
+    - name: EL
+      versions: [ "7", "8", "9" ]
+    - name: Ubuntu
+      versions: [ "18.04", "20.04", "22.04" ]
+    - name: Debian
+      versions: [ "10", "11", "12" ]
+  galaxy_tags:
+    - users
+    - system
+    - security
+    - accounts
+    - ssh
+
+dependencies: []
+
+
+# $ ansible --version
+# ansible 2.9.0
+#   config file = None
+#   configured module search path = ['/root/.ansible/plugins/modules', '/usr/share/ansible/plugins/modules']
+#   ansible python module location = /root/ans2.9_venv/lib/python3.10/site-packages/ansible
+#   executable location = /root/ans2.9_venv/bin/ansible
+#   python version = 3.10.12 (main, May 27 2025, 17:12:29) [GCC 11.4.0]
+
+
+# $ pip freeze
+# ansible==2.9.0
+# cffi==1.17.1
+# cryptography==45.0.5
+# Jinja2==2.11.3
+# MarkupSafe==2.0.1
+# pycparser==2.22
+# PyYAML==6.0.2
+>>>>>>> terraform-proxmox-automated-infra

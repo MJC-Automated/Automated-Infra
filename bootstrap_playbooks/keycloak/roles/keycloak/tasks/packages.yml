@@ -1,0 +1,42 @@
+---
+- name: Build Keycloak package list
+  ansible.builtin.set_fact:
+    keycloak_required_packages: >-
+      {{
+        [
+          'openjdk-21-jre-headless',
+          'python3-psycopg2',
+          'acl',
+          'curl',
+          'tar',
+          'firewalld'
+        ]
+        +
+        (
+          ['postgresql-client']
+          if keycloak_manage_database | bool
+          else []
+        )
+        +
+        (
+          ['postgresql', 'postgresql-contrib']
+          if (keycloak_manage_database | bool and keycloak_db_endpoint_is_local)
+          else []
+        )
+      }}
+  changed_when: false
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name: "{{ keycloak_required_packages }}"
+    state: present
+    update_cache: true
+
+- name: Ensure PostgreSQL is enabled and started
+  ansible.builtin.systemd:
+    name: postgresql
+    enabled: true
+    state: started
+  when:
+    - keycloak_manage_database | bool
+    - keycloak_db_endpoint_is_local

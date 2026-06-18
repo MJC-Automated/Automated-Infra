@@ -54,10 +54,10 @@ IFS=$'\n\t'
 #    PASSWORD="<set-strong-cloud-init-password>"                                #
 #    SSH_KEYS_FILE="/root/.ssh/authorized_keys"                                 #
 #    # Backward-compatible single target (sets both Server and ServerActive)    #
-#    ZABBIX_SERVER="198.51.100.27"                                                #
+#    ZABBIX_SERVER="198.51.100.23"                                                #
 #    # Optional explicit split targets                                            #
-#    ZABBIX_SERVER_PASSIVE="198.51.100.27"                                        #
-#    ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"                                   #
+#    ZABBIX_SERVER_PASSIVE="198.51.100.23"                                        #
+#    ZABBIX_SERVER_ACTIVE="198.51.100.23:10051"                                   #
 #                                                                              #
 ################################################################################
 
@@ -82,10 +82,10 @@ Required content:
   CIUSER="ansible"
   PASSWORD="<set-strong-cloud-init-password>"
   SSH_KEYS_FILE="/root/.ssh/authorized_keys"
-  ZABBIX_SERVER="198.51.100.27"
+  ZABBIX_SERVER="198.51.100.23"
   # Optional explicit split targets:
-  # ZABBIX_SERVER_PASSIVE="198.51.100.27"
-  # ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"
+  # ZABBIX_SERVER_PASSIVE="198.51.100.23"
+  # ZABBIX_SERVER_ACTIVE="198.51.100.23:10051"
 
 EOF
   exit 1
@@ -127,10 +127,10 @@ if [[ -z "${ZABBIX_SERVER_PASSIVE}" || -z "${ZABBIX_SERVER_ACTIVE}" ]]; then
 ERROR: Zabbix target is not configured in ${ENV_FILE}
 
 Set either:
-  ZABBIX_SERVER="198.51.100.27"
+  ZABBIX_SERVER="198.51.100.23"
 or explicit split values:
-  ZABBIX_SERVER_PASSIVE="198.51.100.27"
-  ZABBIX_SERVER_ACTIVE="198.51.100.27:10051"
+  ZABBIX_SERVER_PASSIVE="198.51.100.23"
+  ZABBIX_SERVER_ACTIVE="198.51.100.23:10051"
 EOF
   exit 1
 fi
@@ -151,7 +151,7 @@ VMID="${VMID:-999999991}"
 NAME="${NAME:-}"          # Leave empty → auto-derived from OS_TYPE + IP last octet
 OS_TYPE="${OS_TYPE:-oracle-linux-8}"  # See detect_os_config() for supported values
 IPCIDR="${IPCIDR:-203.0.113.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
-GATEWAY="${GATEWAY:-198.51.100.26}"
+GATEWAY="${GATEWAY:-198.51.100.16}"
 FORCE="${FORCE:-1}"       # 1 = destroy existing VM, 0 = abort if exists
 DRY_RUN="${DRY_RUN:-0}"   # 1 = show what would happen without executing
 
@@ -173,35 +173,35 @@ readonly FEDORA_43_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Network Configuration                                                   │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly BRIDGE="vmbr0"
-readonly DNS="198.51.100.29"
+readonly BRIDGE="${BRIDGE:-vmbr0}"
+readonly DNS="${DNS:-198.51.100.18}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Resource Allocation                                                     │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly CORES="6"
-readonly MEM="8192"               # MB
-readonly CPU_TYPE="host"
+readonly CORES="${CORES:-6}"
+readonly MEM="${MEM:-8192}"               # MB
+readonly CPU_TYPE="${CPU_TYPE:-host}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Proxmox Storage Backends                                                │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly OS_STORAGE="harddisk"
-readonly DATA_STORAGE="harddisk"
-readonly EFI_STORAGE="harddisk"
-readonly CI_STORAGE="local-lvm"
-readonly SNIPPET_STORAGE="local"
+readonly OS_STORAGE="${OS_STORAGE:-harddisk}"
+readonly DATA_STORAGE="${DATA_STORAGE:-harddisk}"
+readonly EFI_STORAGE="${EFI_STORAGE:-harddisk}"
+readonly CI_STORAGE="${CI_STORAGE:-local-lvm}"
+readonly SNIPPET_STORAGE="${SNIPPET_STORAGE:-local}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Disk Sizes (GiB)                                                        │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly OS_DISK_SIZE="50"
+readonly OS_DISK_SIZE="${OS_DISK_SIZE:-50}"
 
 # ============================================================================
 # DATA DISK TOGGLE - Set to 0 to disable data disk and storage provisioning
 # ============================================================================
-readonly DATA_DISK_ENABLED="0"    # 1 = create data disk, 0 = root disk only
-readonly DATA_DISK_SIZE="400"     # Only used if DATA_DISK_ENABLED=1
+readonly DATA_DISK_ENABLED="${DATA_DISK_ENABLED:-0}"    # 1 = create data disk, 0 = root disk only
+readonly DATA_DISK_SIZE="${DATA_DISK_SIZE:-400}"     # Only used if DATA_DISK_ENABLED=1
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ PARTITION CONFIGURATION - EASY TO CUSTOMIZE!                            │
@@ -214,15 +214,12 @@ readonly DATA_DISK_SIZE="400"     # Only used if DATA_DISK_ENABLED=1
 # │ Only ONE partition can be "AUTO"                                        │
 # │ NOTE: Only used if DATA_DISK_ENABLED=1                                  │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly PARTITION_DEFS=(
-  "/u01:100"
-  "/u02:AUTO"
-)
+readonly PARTITION_LAYOUT="${PARTITION_LAYOUT:-/u01:100,/u02:AUTO}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Optional OS Update                                                      │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly DO_OS_UPDATE="0"   # 1 = enable background update; 0 = skip (safer for templates)
+readonly DO_OS_UPDATE="${DO_OS_UPDATE:-0}"   # 1 = enable background update; 0 = skip (safer for templates)
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Verification Timeouts (cloud-init wait is used for swap too)            │
@@ -237,26 +234,26 @@ readonly CLOUDINIT_STATUS_VERBOSE="0"
 # │ Remaining Space Handling (only used if DATA_DISK_ENABLED=1)             │
 # │ Options: IGNORE | WARN | ERROR | AUTO_ASSIGN                            │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly REMAINING_SPACE_MODE="WARN"
-readonly MIN_REMAINING_WARN="10"
+readonly REMAINING_SPACE_MODE="${REMAINING_SPACE_MODE:-WARN}"
+readonly MIN_REMAINING_WARN="${MIN_REMAINING_WARN:-10}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Swap Configuration                                                      │
 # │ Options: AUTO | 0 | <number in GB>                                      │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly SWAP_SIZE="AUTO"
+readonly SWAP_SIZE="${SWAP_SIZE:-AUTO}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Filesystem Configuration (only used if DATA_DISK_ENABLED=1)             │
 # │ Set to "auto" to use OS-recommended (xfs for RHEL, ext4 for Ubuntu)     │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly FS_TYPE="auto"           # auto | ext4 | xfs
-readonly XFS_LOGBSIZE_VALUE="256k"
+readonly FS_TYPE="${FS_TYPE:-auto}"           # auto | ext4 | xfs
+readonly XFS_LOGBSIZE_VALUE="${XFS_LOGBSIZE_VALUE:-256k}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ LVM Volume Group Name                                                   │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly VG_NAME="vg_data"
+readonly VG_NAME="${VG_NAME:-vg_data}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Behavior Flags                                                          │
@@ -271,21 +268,21 @@ readonly VERIFY_RETRY_INTERVAL="15"
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Timezone (IANA format)                                                  │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly TIMEZONE="Africa/Nairobi"
+readonly TIMEZONE="${TIMEZONE:-Africa/Nairobi}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Security / Sudo Policy                                                  │
 # │ SUDO_NOPASSWD=1 grants passwordless sudo (convenient for automation).   │
 # │ Set to 0 to require password for privileged operations.                 │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly SUDO_NOPASSWD="1"        # 1 = NOPASSWD, 0 = require password
+readonly SUDO_NOPASSWD="${SUDO_NOPASSWD:-1}"        # 1 = NOPASSWD, 0 = require password
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ SSH Identity File (used by THIS host to connect to the new VM)          │
 # │ Must correspond to a public key in SSH_KEYS_FILE.                       │
 # │ Leave empty to rely on ssh-agent or default ~/.ssh/id_*                 │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly SSH_IDENTITY_FILE=""     # e.g. "/root/.ssh/id_ed25519"
+readonly SSH_IDENTITY_FILE="${SSH_IDENTITY_FILE:-}"     # e.g. "/root/.ssh/id_ed25519"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Guest Debug Logging                                                     │
@@ -293,7 +290,7 @@ readonly SSH_IDENTITY_FILE=""     # e.g. "/root/.ssh/id_ed25519"
 # │ Warning: set -x echoes all commands to the log, which may include       │
 # │ environment variable values. Keep at 0 unless actively debugging.       │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly GUEST_DEBUG="0"          # 0 = off, 1 = verbose trace in guest log
+readonly GUEST_DEBUG="${GUEST_DEBUG:-0}"          # 0 = off, 1 = verbose trace in guest log
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Logging Configuration                                                   │
@@ -802,7 +799,16 @@ parse_partitions() {
   PARTITION_OWNERS=()
   PARTITION_SIZES_FINAL=()
 
-  for def in "${PARTITION_DEFS[@]}"; do
+  local -a partition_defs=()
+  IFS=',' read -r -a partition_defs <<< "$PARTITION_LAYOUT"
+
+  [[ ${#partition_defs[@]} -gt 0 ]] || die "No partition definitions supplied"
+
+  for def in "${partition_defs[@]}"; do
+    def="${def#"${def%%[![:space:]]*}"}"
+    def="${def%"${def##*[![:space:]]}"}"
+    [[ -n "$def" ]] || continue
+
     local mountpoint size user group extra
     IFS=':' read -r mountpoint size user group extra <<< "$def"
 
@@ -818,7 +824,7 @@ parse_partitions() {
     fi
 
     if [[ -n "${PARTITIONS[$mountpoint]+x}" ]]; then
-      die "Duplicate mountpoint in PARTITION_DEFS: $mountpoint"
+      die "Duplicate mountpoint in PARTITION_LAYOUT: $mountpoint"
     fi
 
     if [[ "${size^^}" == "AUTO" ]]; then

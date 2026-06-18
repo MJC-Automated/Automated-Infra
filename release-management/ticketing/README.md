@@ -24,10 +24,17 @@ The script dynamically discovers all available branches and presents them in a u
 
 Uses multiple search patterns to find ticket-related commits:
 
+<<<<<<< HEAD
 - Direct ticket references: `TICKET-28422`
 - Colon-separated format: `TICKET-28422:`
 - Space-separated format: `TICKET-28422`
 - Word boundary matching: `\bPROJECT-28422\b`
+=======
+- Direct ticket references: `GIS-28422`
+- Colon-separated format: `GIS-28422:`
+- Space-separated format: `GIS-28422`
+- Word boundary matching: `\bGIS-28422\b`
+>>>>>>> terraform-proxmox-automated-infra
 
 ### 🏷️ **Change-Id Based Tracking**
 
@@ -54,9 +61,15 @@ Understanding how tickets move through the development and deployment pipeline i
 
 When developers work on a ticket, they create commits with the ticket ID in the subject line. Each commit receives a unique **Change-Id** from Gerrit:
 
+<<<<<<< HEAD
 Example: TICKET-28422 (Budget Assignment Feature)
 
 ```text
+=======
+Example: GIS-28422 (Budget Assignment Feature)
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Commit: 8f24fc448c27ad123bbeebc2748387d27568b69f
 Date: Saturday, Mar 29, 2025, 01:43:36 PM EAST
 Owner: example.owner
@@ -70,7 +83,11 @@ This represents the initial implementation of the feature, creating new database
 
 Most tickets involve multiple commits as developers refine the implementation:
 
+<<<<<<< HEAD
 **TICKET-28422 Evolution:**
+=======
+**GIS-28422 Evolution:**
+>>>>>>> terraform-proxmox-automated-infra
 
 1. **March 29**: Initial implementation (38 files changed)
 2. **April 12**: Refinements and additional features (45 files changed)  
@@ -86,9 +103,15 @@ The script determines production status using two key mechanisms:
 
 The script establishes a "Production Cutoff Timestamp" from the baseline branch. Any commit before this date is considered deployed.
 
+<<<<<<< HEAD
 **Example Analysis for TICKET-28422:**
 
 - **Baseline**: RE_004.0.0_CLIENT_A (May 15, 2025, 05:31:56 PM)
+=======
+**Example Analysis for GIS-28422:**
+
+- **Baseline**: RE_004.0.0_MUTUAL (May 15, 2025, 05:31:56 PM)
+>>>>>>> terraform-proxmox-automated-infra
 - **Cutoff Timestamp**: 1747319516
 
 **Commits Analysis:**
@@ -103,9 +126,15 @@ The script establishes a "Production Cutoff Timestamp" from the baseline branch.
 
 The script searches for matching Change-Ids in subsequent release branches to identify cherry-picked commits.
 
+<<<<<<< HEAD
 Example: TICKET-28676 (Loss Participation Report)
 
 ```text
+=======
+Example: GIS-28676 (Loss Participation Report)
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Commit: c28beae8a7481fe9c9ce27115db54b84deb81754
 Date: Saturday, May 17, 2025, 09:41:10 PM EAST (After baseline)
 Status: 🔴 IN PRODUCTION (Cherry-picked in branch: 002.1.0_CLIENT_A)
@@ -118,9 +147,15 @@ Even though this commit was made after the baseline date, the script detected it
 
 ### ✅ **NEW FOR RELEASE Status**
 
+<<<<<<< HEAD
 Example: TICKET-30315 (Refund Processing Fix)
 
 ```text
+=======
+Example: GIS-30315 (Refund Processing Fix)
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Total Commits: 1
 All Commits: After baseline date
 Cross-Branch Presence: None found
@@ -129,9 +164,15 @@ Status: ✅ NEW FOR RELEASE
 
 **Interpretation**: This is a pure new ticket. The single commit was made on June 5, 2025 (after the May 15 baseline), and its Change-Id doesn't exist in any subsequent release branches. This ticket is ready for inclusion in the next release.
 
+<<<<<<< HEAD
 Example: TICKET-30068 (Claim Revision Feedback)
 
 ```text
+=======
+Example: GIS-30068 (Claim Revision Feedback)
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Total Commits: 3
 Commit Dates: Jun 26, Jul 01, Sep 03, 2025
 All Commits: After baseline date  
@@ -143,9 +184,15 @@ Status: ✅ NEW FOR RELEASE
 
 ### 🟡 **PARTIALLY IN PRODUCTION Status**
 
+<<<<<<< HEAD
 Example: TICKET-28477 (Budget Print Feature)
 
 ```text
+=======
+Example: GIS-28477 (Budget Print Feature)
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Total Commits: 4
 Production Status:
 - Commit 1 (Apr 19): 🔴 Before baseline → IN PRODUCTION
@@ -163,9 +210,15 @@ Status: 🟡 PARTIALLY IN PRODUCTION
 
 **⚠️ Action Required**: Manual review needed to understand why not all commits were deployed together and whether the remaining commits are still needed.
 
+<<<<<<< HEAD
 Example: TICKET-28676 (Loss Participation Report)
 
 ```text
+=======
+Example: GIS-28676 (Loss Participation Report)
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Total Commits: 6
 Production Status:
 - Commits 1-4: 🔴 IN PRODUCTION (3 by baseline date, 1 cherry-picked)
@@ -177,9 +230,15 @@ Status: 🟡 PARTIALLY IN PRODUCTION
 
 ### 🔴 **FULLY IN PRODUCTION Status**
 
+<<<<<<< HEAD
 Example: Hypothetical TICKET-29000
 
 ```text
+=======
+Example: Hypothetical GIS-29000
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Total Commits: 3
 All Commit Dates: Before May 15, 2025 baseline
 Cross-Branch Analysis: Not needed (all commits pre-baseline)
@@ -190,9 +249,15 @@ Status: 🔴 FULLY IN PRODUCTION
 
 ### ❌ **NOT FOUND Status**
 
+<<<<<<< HEAD
 Example: Hypothetical TICKET-99999
 
 ```text
+=======
+Example: Hypothetical GIS-99999
+
+```
+>>>>>>> terraform-proxmox-automated-infra
 Search Results: No commits found
 Possible Causes:
 - Typo in ticket number
@@ -210,8 +275,13 @@ Status: ❌ NOT FOUND
 
 **Example Pattern**:
 
+<<<<<<< HEAD
 ```text
 Ticket: TICKET-URGENT-001
+=======
+```
+Ticket: GIS-URGENT-001
+>>>>>>> terraform-proxmox-automated-infra
 Commit 1: May 10 (Before baseline) → Original implementation
 Commit 2: May 20 (After baseline) → Critical bug fix
 Status: 🟡 PARTIALLY IN PRODUCTION
@@ -225,8 +295,13 @@ Follow-up Analysis:
 
 **Example Pattern**:
 
+<<<<<<< HEAD
 ```text
 Ticket: TICKET-28422
+=======
+```
+Ticket: GIS-28422
+>>>>>>> terraform-proxmox-automated-infra
 Commits 1-3: Before baseline → Original feature deployed
 Commit 4: After baseline → "Rollback changes due to production issue"  
 Status: 🟡 PARTIALLY IN PRODUCTION
@@ -239,8 +314,13 @@ Action: Review rollback commit to understand production impact
 
 **Example Pattern**:
 
+<<<<<<< HEAD
 ```text
 Ticket: TICKET-30000 (Frontend changes)
+=======
+```
+Ticket: GIS-30000 (Frontend changes)
+>>>>>>> terraform-proxmox-automated-infra
 Status: ✅ NEW FOR RELEASE
 Related: TICKET-30001 (Backend changes in different repo)
 Status: Unknown (requires separate analysis)

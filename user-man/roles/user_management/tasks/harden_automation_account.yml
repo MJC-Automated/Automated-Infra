@@ -266,7 +266,7 @@
     group: root
     mode: '0644'
     content: |
-      # Managed by Ansible (ansible_user_management role).
+      # Managed by Ansible (user-man role).
       # Restrict managed key-only accounts to key-based SSH auth only.
       Match User {{ (key_only_accounts_ready_for_hardening | default([]) | sort) | join(',') }}
           PasswordAuthentication no
@@ -315,7 +315,7 @@
     group: root
     mode: '0644'
     content: |
-      # Managed by Ansible (ansible_user_management role).
+      # Managed by Ansible (user-man role).
       # Restrict SSH logins to allowlisted identities.
       AllowUsers {{ (sshd_login_allowlist_users | default([]) | sort) | join(' ') }}
   notify: Reload SSH service

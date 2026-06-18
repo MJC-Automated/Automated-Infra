@@ -63,6 +63,23 @@ ansible-control-node ansible_connection=local ansible_python_interpreter=/usr/bi
 - `time_sync_client_add_public_fallback`: Append public sources on clients (`false` for air-gapped).
 - `time_sync_client_ntp_servers`: Optional explicit list to override automatic source selection.
 
+Repository convention:
+
+- `ntp_clients` should include every host that depends on repo-managed Kerberos or service-to-service identity flows.
+- For the current FreeIPA topology that means `oracle_servers`, `weblogic_servers`, `freeipa_servers`, `keycloak_servers`, and `observability_servers`.
+- Keep `ntp_clients` in sync with new FreeIPA client/service aliases when adding more Kerberos-integrated hosts.
+
+Current `inventories/aliases.ini` pattern:
+
+```ini
+[ntp_clients:children]
+oracle_servers
+weblogic_servers
+freeipa_servers
+keycloak_servers
+observability_servers
+```
+
 Source selection order on clients:
 
 1. `time_sync_client_ntp_servers` if defined.

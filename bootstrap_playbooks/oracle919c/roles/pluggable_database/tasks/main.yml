@@ -1,0 +1,1210 @@
+---
+# roles/pluggable_database/tasks/main.yml
+
+- name: PDB | Ensure CDB init pointer exists when only data-dir spfile is present
+  vars:
+    pdb_data_dir_base: "{{ item.data_dir | default((item.cdb_data_dir | default(item.pdb_data_dir | default(oracle_data_dir | default('/u02/oradata'), true), true)) | dirname, true) }}"
+    pdb_cdb_data_dir_resolved: "{{ item.cdb_data_dir | default(pdb_data_dir_base ~ '/' ~ (item.cdb_sid | upper), true) }}"
+  ansible.builtin.shell: |
+    set -eo pipefail
+    sid="{{ item.cdb_sid }}"
+    sid_upper="{{ item.cdb_sid | upper }}"
+    init_file_home="{{ oracle_home }}/dbs/init{{ item.cdb_sid }}.ora"
+    init_file_base="{{ oracle_base }}/dbs/init{{ item.cdb_sid }}.ora"
+    spfile_file_home="{{ oracle_home }}/dbs/spfile{{ item.cdb_sid }}.ora"
+    spfile_file_home_upper="{{ oracle_home }}/dbs/spfile{{ item.cdb_sid | upper }}.ora"
+    spfile_file_base="{{ oracle_base }}/dbs/spfile{{ item.cdb_sid }}.ora"
+    spfile_file_base_upper="{{ oracle_base }}/dbs/spfile{{ item.cdb_sid | upper }}.ora"
+    data_dir="{{ pdb_data_dir_base }}"
+    cdb_data_dir="{{ pdb_cdb_data_dir_resolved }}"
+    cdb_data_dir_sid="{{ pdb_data_dir_base ~ '/' ~ item.cdb_sid }}"
+    cdb_data_dir_lower="{{ pdb_data_dir_base ~ '/' ~ (item.cdb_sid | lower) }}"
+    cdb_data_dir_upper="{{ pdb_data_dir_base ~ '/' ~ (item.cdb_sid | upper) }}"
+    created=0
+
+    mkdir -p "$(dirname "$init_file_home")" "$(dirname "$init_file_base")"
+
+    write_init_files() {
+      spfile_path="$1"
+      wrote=0
+      if [ -f "$init_file_home" ]; then
+        wrote=1
+      elif printf "SPFILE='%s'\n" "$spfile_path" > "$init_file_home" 2>/dev/null; then
+        chmod 0640 "$init_file_home" || true
+        wrote=1
+      fi
+      if [ -f "$init_file_base" ]; then
+        wrote=1
+      elif printf "SPFILE='%s'\n" "$spfile_path" > "$init_file_base" 2>/dev/null; then
+        chmod 0640 "$init_file_base" || true
+        wrote=1
+      fi
+      if [ "$wrote" -eq 1 ]; then
+        echo "CREATED_INIT_FROM_SPFILE:$spfile_path"
+        created=1
+      fi
+    }
+
+    find_spfile_in_dir() {
+      dir="$1"
+      [ -n "$dir" ] || return 1
+      for cand in \
+        "$dir/spfile${sid}.ora" \
+        "$dir/spfile${sid_upper}.ora" \
+        "$dir/spfile.ora"; do
+        if [ -f "$cand" ]; then
+          printf '%s\n' "$cand"
+          return 0
+        fi
+      done
+      for cand in "$dir"/spfile*.ora; do
+        [ -f "$cand" ] || continue
+        printf '%s\n' "$cand"
+        return 0
+      done
+      return 1
+    }
+
+    if [ -f "$init_file_home" ] || [ -f "$init_file_base" ]; then
+      exit 0
+    fi
+
+    for cand in \
+      "$spfile_file_home" \
+      "$spfile_file_home_upper" \
+      "$spfile_file_base" \
+      "$spfile_file_base_upper" \
+      "$cdb_data_dir/spfile${sid}.ora" \
+      "$cdb_data_dir/spfile${sid_upper}.ora" \
+      "$cdb_data_dir/spfile.ora"; do
+      if [ -f "$cand" ]; then
+        write_init_files "$cand"
+        break
+      fi
+    done
+
+    if [ "$created" -eq 0 ]; then
+      for dir in \
+        "$cdb_data_dir" \
+        "$cdb_data_dir_sid" \
+        "$cdb_data_dir_lower" \
+        "$cdb_data_dir_upper"; do
+        spfile_candidate="$(find_spfile_in_dir "$dir" || true)"
+        if [ -n "$spfile_candidate" ]; then
+          write_init_files "$spfile_candidate"
+          break
+        fi
+      done
+    fi
+
+    if [ "$created" -eq 0 ] && [ -d "$data_dir" ]; then
+      spfile_candidate="$(find "$data_dir" -maxdepth 3 -type f \( -iname "spfile${sid}.ora" -o -iname "spfile${sid_upper}.ora" \) 2>/dev/null | head -n 1 || true)"
+      if [ -n "$spfile_candidate" ]; then
+        write_init_files "$spfile_candidate"
+      fi
+    fi
+
+    if [ "$created" -eq 0 ]; then
+      echo "NO_SPFILE_FOUND_FOR_INIT:$cdb_data_dir:$data_dir"
+    fi
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_init_bootstrap
+  changed_when: "'CREATED_INIT_FROM_SPFILE' in pdb_init_bootstrap.stdout"
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  tags: [oracle_db_creation, pdb_create, pdb_state, pdb_post_config]
+
+- name: PDB | Ensure CDB is running for PDB operations
+  vars:
+    pdb_data_dir_base: "{{ item.data_dir | default((item.cdb_data_dir | default(item.pdb_data_dir | default(oracle_data_dir | default('/u02/oradata'), true), true)) | dirname, true) }}"
+    pdb_cdb_data_dir_resolved: "{{ item.cdb_data_dir | default(pdb_data_dir_base ~ '/' ~ (item.cdb_sid | upper), true) }}"
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_BASE={{ oracle_base }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item.cdb_sid }}"
+    sid_cfg_lower="{{ item.cdb_sid | lower }}"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    sid_upper="$(printf '%s' "$sid" | tr '[:lower:]' '[:upper:]')"
+    sid_lower="$(printf '%s' "$sid" | tr '[:upper:]' '[:lower:]')"
+    export ORACLE_SID="$sid"
+    spfile_home="{{ oracle_home }}/dbs/spfile${sid_lower}.ora"
+    spfile_home_upper="{{ oracle_home }}/dbs/spfile${sid_upper}.ora"
+    spfile_base="{{ oracle_base }}/dbs/spfile${sid_lower}.ora"
+    spfile_base_upper="{{ oracle_base }}/dbs/spfile${sid_upper}.ora"
+    init_home_lower="{{ oracle_home }}/dbs/init${sid_lower}.ora"
+    init_home_upper="{{ oracle_home }}/dbs/init${sid_upper}.ora"
+    init_base_lower="{{ oracle_base }}/dbs/init${sid_lower}.ora"
+    init_base_upper="{{ oracle_base }}/dbs/init${sid_upper}.ora"
+    data_dir="{{ pdb_data_dir_base }}"
+    cdb_data_dir="{{ pdb_cdb_data_dir_resolved }}"
+    cdb_data_dir_sid="{{ pdb_data_dir_base ~ '/' ~ item.cdb_sid }}"
+    cdb_data_dir_lower="{{ pdb_data_dir_base ~ '/' ~ (item.cdb_sid | lower) }}"
+    cdb_data_dir_upper="{{ pdb_data_dir_base ~ '/' ~ (item.cdb_sid | upper) }}"
+    cdb_data_dir_sid_runtime="{{ pdb_data_dir_base }}/$sid"
+    cdb_data_dir_sid_runtime_lower="{{ pdb_data_dir_base }}/$sid_lower"
+    cdb_data_dir_sid_runtime_upper="{{ pdb_data_dir_base }}/$sid_upper"
+
+    find_spfile_in_dir() {
+      dir="$1"
+      [ -n "$dir" ] || return 1
+      for cand in \
+        "$dir/spfile${sid}.ora" \
+        "$dir/spfile${sid_upper}.ora" \
+        "$dir/spfile.ora"; do
+        if [ -f "$cand" ]; then
+          printf '%s\n' "$cand"
+          return 0
+        fi
+      done
+      for cand in "$dir"/spfile*.ora; do
+        [ -f "$cand" ] || continue
+        printf '%s\n' "$cand"
+        return 0
+      done
+      return 1
+    }
+
+    if {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit 1
+    select status from v$instance;
+    exit;
+    EOF
+    then
+      open_mode="$(printf "set heading off feedback off pagesize 0 verify off echo off\nselect open_mode from v\\$database;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba)"
+      open_mode="$(printf '%s\n' "$open_mode" | awk 'NF{print; exit}')"
+      if [ "$open_mode" = "READ WRITE" ]; then
+        exit 0
+      fi
+      printf "whenever sqlerror exit 1\nalter database open;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+      exit 0
+    fi
+
+    mkdir -p "$(dirname "$init_home_lower")" "$(dirname "$init_base_lower")"
+    SPFILE_PATH=""
+    if [ -f "$init_home_lower" ]; then
+      START_CMD="startup pfile='$init_home_lower';"
+    elif [ -f "$init_home_upper" ]; then
+      START_CMD="startup pfile='$init_home_upper';"
+    elif [ -f "$init_base_lower" ]; then
+      START_CMD="startup pfile='$init_base_lower';"
+    elif [ -f "$init_base_upper" ]; then
+      START_CMD="startup pfile='$init_base_upper';"
+    else
+      for cand in \
+        "$spfile_home" \
+        "$spfile_home_upper" \
+        "$spfile_base" \
+        "$spfile_base_upper"; do
+        if [ -f "$cand" ]; then
+          SPFILE_PATH="$cand"
+          break
+        fi
+      done
+      if [ -z "$SPFILE_PATH" ]; then
+        for dir in \
+          "$cdb_data_dir" \
+          "$cdb_data_dir_sid" \
+          "$cdb_data_dir_lower" \
+          "$cdb_data_dir_upper" \
+          "$cdb_data_dir_sid_runtime" \
+          "$cdb_data_dir_sid_runtime_lower" \
+          "$cdb_data_dir_sid_runtime_upper"; do
+          SPFILE_PATH="$(find_spfile_in_dir "$dir" || true)"
+          if [ -n "$SPFILE_PATH" ]; then
+            break
+          fi
+        done
+      fi
+      if [ -z "$SPFILE_PATH" ] && [ -d "$data_dir" ]; then
+        SPFILE_PATH="$(find "$data_dir" -maxdepth 3 -type f \( -iname "spfile${sid}.ora" -o -iname "spfile${sid_upper}.ora" \) 2>/dev/null | head -n 1 || true)"
+      fi
+      if [ -n "$SPFILE_PATH" ]; then
+        if [ ! -f "$init_home_lower" ]; then
+          printf "SPFILE='%s'\n" "$SPFILE_PATH" > "$init_home_lower"
+          chmod 0640 "$init_home_lower"
+        fi
+        if [ ! -f "$init_base_lower" ]; then
+          printf "SPFILE='%s'\n" "$SPFILE_PATH" > "$init_base_lower"
+          chmod 0640 "$init_base_lower"
+        fi
+        START_CMD="startup spfile='$SPFILE_PATH';"
+      else
+        START_CMD="startup;"
+      fi
+    fi
+
+    run_startup_cmd() {
+      startup_stmt="$1"
+      {{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit 1
+    ${startup_stmt}
+    exit;
+    EOF
+    }
+
+    reset_instance_state() {
+      printf "whenever sqlerror continue\nshutdown abort;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba >/dev/null 2>&1 || true
+    }
+
+    if run_startup_cmd "$START_CMD"; then
+      exit 0
+    fi
+
+    # Fallback: ignore potentially stale init pointers and let Oracle resolve default startup first.
+    reset_instance_state
+    if run_startup_cmd "startup;"; then
+      exit 0
+    fi
+
+    if [ -z "$SPFILE_PATH" ]; then
+      for cand in \
+        "$spfile_home" \
+        "$spfile_home_upper" \
+        "$spfile_base" \
+        "$spfile_base_upper"; do
+        if [ -f "$cand" ]; then
+          SPFILE_PATH="$cand"
+          break
+        fi
+      done
+      if [ -z "$SPFILE_PATH" ]; then
+        for dir in \
+          "$cdb_data_dir" \
+          "$cdb_data_dir_sid" \
+          "$cdb_data_dir_lower" \
+          "$cdb_data_dir_upper" \
+          "$cdb_data_dir_sid_runtime" \
+          "$cdb_data_dir_sid_runtime_lower" \
+          "$cdb_data_dir_sid_runtime_upper"; do
+          SPFILE_PATH="$(find_spfile_in_dir "$dir" || true)"
+          if [ -n "$SPFILE_PATH" ]; then
+            break
+          fi
+        done
+      fi
+      if [ -z "$SPFILE_PATH" ] && [ -d "$data_dir" ]; then
+        SPFILE_PATH="$(find "$data_dir" -maxdepth 3 -type f \( -iname "spfile${sid}.ora" -o -iname "spfile${sid_upper}.ora" \) 2>/dev/null | head -n 1 || true)"
+      fi
+    fi
+
+    if [ -n "$SPFILE_PATH" ]; then
+      reset_instance_state
+      if run_startup_cmd "startup spfile='$SPFILE_PATH';"; then
+        printf "SPFILE='%s'\n" "$SPFILE_PATH" > "$init_home_lower" 2>/dev/null || true
+        chmod 0640 "$init_home_lower" 2>/dev/null || true
+        printf "SPFILE='%s'\n" "$SPFILE_PATH" > "$init_base_lower" 2>/dev/null || true
+        chmod 0640 "$init_base_lower" 2>/dev/null || true
+        exit 0
+      fi
+    fi
+
+    exit 1
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_cdb_startup
+  changed_when: "'ORACLE instance started' in pdb_cdb_startup.stdout"
+  failed_when: pdb_cdb_startup.rc != 0
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  tags: [oracle_db_creation, pdb_create, pdb_state, pdb_post_config]
+
+- name: PDB | Check if PDB exists
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.cdb_sid }}
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit failure rollback
+    set heading off feedback off verify off echo off pagesize 0
+    select count(*) from dba_pdbs where pdb_name = upper('{{ item.pdb_name }}');
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_exists
+  changed_when: false
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  tags: [oracle_db_creation, pdb_create]
+
+- name: PDB | Check if PDB exists for delete
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.cdb_sid }}
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit failure rollback
+    set heading off feedback off verify off echo off pagesize 0
+    select count(*) from dba_pdbs where pdb_name = upper('{{ item.pdb_name }}');
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_delete_exists
+  changed_when: false
+  failed_when: false
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Check if CDB exists for delete
+  ansible.builtin.shell: |
+    if grep -q '^{{ item.cdb_sid }}:' /etc/oratab 2>/dev/null; then
+      echo oratab
+      exit 0
+    fi
+    if pgrep -f "ora_pmon_{{ item.cdb_sid }}$" >/dev/null 2>&1; then
+      echo pmon
+      exit 0
+    fi
+    echo missing
+  register: pdb_delete_cdb_exists
+  changed_when: false
+  failed_when: false
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Check CDB init file for delete
+  ansible.builtin.stat:
+    path: "{{ oracle_home }}/dbs/init{{ item.cdb_sid }}.ora"
+  register: pdb_delete_init
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Check CDB spfile for delete
+  ansible.builtin.stat:
+    path: "{{ oracle_home }}/dbs/spfile{{ item.cdb_sid }}.ora"
+  register: pdb_delete_spfile
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Ensure CDB is running for delete
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.cdb_sid }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    if {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit 1
+    select status from v$instance;
+    exit;
+    EOF
+    then
+      exit 0
+    fi
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit 1
+    startup;
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_delete_startup
+  changed_when: "'ORACLE instance started' in pdb_delete_startup.stdout"
+  failed_when: pdb_delete_startup.rc != 0
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  loop_control:
+    index_var: pdb_delete_index
+  when:
+    - oracle_allow_destructive | bool
+    - (pdb_delete_cdb_exists.results[pdb_delete_index].stdout | default('missing')) != 'missing'
+    - (pdb_delete_init.results[pdb_delete_index].stat.exists or pdb_delete_spfile.results[pdb_delete_index].stat.exists)
+    - (pdb_delete_exists.results[pdb_delete_index].stdout | regex_search('[0-9]+') | int) > 0
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Delete PDB via DBCA (destructive)
+  ansible.builtin.shell: |
+    set -eo pipefail
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.cdb_sid }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    {{ oracle_home }}/bin/dbca -silent -deletePluggableDatabase \
+    -sourceDB {{ item.cdb_sid }} \
+    -pdbName {{ item.pdb_name }}
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_delete
+  changed_when: pdb_delete.rc == 0
+  failed_when: pdb_delete.rc != 0
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  loop_control:
+    index_var: pdb_delete_index
+  when:
+    - oracle_allow_destructive | bool
+    - (pdb_delete_cdb_exists.results[pdb_delete_index].stdout | default('missing')) != 'missing'
+    - (pdb_delete_init.results[pdb_delete_index].stat.exists or pdb_delete_spfile.results[pdb_delete_index].stat.exists)
+    - (pdb_delete_exists.results[pdb_delete_index].stdout | regex_search('[0-9]+') | int) > 0
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Skip delete when CDB is missing
+  ansible.builtin.debug:
+    msg: "Skip PDB delete for {{ item.pdb_name }}: CDB {{ item.cdb_sid }} not found."
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  loop_control:
+    index_var: pdb_delete_index
+  when:
+    - oracle_allow_destructive | bool
+    - (pdb_delete_cdb_exists.results[pdb_delete_index].stdout | default('missing')) == 'missing'
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Skip delete when CDB init/spfile is missing
+  ansible.builtin.debug:
+    msg: "Skip PDB delete for {{ item.pdb_name }}: init/spfile for {{ item.cdb_sid }} is missing."
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  loop_control:
+    index_var: pdb_delete_index
+  when:
+    - oracle_allow_destructive | bool
+    - (pdb_delete_cdb_exists.results[pdb_delete_index].stdout | default('missing')) != 'missing'
+    - not (pdb_delete_init.results[pdb_delete_index].stat.exists or pdb_delete_spfile.results[pdb_delete_index].stat.exists)
+  tags: [oracle_db_delete, pdb_delete, destroy]
+
+- name: PDB | Cleanup PDB data directory after delete
+  ansible.builtin.file:
+    path: "{{ pdb_delete_data_dir_resolved }}"
+    state: absent
+  become: yes
+  when:
+    - oracle_allow_destructive | bool
+    - pdb_delete_data_dir_resolved | length > 0
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  loop_control:
+    index_var: pdb_delete_index
+  vars:
+    pdb_delete_data_dir_resolved: >-
+      {{
+        item.pdb_data_dir
+          | default(
+              (oracle_pdbs | selectattr('cdb_sid','equalto',item.cdb_sid)
+                           | selectattr('pdb_name','equalto',item.pdb_name)
+                           | map(attribute='pdb_data_dir')
+                           | list
+                           | first), true)
+          | default('', true)
+      }}
+  tags: [oracle_db_delete, pdb_delete, pdb_cleanup, destroy]
+
+- name: PDB | Verify PDB data directory removed
+  ansible.builtin.stat:
+    path: "{{ pdb_delete_data_dir_resolved }}"
+  register: pdb_delete_dir_stat
+  when:
+    - oracle_allow_destructive | bool
+    - pdb_delete_data_dir_resolved | length > 0
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  loop_control:
+    index_var: pdb_delete_index
+  vars:
+    pdb_delete_data_dir_resolved: >-
+      {{
+        item.pdb_data_dir
+          | default(
+              (oracle_pdbs | selectattr('cdb_sid','equalto',item.cdb_sid)
+                           | selectattr('pdb_name','equalto',item.pdb_name)
+                           | map(attribute='pdb_data_dir')
+                           | list
+                           | first), true)
+          | default('', true)
+      }}
+  tags: [oracle_db_delete, pdb_delete, pdb_verify, destroy]
+
+- name: PDB | Assert PDB data directory absent
+  ansible.builtin.assert:
+    that:
+      - not pdb_delete_dir_stat.results[pdb_delete_index].stat.exists
+    fail_msg: "PDB data directory still present."
+  when:
+    - oracle_allow_destructive | bool
+    - pdb_delete_dir_stat is defined
+  loop: "{{ oracle_pdbs_delete | default([]) }}"
+  loop_control:
+    index_var: pdb_delete_index
+  tags: [oracle_db_delete, pdb_delete, pdb_verify, destroy]
+
+- name: PDB | Ensure PDB data directory exists
+  ansible.builtin.file:
+    path: "{{ item.pdb_data_dir }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0775'
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  tags: [oracle_db_creation, pdb_create]
+
+- name: PDB | Create PDB when missing
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.cdb_sid }}
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit failure rollback
+    alter session set container = CDB$ROOT;
+    create pluggable database {{ item.pdb_name }}
+      admin user {{ item.pdb_admin_user }} identified by "{{ item.pdb_admin_password }}"
+      file_name_convert = ('{{ item.cdb_data_dir }}/','{{ item.pdb_data_dir }}/');
+    {% if (item.open_state | default('OPEN')) | upper != 'OPEN' %}
+    alter pluggable database {{ item.pdb_name }} {{ item.open_state | upper }};
+    {% else %}
+    alter pluggable database {{ item.pdb_name }} open;
+    {% endif %}
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_create
+  changed_when: "'Pluggable database created' in pdb_create.stdout or pdb_create.rc == 0"
+  failed_when: pdb_create.rc != 0
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  loop_control:
+    index_var: pdb_index
+  when: (pdb_exists.results[pdb_index].stdout | regex_search('[0-9]+') | int) == 0
+  tags: [oracle_db_creation, pdb_create]
+
+- name: PDB | Add PDB entry to tnsnames.ora
+  ansible.builtin.blockinfile:
+    path: "{{ oracle_home }}/network/admin/tnsnames.ora"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK {{ item.pdb_name }}"
+    block: |
+      {{ item.pdb_name | upper }} =
+        (DESCRIPTION =
+          (ADDRESS = (PROTOCOL = TCP)(HOST = {{ oracle_hostname }})(PORT = {{ item.listener_port | default(oracle_listener_port) }}))
+          (CONNECT_DATA =
+            (SERVER = DEDICATED)
+            (SERVICE_NAME = {{ item.service_name | default(item.pdb_name) }})
+          )
+        )
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0644'
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  when: not (oracle_manage_tnsnames | default(true))
+  tags: [oracle_db_creation, tnsnames]
+
+- name: PDB | Save PDB State
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.cdb_sid }}
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit failure rollback
+    set serveroutput on
+    declare
+      l_count number;
+    begin
+      select count(*) into l_count from dba_pdb_saved_states where con_name = upper('{{ item.pdb_name }}');
+      if l_count = 0 then
+        execute immediate 'ALTER PLUGGABLE DATABASE {{ item.pdb_name }} SAVE STATE';
+        dbms_output.put_line('PDB_STATE_SAVED');
+      else
+        dbms_output.put_line('PDB_STATE_ALREADY_SAVED');
+      end if;
+    end;
+    /
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_save_state
+  changed_when: "'PDB_STATE_SAVED' in pdb_save_state.stdout"
+  failed_when: pdb_save_state.rc != 0 and not ('ORA-65010' in pdb_save_state.stdout)
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  when: item.save_state | default(true)
+  tags: [oracle_db_creation, pdb_state]
+
+- name: CDB | Ensure LOCAL_LISTENER matches desired host and port
+  vars:
+    cdb_listener_name_resolved: "{{ item.listener_name | default(oracle_listener_name) }}"
+    cdb_listener_port_resolved: "{{ item.listener_port | default(oracle_listener_port) }}"
+    cdb_listener_host_resolved: >-
+      {{
+        (
+          oracle_listeners | default([])
+          | selectattr('name', 'defined')
+          | selectattr('name', 'equalto', cdb_listener_name_resolved)
+          | map(attribute='host')
+          | list
+          | first
+        )
+        | default(oracle_hostname)
+      }}
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item.sid }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+
+    desired="(ADDRESS=(PROTOCOL=TCP)(HOST={{ cdb_listener_host_resolved }})(PORT={{ cdb_listener_port_resolved }}))"
+    current="$(echo "set heading off feedback off pagesize 0 verify off echo off linesize 1000
+    select value from v\$parameter where name='local_listener';
+    exit;" | {{ oracle_home }}/bin/sqlplus -s / as sysdba)"
+    current="$(printf '%s\n' "$current" | tr -d '\r' | awk 'NF{print; exit}')"
+
+    current_norm="$(printf '%s' "$current" | tr -d '[:space:]')"
+    desired_norm="$(printf '%s' "$desired" | tr -d '[:space:]')"
+
+    if [ "$current_norm" = "$desired_norm" ]; then
+      echo "NO_CHANGE_LOCAL_LISTENER:$sid:$current"
+      exit 0
+    fi
+
+    printf "whenever sqlerror exit 1\nalter system set local_listener='%s' scope=both sid='*';\nalter system register;\nexit;\n" "$desired" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+    echo "UPDATED_LOCAL_LISTENER:$sid:$desired"
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: cdb_local_listener_ensure
+  changed_when: "'UPDATED_LOCAL_LISTENER' in cdb_local_listener_ensure.stdout"
+  failed_when: cdb_local_listener_ensure.rc != 0
+  loop: "{{ oracle_cdbs }}"
+  tags: [oracle_db_creation, pdb_state, pdb_post_config]
+# BEGIN MANAGED post_pdb_baseline
+- name: PDB | Check configured dump directory path
+  ansible.builtin.stat:
+    path: "{{ oracle_dump_dir_path }}"
+  register: oracle_dump_dir_stat
+  changed_when: false
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Detect filesystem type for configured dump directory path
+  ansible.builtin.shell: |
+    target="{{ oracle_dump_dir_path }}"
+    while [ ! -e "$target" ] && [ "$target" != "/" ]; do
+      target="$(dirname "$target")"
+    done
+    findmnt -T "$target" -n -o FSTYPE 2>/dev/null || true
+  register: oracle_dump_dir_fstype
+  changed_when: false
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Capture host IP octet for NFS dump directory layout
+  ansible.builtin.set_fact:
+    oracle_dump_dir_host_octet: >-
+      {{
+        (
+          (ansible_default_ipv4.address | default(''))
+          if ((ansible_default_ipv4.address | default('')) | regex_search('^\\d+\\.\\d+\\.\\d+\\.\\d+$'))
+          else (
+            (ansible_host | default(''))
+            if ((ansible_host | default('')) | regex_search('^\\d+\\.\\d+\\.\\d+\\.\\d+$'))
+            else ''
+          )
+        ).split('.')[-1]
+      }}
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Determine DUMP_DIR strategy and base path
+  ansible.builtin.set_fact:
+    oracle_dump_dir_is_nfs: "{{ (oracle_dump_dir_fstype.stdout | default('') | trim) in ['nfs', 'nfs4'] }}"
+    oracle_dump_dir_base_path: >-
+      {{
+        ((oracle_dump_dir_path | regex_replace('/+$', '')) ~ '/DUMPS.' ~ oracle_dump_dir_host_octet)
+        if ((oracle_dump_dir_fstype.stdout | default('') | trim) in ['nfs', 'nfs4'])
+        else (oracle_dump_dir_local_base | regex_replace('/+$', ''))
+      }}
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Validate host IP octet for NFS dump directory layout
+  ansible.builtin.assert:
+    that:
+      - oracle_dump_dir_host_octet | length > 0
+    fail_msg: >-
+      Unable to derive host IPv4 last octet for NFS DUMP_DIR layout.
+      Ensure ansible_default_ipv4.address or ansible_host is set to an IPv4 address.
+  when:
+    - oracle_dump_dir_enabled | bool
+    - oracle_dump_dir_is_nfs | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Log resolved DUMP_DIR strategy
+  ansible.builtin.debug:
+    msg: >-
+      Using {{ 'NFS' if oracle_dump_dir_is_nfs else 'local' }} DUMP_DIR base path:
+      {{ oracle_dump_dir_base_path }}
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Ensure DUMP_DIR base path exists
+  ansible.builtin.file:
+    path: "{{ oracle_dump_dir_base_path }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "{{ oracle_dump_dir_mode }}"
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Ensure per-PDB DUMP_DIR filesystem paths exist
+  ansible.builtin.file:
+    path: "{{ oracle_dump_dir_base_path }}/{{ item.pdb_name | upper }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "{{ oracle_dump_dir_mode }}"
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: PDB | Ensure PDB open read write and save state
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item.cdb_sid }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit failure rollback
+    declare
+      l_open_mode varchar2(20);
+    begin
+      select open_mode into l_open_mode from v$database;
+      if l_open_mode <> 'READ WRITE' then
+        execute immediate 'alter database open';
+      end if;
+    end;
+    /
+    alter pluggable database {{ item.pdb_name }} open read write;
+    alter pluggable database {{ item.pdb_name }} save state;
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_open_rw_save
+  changed_when: "'Pluggable database altered' in pdb_open_rw_save.stdout"
+  failed_when: pdb_open_rw_save.rc != 0 and not ('ORA-65019' in pdb_open_rw_save.stdout or 'ORA-65010' in pdb_open_rw_save.stdout)
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  when: item.save_state | default(true)
+  tags: [oracle_db_creation, pdb_state, pdb_post_config]
+
+- name: PDB | Ensure requested service exists and is started
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item.cdb_sid }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit failure rollback
+    set heading off feedback off pagesize 0 verify off echo off
+    set serveroutput on
+    alter session set container = {{ item.pdb_name }};
+    declare
+      v_service varchar2(256) := '{{ item.service_name | default(item.pdb_name) }}';
+    begin
+      begin
+        dbms_service.create_service(service_name => v_service, network_name => v_service);
+        dbms_output.put_line('CREATED_SERVICE');
+      exception
+        when others then
+          if sqlcode = -44303 then
+            dbms_output.put_line('EXISTS_SERVICE');
+          else
+            raise;
+          end if;
+      end;
+
+      begin
+        dbms_service.start_service(service_name => v_service);
+        dbms_output.put_line('STARTED_SERVICE');
+      exception
+        when others then
+          if sqlcode = -44305 then
+            dbms_output.put_line('ALREADY_RUNNING_SERVICE');
+          else
+            raise;
+          end if;
+      end;
+    end;
+    /
+    alter system register;
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_service_ensure
+  changed_when: "'CREATED_SERVICE' in pdb_service_ensure.stdout or 'STARTED_SERVICE' in pdb_service_ensure.stdout"
+  failed_when: pdb_service_ensure.rc != 0
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  when:
+    - item.service_name is defined
+    - item.service_name | string | length > 0
+  tags: [oracle_db_creation, pdb_state, pdb_post_config]
+
+- name: PDB | Create or replace DUMP_DIR in each PDB
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.cdb_sid }}
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit failure rollback
+    set heading off feedback off pagesize 0 verify off echo off
+    set serveroutput on
+    alter session set container = {{ item.pdb_name }};
+    declare
+      v_current varchar2(4000);
+      v_desired varchar2(4000) := q'[{{ oracle_dump_dir_base_path }}/{{ item.pdb_name | upper }}]';
+    begin
+      begin
+        select directory_path
+          into v_current
+          from all_directories
+         where directory_name = 'DUMP_DIR';
+      exception
+        when no_data_found then
+          v_current := null;
+      end;
+
+      if v_current is null or lower(trim(v_current)) <> lower(trim(v_desired)) then
+        execute immediate 'create or replace directory DUMP_DIR as ''' || replace(v_desired, '''', '''''') || '''';
+        dbms_output.put_line('UPDATED_DUMP_DIR');
+      else
+        dbms_output.put_line('NO_CHANGE_DUMP_DIR');
+      end if;
+    end;
+    /
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: pdb_dump_dir_create
+  changed_when: "'UPDATED_DUMP_DIR' in pdb_dump_dir_create.stdout"
+  failed_when: pdb_dump_dir_create.rc != 0
+  loop: "{{ oracle_pdbs }}"
+  no_log: true
+  when: oracle_dump_dir_enabled | bool
+  tags: [oracle_db_creation, pdb_dump_dir, pdb_post_config]
+
+- name: CDB | Ensure CDB is running before baseline tuning
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_BASE={{ oracle_base }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    sid_upper="$(printf '%s' "$sid" | tr '[:lower:]' '[:upper:]')"
+    sid_lower="$(printf '%s' "$sid" | tr '[:upper:]' '[:lower:]')"
+    export ORACLE_SID="$sid"
+
+    if {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit 1
+    select status from v$instance;
+    exit;
+    EOF
+    then
+      exit 0
+    fi
+
+    init_home_lower="{{ oracle_home }}/dbs/init${sid_lower}.ora"
+    init_home_upper="{{ oracle_home }}/dbs/init${sid_upper}.ora"
+    init_base_lower="{{ oracle_base }}/dbs/init${sid_lower}.ora"
+    init_base_upper="{{ oracle_base }}/dbs/init${sid_upper}.ora"
+    if [ -f "$init_home_lower" ]; then
+      START_CMD="startup pfile='$init_home_lower';"
+    elif [ -f "$init_home_upper" ]; then
+      START_CMD="startup pfile='$init_home_upper';"
+    elif [ -f "$init_base_lower" ]; then
+      START_CMD="startup pfile='$init_base_lower';"
+    elif [ -f "$init_base_upper" ]; then
+      START_CMD="startup pfile='$init_base_upper';"
+    else
+      START_CMD="startup;"
+    fi
+
+    run_startup_cmd() {
+      startup_stmt="$1"
+      {{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit 1
+    ${startup_stmt}
+    exit;
+    EOF
+    }
+
+    reset_instance_state() {
+      printf "whenever sqlerror continue\nshutdown abort;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba >/dev/null 2>&1 || true
+    }
+
+    if run_startup_cmd "$START_CMD"; then
+      exit 0
+    fi
+
+    reset_instance_state
+    if run_startup_cmd "startup;"; then
+      exit 0
+    fi
+
+    for spfile_cand in "$spfile_home" "$spfile_home_upper" "$spfile_base" "$spfile_base_upper"; do
+      [ -f "$spfile_cand" ] || continue
+      reset_instance_state
+      if run_startup_cmd "startup spfile='$spfile_cand';"; then
+        exit 0
+      fi
+    done
+
+    exit 1
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: cdb_tuning_startup
+  changed_when: "'ORACLE instance started' in cdb_tuning_startup.stdout"
+  failed_when: cdb_tuning_startup.rc != 0
+  loop: "{{ oracle_pdbs | map(attribute='cdb_sid') | map('string') | unique | list }}"
+  when:
+    - oracle_post_pdb_tuning_enabled | bool
+    - (oracle_pdbs | default([]) | length) > 0
+  tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
+
+- name: CDB | Apply baseline tuning in spfile
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+
+    if ! {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit 1
+    select status from v$instance;
+    exit;
+    EOF
+    then
+      printf "whenever sqlerror exit 1\nstartup;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+    fi
+
+    spfile_in_use="$(printf "set heading off feedback off pagesize 0 verify off echo off\nselect value from v\\$parameter where name='spfile';\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba)"
+    spfile_in_use="$(printf '%s\n' "$spfile_in_use" | awk 'NF{print; exit}')"
+    if [ -z "$spfile_in_use" ]; then
+      printf "whenever sqlerror exit 1\ncreate spfile from memory;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+      printf "whenever sqlerror continue\nshutdown immediate;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+      printf "whenever sqlerror exit 1\nstartup;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+      spfile_in_use="$(printf "set heading off feedback off pagesize 0 verify off echo off\nselect value from v\\$parameter where name='spfile';\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba)"
+      spfile_in_use="$(printf '%s\n' "$spfile_in_use" | awk 'NF{print; exit}')"
+      if [ -z "$spfile_in_use" ]; then
+        echo "ERROR: SPFILE is still not active for $sid after conversion" >&2
+        exit 1
+      fi
+    fi
+
+    tuning_status="$({{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit failure rollback
+    set heading off feedback off pagesize 0 verify off echo off
+    set serveroutput on
+    declare
+      v_processes number := 0;
+      v_sessions number := 0;
+      v_transactions number := 0;
+      v_open_cursors number := 0;
+      v_db_domain varchar2(256) := '';
+      v_expected_db_domain varchar2(256) := q'[{{ oracle_post_pdb_db_domain | default('') | trim }}]';
+    begin
+      select to_number(value) into v_processes from v\$parameter where name = 'processes';
+      select to_number(value) into v_sessions from v\$parameter where name = 'sessions';
+      select to_number(value) into v_transactions from v\$parameter where name = 'transactions';
+      select to_number(value) into v_open_cursors from v\$parameter where name = 'open_cursors';
+      select nvl(value, '') into v_db_domain from v\$parameter where name = 'db_domain';
+
+      if v_processes = {{ oracle_post_pdb_processes | int }}
+         and v_sessions >= {{ oracle_post_pdb_sessions | int }}
+         and v_transactions = {{ oracle_post_pdb_transactions | int }}
+         and v_open_cursors = {{ oracle_post_pdb_open_cursors | int }}
+         and nvl(lower(trim(v_db_domain)), '#NULL#') = nvl(lower(trim(v_expected_db_domain)), '#NULL#') then
+        dbms_output.put_line('NO_CHANGE: tuning already applied for {{ item }}');
+      else
+        execute immediate 'alter system set processes={{ oracle_post_pdb_processes }} scope=spfile';
+        execute immediate 'alter system set sessions={{ oracle_post_pdb_sessions }} scope=spfile';
+        execute immediate 'alter system set transactions={{ oracle_post_pdb_transactions }} scope=spfile';
+        execute immediate 'alter system set open_cursors={{ oracle_post_pdb_open_cursors }} scope=spfile';
+        execute immediate 'alter system set db_domain=''' || replace(v_expected_db_domain, '''', '''''') || ''' scope=spfile';
+        dbms_output.put_line('UPDATED: tuning applied for {{ item }}');
+      end if;
+    end;
+    /
+    exit;
+    EOF
+    )"
+    printf '%s\n' "$tuning_status"
+    if ! printf '%s\n' "$tuning_status" | grep -qE 'NO_CHANGE:|UPDATED:'; then
+      echo "ERROR: Unable to determine tuning status for $sid" >&2
+      exit 1
+    fi
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: cdb_baseline_tuning
+  changed_when: "'NO_CHANGE: tuning already applied' not in cdb_baseline_tuning.stdout"
+  failed_when: cdb_baseline_tuning.rc != 0
+  loop: "{{ oracle_pdbs | map(attribute='cdb_sid') | map('string') | unique | list }}"
+  when:
+    - oracle_post_pdb_tuning_enabled | bool
+    - (oracle_pdbs | default([]) | length) > 0
+  tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
+
+- name: CDB | Build restart list for changed spfile tuning
+  ansible.builtin.set_fact:
+    cdb_tuning_restart_sids: "{{ cdb_baseline_tuning.results | default([]) | selectattr('changed', 'equalto', true) | map(attribute='item') | map('string') | unique | list }}"
+  when:
+    - oracle_post_pdb_tuning_enabled | bool
+    - (oracle_pdbs | default([]) | length) > 0
+    - cdb_baseline_tuning is defined
+  tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
+
+- name: CDB | Restart CDB to apply spfile tuning changes
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+
+    printf "whenever sqlerror continue\nshutdown immediate;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba >/dev/null 2>&1 || true
+    printf "whenever sqlerror exit 1\nstartup;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: cdb_tuning_restart
+  changed_when: true
+  failed_when: cdb_tuning_restart.rc != 0
+  loop: "{{ cdb_tuning_restart_sids | default([]) }}"
+  when:
+    - oracle_post_pdb_tuning_enabled | bool
+    - (cdb_tuning_restart_sids | default([]) | length) > 0
+  tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
+
+- name: CDB | Show tuning parameters
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<EOF
+    show parameter processes
+    show parameter sessions
+    show parameter transactions
+    show parameter open_cursors
+    show parameter db_domain
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  register: cdb_tuning_show
+  changed_when: false
+  loop: "{{ oracle_pdbs | map(attribute='cdb_sid') | map('string') | unique | list }}"
+  when:
+    - oracle_post_pdb_tuning_enabled | bool
+    - (oracle_pdbs | default([]) | length) > 0
+  tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
+
+- name: CDB | Log tuning output
+  ansible.builtin.debug:
+    var: item.stdout_lines
+  loop: "{{ cdb_tuning_show.results | default([]) }}"
+  when:
+    - oracle_post_pdb_tuning_enabled | bool
+    - cdb_tuning_show is defined
+  tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
+# END MANAGED post_pdb_baseline

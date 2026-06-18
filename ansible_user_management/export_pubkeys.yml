@@ -1,25 +1,40 @@
 # ===========================================
-# ./export_pubkeys.yml
+# ./export_pubkeys.yml (Python 2.7 Compatible)
 # ===========================================
 ---
 - name: Export SSH Public Keys from Remote Servers
   hosts: all
-  become: true
-  gather_facts: true
+  become: yes
+  # We disable standard fact gathering to avoid running modern setup code
+  # on a host with an incompatible Python 2.7 interpreter.
+  gather_facts: no
 
   tasks:
+    - name: Gather just the hostname manually
+      # This is a fallback because the standard 'setup' module fails.
+      command: hostname
+      register: hostname_result
+      changed_when: false
+      check_mode: no
+
+    - name: Set ansible_hostname fact
+      # We manually set the ansible_hostname fact for use in later tasks.
+      set_fact:
+        ansible_hostname: "{{ hostname_result.stdout }}"
+
     - name: Create local exported_keys directory
-      ansible.builtin.file:
+      local_action:
+        module: file
         path: "./exported_keys"
         state: directory
       delegate_to: localhost
       run_once: true
-      check_mode: false
+      check_mode: no
 
     - name: Check if SSH public keys exist and read them
       block:
         - name: Check for RSA public keys
-          ansible.builtin.stat:
+          stat:
             path: "/home/{{ item.name }}/.ssh/id_rsa.pub"
           register: rsa_key_check
           loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
@@ -27,7 +42,7 @@
             label: "{{ item.name }}"
 
         - name: Check for Ed25519 public keys
-          ansible.builtin.stat:
+          stat:
             path: "/home/{{ item.name }}/.ssh/id_ed25519.pub"
           register: ed25519_key_check
           loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
@@ -35,7 +50,7 @@
             label: "{{ item.name }}"
 
         - name: Read RSA public key contents
-          ansible.builtin.slurp:
+          slurp:
             src: "/home/{{ item.item.name }}/.ssh/id_rsa.pub"
           register: rsa_key_contents
           loop: "{{ rsa_key_check.results }}"
@@ -44,7 +59,7 @@
             label: "{{ item.item.name }}"
 
         - name: Read Ed25519 public key contents
-          ansible.builtin.slurp:
+          slurp:
             src: "/home/{{ item.item.name }}/.ssh/id_ed25519.pub"
           register: ed25519_key_contents
           loop: "{{ ed25519_key_check.results }}"
@@ -53,7 +68,7 @@
             label: "{{ item.item.name }}"
 
         - name: Display RSA public keys
-          ansible.builtin.debug:
+          debug:
             msg: |
               Host: {{ ansible_hostname }}
               User: {{ item.item.item.name }}
@@ -68,7 +83,7 @@
             label: "{{ item.item.item.name }}"
 
         - name: Display Ed25519 public keys
-          ansible.builtin.debug:
+          debug:
             msg: |
               Host: {{ ansible_hostname }}
               User: {{ item.item.item.name }}
@@ -83,7 +98,8 @@
             label: "{{ item.item.item.name }}"
 
         - name: Save RSA public keys to local files
-          ansible.builtin.copy:
+          local_action:
+            module: copy
             content: "{{ item.content | b64decode }}"
             dest: "./exported_keys/{{ ansible_hostname }}_{{ item.item.item.name }}_id_rsa.pub"
           loop: "{{ rsa_key_contents.results }}"
@@ -95,7 +111,8 @@
           delegate_to: localhost
 
         - name: Save Ed25519 public keys to local files
-          ansible.builtin.copy:
+          local_action:
+            module: copy
             content: "{{ item.content | b64decode }}"
             dest: "./exported_keys/{{ ansible_hostname }}_{{ item.item.item.name }}_id_ed25519.pub"
           loop: "{{ ed25519_key_contents.results }}"
@@ -107,7 +124,7 @@
           delegate_to: localhost
 
     - name: Summary of exported keys
-      ansible.builtin.debug:
+      debug:
         msg: |
           Exported SSH public keys can be found in the './exported_keys/' directory
           Files are named: HOSTNAME_USERNAME_KEYTYPE.pub

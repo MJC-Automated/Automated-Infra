@@ -49,8 +49,8 @@ vault_secret_prefix = "terraform"
 // Optional AppRole hardening examples:
 vault_approle_secret_id_num_uses      = 0
 vault_approle_secret_id_ttl_seconds   = 86400
-vault_approle_secret_id_bound_cidrs   = ["198.51.100.0/24", "127.0.0.1"]
-vault_approle_token_bound_cidrs       = ["198.51.100.0/24", "127.0.0.1"]
+vault_approle_secret_id_bound_cidrs   = ["192.0.2.0/24", "127.0.0.1"]
+vault_approle_token_bound_cidrs       = ["192.0.2.0/24", "127.0.0.1"]
 vault_approle_token_no_default_policy = true
 
 // Optional multi-key template (uncomment and replace values if needed):
@@ -91,7 +91,7 @@ node_groups = {
     "weblogic14c-dot80" = {
       vmid      = 10000
       name      = "public-weblogic14c-01"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.24"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.20"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -105,15 +105,15 @@ node_groups = {
       // protection         = true
       // balloon            = 8192
       tags      = "weblogic14c"
-      data_disk = { size = "200G" }
+      data_disk = { size = "60G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
         vg_name     = "vgdata"
         mounts = [
-          { mount = "/u01", size_gb = "100", owner = "root", group = "root" },
+          { mount = "/u01", size_gb = "30", owner = "root", group = "root" },
           { mount = "/Logs", size_gb = "10", owner = "root", group = "root" },
-          { mount = "/Applications", size_gb = "50", owner = "root", group = "root" },
+          { mount = "/Applications", size_gb = "10", owner = "root", group = "root" },
           { mount = "/u02", size_gb = "AUTO", owner = "root", group = "root" }
         ]
       }
@@ -125,20 +125,20 @@ node_groups = {
     "weblogic12c-dot81" = {
       vmid      = 10001
       name      = "public-weblogic12c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.24"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.20"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
       tags      = "weblogic12c"
-      data_disk = { size = "200G" }
+      data_disk = { size = "55G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
         vg_name     = "vgdata"
         mounts = [
-          { mount = "/u01", size_gb = "100", owner = "root", group = "root" },
+          { mount = "/u01", size_gb = "30", owner = "root", group = "root" },
           { mount = "/Logs", size_gb = "10", owner = "root", group = "root" },
-          { mount = "/Applications", size_gb = "50", owner = "root", group = "root" },
+          { mount = "/Applications", size_gb = "6", owner = "root", group = "root" },
           { mount = "/u02", size_gb = "AUTO", owner = "root", group = "root" }
         ]
       }
@@ -150,18 +150,18 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.24"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.20"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
       tags      = "database19c"
-      data_disk = { size = "200G" }
+      data_disk = { size = "65G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
         vg_name     = "vgdata"
         mounts = [
-          { mount = "/u01", size_gb = "100", owner = "root", group = "root" },
+          { mount = "/u01", size_gb = "30", owner = "root", group = "root" },
           { mount = "/u02", size_gb = "AUTO", owner = "root", group = "root" }
         ]
       }
@@ -173,43 +173,145 @@ node_groups = {
     "database21c-dot83" = {
       vmid      = 10003
       name      = "public-database21c-02"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.24"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.20"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
       tags      = "database21c"
-      data_disk = { size = "200G" }
+      data_disk = { size = "65G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
         vg_name     = "vgdata"
         mounts = [
-          { mount = "/u01", size_gb = "100", owner = "root", group = "root" },
+          { mount = "/u01", size_gb = "30", owner = "root", group = "root" },
           { mount = "/u02", size_gb = "AUTO", owner = "root", group = "root" }
         ]
       }
     }
   }
 
-  // Ubuntu 24.04: Jenkins
-  "jenkins" = {
-    "jenkins-dot84" = {
+  // Ubuntu 24.04: Zabbix
+  "zabbix" = {
+    "zabbix-dot84" = {
       vmid      = 10004
+<<<<<<< HEAD
       name      = "public-jenkins-02"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.24"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.20"
+=======
+      name      = "public-zabbix-01"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.87"
+>>>>>>> terraform-proxmox-automated-infra
       cores     = 8
       memory    = 10240
       disk_size = "50G"
-      tags      = "jenkins"
-      data_disk = { size = "300G" }
+      tags      = "zabbix"
+      data_disk = { size = "8G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
         vg_name     = "vgdata"
         mounts = [
-          { mount = "/versionControl", size_gb = "100", owner = "root", group = "root" },
-          { mount = "/Logs", size_gb = "100", owner = "root", group = "root" },
-          { mount = "/u01", size_gb = "AUTO", owner = "root", group = "root" }
+          { mount = "/zabbix", size_gb = "6", owner = "root", group = "root" },
+        ]
+      }
+    }
+  }
+
+  // Oracle Linux 9: FreeIPA
+  "freeipa" = {
+    "freeipa-dot85" = {
+      vmid       = 10005
+      name       = "public-freeipa-01"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.87"
+      os_profile = "oracle9"
+      cores      = 4
+      memory     = 8192
+      disk_size  = "50G"
+      tags       = "freeipa"
+      data_disk  = { size = "30G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/dirsrv", size_gb = "10", owner = "root", group = "root" },
+          { mount = "/var/lib/ipa", size_gb = "10", owner = "root", group = "root" },
+          { mount = "/var/log", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
+  // Ubuntu 24.04: Keycloak
+  "keycloak" = {
+    "keycloak-dot86" = {
+      vmid       = 10006
+      name       = "public-keycloak-01"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.87"
+      os_profile = "ubuntu2404"
+      cores      = 4
+      memory     = 8192
+      disk_size  = "50G"
+      tags       = "keycloak,sso"
+      data_disk  = { size = "20G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/opt/keycloak", size_gb = "6", owner = "root", group = "root" },
+          { mount = "/var/lib/postgresql", size_gb = "6", owner = "root", group = "root" },
+          { mount = "/var/log/keycloak", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
+  // Ubuntu 24.04: Unified observability core (Prometheus, Loki, Grafana)
+  "observability" = {
+    "observability-dot87" = {
+      vmid       = 10007
+      name       = "public-observability-01"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.87"
+      os_profile = "ubuntu2404"
+      cores      = 6
+      memory     = 16384
+      disk_size  = "50G"
+      tags       = "observability,monitoring"
+      data_disk  = { size = "30G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/prometheus", size_gb = "8", owner = "root", group = "root" },
+          { mount = "/var/lib/loki", size_gb = "8", owner = "root", group = "root" },
+          { mount = "/var/lib/grafana", size_gb = "8", owner = "root", group = "root" },
+          { mount = "/var/log/observability", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
+  // Oracle Linux 9: Zimbra Collaboration Suite
+  "zimbra" = {
+    "zimbra-dot88" = {
+      vmid       = 10008
+      name       = "public-zimbra-01"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.87"
+      os_profile = "oracle9"
+      cores      = 6
+      memory     = 16384
+      disk_size  = "50G"
+      tags       = "zimbra,mail"
+      data_disk  = { size = "15G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/zimbra", size_gb = "AUTO", owner = "root", group = "root" },
         ]
       }
     }

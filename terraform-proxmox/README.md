@@ -11,7 +11,8 @@ Key features:
 - Generic node groups with per-group or per-VM overrides.
 - Vault-backed secrets for Proxmox API credentials.
 - Multi-environment support via Terraform workspaces.
-- Packer templates for Ubuntu 24.04, Oracle Linux 8, and Oracle Linux 9.
+- Packer template build path for Ubuntu 24.04, Oracle Linux 8, and Oracle Linux 9.
+- Checksum-verified cloud-image sync helper for Ubuntu 22.04, Ubuntu 24.04, Debian 12, Oracle Linux 8/9, Rocky Linux 9, AlmaLinux 9, and Fedora 43.
 - Automatic cloud-init snippets for data-disk partitioning.
 
 ## Quick Start Summary
@@ -20,7 +21,7 @@ Key features:
 2. Set up Vault and store Proxmox API credentials.
 3. Create base VMs on Proxmox using reserved VMIDs (`999999990+`).
 4. Build Packer templates.
-5. Generate/edit environment config (`make env-template ENVIRONMENT=<env> ...` then review `environments/<env>.tfvars`).
+5. Generate/edit environment config from the committed `dev` seed (`make env-template ENVIRONMENT=<env> ...` then review `environments/<env>.tfvars`).
 6. Render and upload cloud-init snippets.
 7. Run `make deploy ENVIRONMENT=<env>`.
 
@@ -257,12 +258,17 @@ chmod 600 .env
 
 Documented concrete defaults in this repo:
 
-- `TF_VAR_vault_address=https://198.51.100.18:8200`
-- `VAULT_ADDR=https://198.51.100.18:8200`
+<<<<<<< HEAD
+- `TF_VAR_vault_address=https://198.51.100.69:8200`
+- `VAULT_ADDR=https://198.51.100.69:8200`
+=======
+- `TF_VAR_vault_address=https://198.51.100.54:8200`
+- `VAULT_ADDR=https://198.51.100.54:8200`
+>>>>>>> terraform-proxmox-automated-infra
 - `PROXMOX_USER=root`
-- `PROXMOX_HOST_DEV=198.51.100.20`
-- `PROXMOX_HOST_PROD=198.51.100.19`
-- `PROXMOX_HOST_TESTING=198.51.100.21`
+- `PROXMOX_HOST_DEV=198.51.100.70`
+- `PROXMOX_HOST_PROD=198.51.100.71`
+- `PROXMOX_HOST_TESTING=198.51.100.72`
 
 Required values intentionally not documented as concrete literals:
 
@@ -297,17 +303,32 @@ AppRole auth validation route (instead of static token in `.env`):
 ```bash
 cd terraform-proxmox
 cp .env .env.bak.approle-test
-sed -i 's/^VAULT_TOKEN=/# VAULT_TOKEN=/' .env
-sed -i 's/^TF_VAR_vault_token=/# TF_VAR_vault_token=/' .env
+sed -i '/^VAULT_TOKEN=/d; /^TF_VAR_vault_token=/d' .env
+# Ensure vault-auth does not silently reuse an old admin token cache.
+rm -f .vault-token
 
 make vault-login ENVIRONMENT=dev
 ./scripts/vault-auth.sh --force-login --validate --print-token >/dev/null
 ./scripts/with-vault-token.sh vault kv get secret/terraform/dev/creds >/dev/null
 
 mv .env.bak.approle-test .env
+rm -f .vault-token
 ```
 
+<<<<<<< HEAD
 Note: with `environments/dev.tfvars` (`manage_vault_access=true`), governance operations still require an admin token. AppRole is validated above for runtime secret access/login flow.
+=======
+Note: with `environments/dev.tfvars` (`manage_vault_access=true`), governance operations still require an admin token.
+AppRole-only `.env` works for runtime secret reads/login flow, but `make plan` / `make apply` will fail during governance refresh with errors like:
+`failed to create limited child token ... POST /v1/auth/token/create ... permission denied`.
+If you want to keep AppRole values in `.env` but run a one-off governance apply, inject a temporary admin token only for that command:
+
+```bash
+ROOT_TOKEN="$(tr -d '\n' < ~/.vault-recovery/latest/root-token.txt)"
+VAULT_TOKEN="$ROOT_TOKEN" TF_VAR_vault_token="$ROOT_TOKEN" make apply ENVIRONMENT=<env>
+```
+
+>>>>>>> terraform-proxmox-automated-infra
 For full Terraform AppRole mode (non-governance), set `vault_auth_mode="approle"` and `manage_vault_access=false` in `environments/<env>.tfvars`.
 
 ### 3.2 Obtain Required Secret and Env Values
@@ -318,9 +339,9 @@ Use this checklist when `.env` was removed (for example after `make clean-all`).
 
 ```bash
 # Use the same reachable endpoint for both variables.
-# This repo documents a LAN default of 198.51.100.18 for dev examples.
-VAULT_ADDR=https://198.51.100.18:8200
-TF_VAR_vault_address=https://198.51.100.18:8200
+# This repo documents a LAN default of 198.51.100.69 for dev examples.
+VAULT_ADDR=https://198.51.100.69:8200
+TF_VAR_vault_address=https://198.51.100.69:8200
 ```
 
 1. `VAULT_TOKEN` / `TF_VAR_vault_token` (token mode, admin/governance workflows)
@@ -447,10 +468,10 @@ make vault-mode-verify ENVIRONMENT=dev
 Optional overrides:
 
 ```bash
-make vault-mode-lan ENVIRONMENT=dev VAULT_LAN_IP=198.51.100.18 VAULT_LAN_HOST=198.51.100.18
+make vault-mode-lan ENVIRONMENT=dev VAULT_LAN_IP=198.51.100.69 VAULT_LAN_HOST=198.51.100.69
 
 # Regenerate Vault cert only (adds SANs for 127.0.0.1 + LAN host/IP)
-make vault-tls-regenerate VAULT_LAN_IP=198.51.100.18 VAULT_LAN_HOST=198.51.100.18
+make vault-tls-regenerate VAULT_LAN_IP=198.51.100.69 VAULT_LAN_HOST=198.51.100.69
 ```
 
 If your host has multiple NICs and LAN switch verification fails with `no route to host` or `connection refused`, pin the exact source IP:
@@ -555,8 +576,8 @@ bash -n .env
 Minimum required keys for this repo:
 
 ```bash
-TF_VAR_vault_address=https://198.51.100.18:8200
-VAULT_ADDR=https://198.51.100.18:8200
+TF_VAR_vault_address=https://198.51.100.69:8200
+VAULT_ADDR=https://198.51.100.69:8200
 VAULT_SKIP_VERIFY=true
 ```
 
@@ -675,6 +696,11 @@ make env-base-vm-oracle9 ENVIRONMENT=<env>
 
 You can also run `make env-base-vms ENVIRONMENT=<env> BASE_VM_BUILD_ORACLE=true` to do this in one command.
 
+Scope note:
+
+- `env-base-vm-*` and `packer-build-*` currently build templates only for `ubuntu24`, `oracle8`, and `oracle9`.
+- `make env-cloud-images` supports a broader image matrix for direct cloud-init validation and future expansion, but those additional images are not yet wired into the Packer template build targets.
+
 Base VM requirements:
 
 - VMIDs: `999999990` (oracle9), `999999991` (oracle8), `999999992` (ubuntu2404)
@@ -693,6 +719,46 @@ Reserved Packer template outputs (definitive names + high VMIDs):
 - `999999995` -> `ubuntu2404-template`
 
 If you use a custom/manual script instead, keep the same VMIDs and names above.
+
+## 5.1 Cloud Image Matrix and Validation
+
+The image sync helper can be driven directly with:
+
+```bash
+make env-cloud-images ENVIRONMENT=<env> CLOUD_IMAGES=all
+```
+
+Supported `CLOUD_IMAGES` keys:
+
+- `ubuntu22`
+- `ubuntu24`
+- `debian12`
+- `oracle8`
+- `oracle9`
+- `rocky9`
+- `alma9`
+- `fedora43`
+- `common`
+- `all`
+
+Selection behavior:
+
+- `common` resolves to `ubuntu24` during default bootstrap runs.
+- `common` expands to `ubuntu24,oracle8,oracle9` when `BASE_VM_BUILD_ORACLE=true`.
+- `all` expands to the full supported matrix above.
+
+Checksum behavior:
+
+- SHA256: Ubuntu, Oracle Linux, Rocky Linux, AlmaLinux, Fedora
+- SHA512: Debian 12
+- Oracle Linux checksum discovery uses Oracle's official template metadata JSON.
+
+Current live validation status on Proxmox:
+
+- Root-disk cloud-init smoke tests passed for Debian 12, Ubuntu 24.04, and Fedora 43.
+- Data-disk and LVM provisioning passed for Debian 12, Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9.
+- Swap policy validation passed across Debian 12, Ubuntu 22.04/24.04, Oracle Linux 8/9, AlmaLinux 9, Rocky Linux 9, and Fedora 43.
+- Fedora 43 intentionally satisfies the swap target through distro-provided `zram`, so the builder tops up only when required instead of forcing a replacement swap layout.
 
 ## 6. Configure Packer Variables
 
@@ -715,7 +781,7 @@ Required values:
 - `proxmox_node` (your Proxmox node name)
 - `clone_vm_id` (base VMID)
 - `vm_id` (template VMID to create)
-- `template_name` (template name, should match `os_profiles` defaults in Terraform)
+- `template_name` (template name, should match the Terraform `clone_template` / `os_profiles` values you use for that environment)
 
 Default reserved mapping used by the repo (and by `make env-template` scaffolding):
 
@@ -752,6 +818,10 @@ These generate templates named `ubuntu2404-template`, `oracle8-template`, and `o
 
 Update `environments/<env>.tfvars`:
 
+<<<<<<< HEAD
+=======
+- `environments/dev.tfvars` is the only committed environment seed and now mirrors the 9-node service topology used to bootstrap richer environments such as `example`.
+>>>>>>> terraform-proxmox-automated-infra
 - `target_node` should match the Proxmox node name.
 - `storage_pool` should match your root/template storage.
 - `data_disk_defaults.storage` should match the data-disk pool (e.g., `local-lvm`).
@@ -766,7 +836,7 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.24"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.20"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -837,19 +907,24 @@ Host resolution for snippet upload:
 4. Packer `vars.<env>.pkrvars.hcl`
 5. If unresolved, command exits with an explicit error (no hardcoded host fallback)
 
+Environment-name note:
+
+- Hyphenated environments are normalized for env-var lookup, so `ENVIRONMENT=qa-west` maps to `PROXMOX_HOST_QA_WEST`.
+- Vault lookup derives its path from `vault_kv_mount_path` and `vault_secret_prefix` in `environments/<env>.tfvars`; it is not hardcoded to `secret/terraform/<env>/creds`.
+
 Override defaults in `.env` if needed:
 
 ```bash
 PROXMOX_USER=root
-PROXMOX_HOST_DEV=198.51.100.20
-PROXMOX_HOST_PROD=198.51.100.19
-PROXMOX_HOST_TESTING=198.51.100.21
+PROXMOX_HOST_DEV=198.51.100.70
+PROXMOX_HOST_PROD=198.51.100.71
+PROXMOX_HOST_TESTING=198.51.100.72
 # Additional environments:
-# PROXMOX_HOST_QA=198.51.100.17
+# PROXMOX_HOST_QA=198.51.100.73
 # PROXMOX_NODE_QA=proxmox
-# ANSIBLE_HOST_QA=198.51.100.22
-# NETWORK_CIDR_QA=192.0.2.0/24
-# NETWORK_GW_QA=198.51.100.23
+# ANSIBLE_HOST_QA=198.51.100.74
+# NETWORK_CIDR_QA=203.0.113.0/24
+# NETWORK_GW_QA=198.51.100.75
 # STORAGE_POOL_QA=local-lvm
 # DATA_STORAGE_QA=local-lvm
 AUTO_DISCOVER=true
@@ -908,19 +983,34 @@ It checks block devices, LVM, fstab, mountpoints, and the marker file `/var/loca
 You can now scaffold and bootstrap a brand-new environment name (for example `qa`) with `make`.
 The repository keeps a single committed env seed (`environments/dev.tfvars`); additional env tfvars are scaffolded locally.
 
+Important before first bootstrap on a fresh control node:
+
+- Ensure `terraform-proxmox/.env` already has Vault connectivity/auth (`VAULT_ADDR` and either `VAULT_TOKEN` or AppRole values).
+- `make env-template` writes env-scoped Proxmox keys (for example `PROXMOX_HOST_<ENV>`) but does not populate Vault auth values.
+- If `VAULT_ADDR` is missing, `make env-bootstrap` will stop at `make rotate-proxmox-creds` with `Error: VAULT_ADDR is not set.`
+
+Quick baseline:
+
+```bash
+cd terraform-proxmox
+cp .env.example .env
+chmod 600 .env
+# Edit .env with real Vault/auth values before running env-bootstrap.
+```
+
 ### 12.1 Auto-Discover Core Settings and Generate Template
 
 From `terraform-proxmox/`:
 
 ```bash
 # Optional: inspect discovered values first
-make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.17
+make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.73
 
 # Scaffold using discovery (default AUTO_DISCOVER=true)
 make env-template \
   ENVIRONMENT=qa \
   TEMPLATE_ENV=dev \
-  PROXMOX_HOST=198.51.100.17 \
+  PROXMOX_HOST=198.51.100.73 \
   AUTO_DISCOVER=true
 ```
 
@@ -969,12 +1059,14 @@ Preflight checklist (recommended before first `plan`/`apply`):
    - Set `cloudinit_first_access_user` and `cloudinit_first_access_ssh_public_key` to include all required public keys (for example laptop + automation/Ansible host).
    - Ensure your Ansible run uses the matching private key for those injected keys.
 2. Confirm Terraform clone template names match what exists on the target Proxmox.
-   - Defaults come from OS profiles (`oracle8-template`, `oracle9-template`, `ubuntu2404-template`).
+   - Defaults come from `os_profiles` / per-VM `clone_template`.
+   - If your Packer vars use template VM names such as `oracle8-template`, `oracle9-template`, or `ubuntu2404-template`, keep Terraform aligned with those exact names.
    - If your templates are named differently, set per-VM `clone_template` in `node_groups` or override `os_profiles` in `environments/<env>.tfvars`.
    - Verify existing templates with `ssh root@<pve-ip> "qm list"`.
 3. Confirm target VMIDs are free on that Proxmox node before apply.
    - Example: `ssh root@<pve-ip> "qm list"`.
 4. Confirm Vault is reachable/unsealed and env credentials exist.
+   - Verify `.env` contains Vault settings (`VAULT_ADDR` + token/AppRole) before running `env-bootstrap`.
    - Run `make vault-login`.
    - Run `make rotate-proxmox-creds ENVIRONMENT=<env>` to seed `<vault_kv_mount_path>/<vault_secret_prefix>/<env>/creds` (default `secret/terraform/<env>/creds`).
 5. Confirm snippet storage supports `snippets`.
@@ -991,13 +1083,23 @@ Preflight checklist (recommended before first `plan`/`apply`):
 
 If you need a specific VM IP window, edit `ipconfig0` entries in `environments/<env>.tfvars`.
 Also verify `snippet_storage` matches a storage that supports `snippets` on the target Proxmox.
-Example for `198.51.100.25-130`:
+<<<<<<< HEAD
+Example for `198.51.100.76-130`:
 
-- `ip=203.0.113.0/24,gw=198.51.100.26`
-- `ip=192.0.2.0/24,gw=198.51.100.26`
-- `ip=198.51.100.0/24,gw=198.51.100.26`
-- `ip=203.0.113.0/24,gw=198.51.100.26`
-- `ip=192.0.2.0/24,gw=198.51.100.26`
+- `ip=192.0.2.0/24,gw=198.51.100.16`
+- `ip=198.51.100.0/24,gw=198.51.100.16`
+- `ip=203.0.113.0/24,gw=198.51.100.16`
+- `ip=192.0.2.0/24,gw=198.51.100.16`
+- `ip=198.51.100.0/24,gw=198.51.100.16`
+=======
+Example for `198.51.100.77-130`:
+
+- `ip=203.0.113.0/24,gw=198.51.100.78`
+- `ip=192.0.2.0/24,gw=198.51.100.78`
+- `ip=198.51.100.0/24,gw=198.51.100.78`
+- `ip=203.0.113.0/24,gw=198.51.100.78`
+- `ip=192.0.2.0/24,gw=198.51.100.78`
+>>>>>>> terraform-proxmox-automated-infra
 
 If you already have base/source VMs for Packer, set `clone_vm_id` in each env Packer vars file:
 
@@ -1012,13 +1114,17 @@ clone_vm_id = 999999990
 clone_vm_id = 999999992
 ```
 
-Concrete example (dev-like stack on `198.51.100.21` with IPs `198.51.100.25-130`):
+<<<<<<< HEAD
+Concrete example (dev-like stack on `198.51.100.72` with IPs `198.51.100.76-130`):
+=======
+Concrete example (dev-like stack on `198.51.100.79` with IPs `198.51.100.77-130`):
+>>>>>>> terraform-proxmox-automated-infra
 
 ```bash
-make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.21 ENV_TEMPLATE_FORCE=true
+make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.72 ENV_TEMPLATE_FORCE=true
 
 # Edit environments/testing.tfvars:
-# - ipconfig0 values to 198.51.100.25-129
+# - ipconfig0 values to 198.51.100.76-129
 # - cloudinit_first_access_ssh_public_key with required public keys
 # - clone_template values (or os_profiles override) if template names differ on Proxmox
 # Edit packer/*/vars.testing.pkrvars.hcl clone_vm_id values to 999999991/999999990/999999992
@@ -1030,12 +1136,38 @@ make workspace-create ENVIRONMENT=testing
 make plan ENVIRONMENT=testing
 ```
 
+Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `198.51.100.0/24`, Proxmox host `198.51.100.80`, control node `198.51.100.81`):
+
+```bash
+make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.80
+
+make env-template \
+  ENVIRONMENT=example \
+  TEMPLATE_ENV=dev \
+  PROXMOX_HOST=198.51.100.80 \
+  PROXMOX_NODE=proxmox \
+  ANSIBLE_HOST=198.51.100.81 \
+  NETWORK_CIDR=198.51.100.0/24 \
+  NETWORK_GW=198.51.100.78 \
+  AUTO_DISCOVER=true \
+  ENV_TEMPLATE_FORCE=true
+
+# Then review environments/example.tfvars and adjust env-specific values:
+# - cluster_name = "public-stack"
+# - vault_approle_*_bound_cidrs include 198.51.100.0/24
+# - ipconfig0 entries stay in 198.51.100.0/24
+
+make env-bootstrap ENVIRONMENT=example
+# If bootstrap reaches plan successfully, deploy:
+make apply ENVIRONMENT=example
+```
+
 If discovery picked values you want to override, pass them explicitly:
 
 ```bash
-make env-template ENVIRONMENT=qa PROXMOX_HOST=198.51.100.17 \
+make env-template ENVIRONMENT=qa PROXMOX_HOST=198.51.100.73 \
   PROXMOX_NODE=proxmox STORAGE_POOL=local-zfs DATA_STORAGE=local-lvm \
-  NETWORK_CIDR=192.0.2.0/24 NETWORK_GW=198.51.100.23 ENV_TEMPLATE_FORCE=true
+  NETWORK_CIDR=203.0.113.0/24 NETWORK_GW=198.51.100.75 ENV_TEMPLATE_FORCE=true
 ```
 
 ### 12.3 Bootstrap End-to-End Until Plan
@@ -1054,10 +1186,10 @@ What `make env-bootstrap` does:
 4. Creates/selects Terraform workspace `<env>`.
 5. Rotates Proxmox API token and writes Vault secret `<vault_kv_mount_path>/<vault_secret_prefix>/<env>/creds` (default `secret/terraform/<env>/creds`).
 6. Builds base VM(s) on Proxmox remotely (reserved VMIDs `999999990-999999992`; Ubuntu by default).
-7. Syncs required cloud images on Proxmox into `/var/lib/vz/template/iso` with SHA256 verification when `AUTO_DOWNLOAD_IMAGE=true`:
-   - Oracle Linux 9 U7: `OL9U7_x86_64-kvm-b269.qcow2`
-   - Oracle Linux 8 U10: `OL8U10_x86_64-kvm-b271.qcow2` (when `BASE_VM_BUILD_ORACLE=true`)
-   - Ubuntu 24.04 Noble: `noble-server-cloudimg-amd64.img`
+7. Syncs checksum-verified cloud images on Proxmox into `/var/lib/vz/template/iso` when `AUTO_DOWNLOAD_IMAGE=true`:
+   - default bootstrap path: `ubuntu24`
+   - adds `oracle8` and `oracle9` when `BASE_VM_BUILD_ORACLE=true`
+   - standalone helper support also exists for `ubuntu22`, `debian12`, `rocky9`, `alma9`, and `fedora43`
 8. Runs Packer build(s) for `<env>` (Ubuntu by default).
 9. Renders/uploads snippets.
 10. Runs `make plan ENVIRONMENT=<env>`.
@@ -1123,9 +1255,9 @@ Default OS profiles (can be overridden in `.tfvars`):
 
 ```hcl
 os_profiles = {
-  oracle8    = { clone_template = "oracle8-template",    fs_type = "xfs" }
-  oracle9    = { clone_template = "oracle9-template",    fs_type = "xfs" }
-  ubuntu2404 = { clone_template = "ubuntu2404-template", fs_type = "ext4" }
+  oracle8    = { clone_template = "oracle8",    fs_type = "xfs" }
+  oracle9    = { clone_template = "oracle9",    fs_type = "xfs" }
+  ubuntu2404 = { clone_template = "ubuntu2404", fs_type = "ext4" }
 }
 
 group_os_profile = {
@@ -1133,8 +1265,7 @@ group_os_profile = {
   database21c = "oracle8"
   weblogic12c = "oracle8"
   weblogic14c = "oracle9"
-  cicd        = "ubuntu2404"
-  jenkins     = "ubuntu2404"
+  zimbra      = "oracle9"
 }
 ```
 
@@ -1149,6 +1280,8 @@ Per-VM overrides:
 - `os_profile = "oracle9"`
 - `clone_template = "custom-template"`
 - `vm_disk_storage = "local-zfs"` (VM disk pool override for that VM)
+
+If your Packer vars use different template VM names (for example `oracle8-template`, `oracle9-template`, `ubuntu2404-template`), keep `os_profiles` or per-VM `clone_template` aligned with those actual Proxmox template names.
 
 If you want ext4 on Oracle data disks, set `partitioning.fs_type = "ext4"` or override `os_profiles` in your `.tfvars`.
 
@@ -1173,6 +1306,7 @@ Rules:
 - `make env-template ENVIRONMENT=<env> TEMPLATE_ENV=dev PROXMOX_HOST=<ip> AUTO_DISCOVER=true`
 - `make env-ssh-access ENVIRONMENT=<env>`
 - `make env-cloud-images ENVIRONMENT=<env>`
+- `make env-cloud-images ENVIRONMENT=<env> CLOUD_IMAGES=all`
 - `make env-base-vms ENVIRONMENT=<env>`
 - `make env-bootstrap ENVIRONMENT=<env>`
 - `make env-bootstrap-apply ENVIRONMENT=<env>`
@@ -1197,7 +1331,7 @@ Rules:
 
 - `.env` and `secrets.auto.tfvars` hold secrets and should remain uncommitted.
 - Packer `vars.<env>.pkrvars.hcl` files are ignored by git.
-- `environments/dev.tfvars` is the only committed env seed; scaffolded `environments/<env>.tfvars` stay local unless intentionally force-added.
+- `environments/dev.tfvars` is the only committed env seed; scaffolded `environments/<env>.tfvars` and generated `environments/*.bootstrap.env` / `environments/*.autodiscover.env` stay local and should not be staged.
 
 ## Troubleshooting
 
@@ -1250,6 +1384,14 @@ vault_address = "https://<vault-ip>:8200"
 
 Issue: `make vault-bootstrap` fails with missing `sys/mounts`, `sys/policies/acl`, or `sys/auth` capabilities.  
 Fix: provide an admin-capable `VAULT_TOKEN` (and optionally `TF_VAR_vault_token`) before rerunning bootstrap. AppRole runtime tokens are intentionally scoped and are not sufficient for governance apply/import actions.
+
+Issue: `make plan` / `make apply` fails with `failed to create limited child token` and `POST ... /v1/auth/token/create ... permission denied` while using AppRole-only `.env`.  
+Fix: this is expected when `manage_vault_access=true` because Vault governance resources are in scope.
+
+1. For governance runs, use an admin token (`VAULT_TOKEN` and `TF_VAR_vault_token`) and rerun.
+   - One-off command without editing `.env`: `ROOT_TOKEN="$(tr -d '\n' < ~/.vault-recovery/latest/root-token.txt)"; VAULT_TOKEN="$ROOT_TOKEN" TF_VAR_vault_token="$ROOT_TOKEN" make apply ENVIRONMENT=<env>`
+2. For full AppRole Terraform runs, set `vault_auth_mode="approle"` and `manage_vault_access=false` in `environments/<env>.tfvars`.
+3. When switching auth modes, clear stale local token cache: `rm -f .vault-token`.
 
 Issue: `make vault-bootstrap` fails with `Unable to Read Resource from Vault` and `Vault response was nil` (or creds path read failure after reinit).  
 Fix: seed Proxmox credentials first, then rerun bootstrap.

@@ -38,7 +38,7 @@ die() {
 }
 
 detect_route_src_ip() {
-  local target="${1:-198.51.100.16}"
+  local target="${1:-198.51.100.82}"
   command -v ip >/dev/null 2>&1 || return 1
   ip -4 route get "${target}" 2>/dev/null | awk '{
     for (i = 1; i <= NF; i++) {
@@ -52,7 +52,7 @@ detect_route_src_ip() {
 
 auto_detect_lan_ip() {
   local target detected
-  target="${PROXMOX_HOST:-198.51.100.16}"
+  target="${PROXMOX_HOST:-198.51.100.82}"
 
   detected="$(detect_route_src_ip "${target}" || true)"
   if [[ -n "${detected}" ]]; then
@@ -60,8 +60,8 @@ auto_detect_lan_ip() {
     return 0
   fi
 
-  if [[ "${target}" != "198.51.100.16" ]]; then
-    detected="$(detect_route_src_ip "198.51.100.16" || true)"
+  if [[ "${target}" != "198.51.100.82" ]]; then
+    detected="$(detect_route_src_ip "198.51.100.82" || true)"
     if [[ -n "${detected}" ]]; then
       printf '%s\n' "${detected}"
       return 0

@@ -4,39 +4,22 @@
 ---
 - name: Linux User Management - CRUD Operations [create, read, update and delete]
   hosts: all
-  become: true
-  gather_facts: true
+  become: yes
+  gather_facts: yes
 
   vars_files:
     - group_vars/secret_vars.yml
 
   pre_tasks:
-    - name: Assert Ansible Core version is supported
-      ansible.builtin.assert:
-        that:
-          - ansible_version.full is version('2.17.0', '>=')
-        fail_msg: "ansible_user_management requires ansible-core >= 2.17.0."
-
     - name: Ensure we have current system facts.
       ansible.builtin.setup:
-
-    - name: Assert Python 3.9+ on managed hosts
-      ansible.builtin.assert:
-        that:
-          - ansible_facts['python'] is defined
-          - ansible_facts['python']['version'] is defined
-          - ansible_facts['python']['version']['major'] | int >= 3
-          - ansible_facts['python']['version']['major'] | int > 3 or ansible_facts['python']['version']['minor'] | int >= 9
-        fail_msg: >-
-          Python 3.9+ is required on managed hosts. Install/upgrade Python or
-          set ansible_python_interpreter to a Python 3.9+ path.
 
   roles:
     - user_management
 
   post_tasks:
     - name: Display user operations summary
-      ansible.builtin.debug:
+      debug:
         msg: |
           User: {{ item.name }}
           State: {{ item.state }}

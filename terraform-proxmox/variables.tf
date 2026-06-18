@@ -97,12 +97,14 @@ variable "group_os_profile" {
   description = "Map of node group names to OS profile keys. Used for auto-selecting templates and filesystem defaults."
   type        = map(string)
   default = {
-    database19c = "oracle8"
-    database21c = "oracle8"
-    weblogic12c = "oracle8"
-    weblogic14c = "oracle9"
-    cicd        = "ubuntu2404"
-    jenkins     = "ubuntu2404"
+    database19c     = "oracle8"
+    database19c_ol9 = "oracle9"
+    database21c     = "oracle8"
+    weblogic12c     = "oracle8"
+    weblogic14c     = "oracle9"
+    cicd            = "ubuntu2404"
+    jenkins         = "ubuntu2404"
+    zimbra          = "oracle9"
   }
   validation {
     condition     = alltrue([for v in values(var.group_os_profile) : contains(keys(var.os_profiles), v)])

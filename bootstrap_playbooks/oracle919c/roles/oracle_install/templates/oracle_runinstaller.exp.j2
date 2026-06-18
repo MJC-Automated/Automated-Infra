@@ -1,0 +1,51 @@
+#!/usr/bin/expect
+# This expect script automates Oracle runInstaller execution in silent mode.
+
+set timeout {{ oracle_installer_expect_timeout | default(7200, true) }}
+
+set ORACLE_HOME "{{ oracle_home }}"
+set ORACLE_BASE "{{ oracle_base }}"
+set INVENTORY_LOCATION "{{ oracle_inventory_loc }}"
+set CV_ASSUME_DISTID "{{ oracle_cv_assume_distid }}"
+set TMPDIR "/tmp"
+set DISPLAY ""
+
+set installer_path "$ORACLE_HOME/runInstaller"
+set installer_args "-silent{% if oracle_ru_enabled | default(false) | bool %} -applyRU {{ oracle_ru_patch_apply_dir }}{% endif %} -responseFile {{ db_install_rsp_dest_path }} -waitforcompletion"
+
+log_file -a "{{ oracle_install_log }}"
+
+spawn env ORACLE_HOME=$ORACLE_HOME ORACLE_BASE=$ORACLE_BASE INVENTORY_LOCATION=$INVENTORY_LOCATION CV_ASSUME_DISTID=$CV_ASSUME_DISTID TMPDIR=$TMPDIR DISPLAY=$DISPLAY $installer_path $installer_args
+
+expect {
+    -re "Enter password for 'root' user:" {
+        if { "{{ oracle_root_password | default('', true) }}" == "" } {
+            puts "Error: Installer requested root password but oracle_root_password is empty."
+            exit 1
+        }
+        send "{{ oracle_root_password | default('', true) }}\r"
+        exp_continue
+    }
+    -re "As a root user, execute the following script(s)?:.*" {
+        exit 0
+    }
+    -re "Successfully Setup Software.*" {
+        exit 0
+    }
+    -re "The installation of Oracle Database was successful.*" {
+        exit 0
+    }
+    timeout {
+        puts "Error: Installer timed out after $timeout seconds."
+        puts "Check installer logs under /tmp/InstallActions* and {{ oracle_install_log }}."
+        exit 1
+    }
+    eof {
+        catch wait result
+        set rc [lindex $result 3]
+        if {$rc eq ""} {
+            set rc 0
+        }
+        exit $rc
+    }
+}

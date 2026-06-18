@@ -27,8 +27,23 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 - `terraform-proxmox/`: VM provisioning, Vault integration, Packer image builds.
 - `inventories/`: centralized generated inventory plus alias group mappings.
 - `bootstrap_playbooks/`: app/db bootstrap playbooks (Oracle DB, WebLogic, Zabbix, and future services).
-- `ansible_user_management/`: Linux account CRUD plus hardening.
+- `user-man/`: Linux account CRUD plus hardening.
 - `time_sync/`: Chrony/NTP synchronization role.
+
+## Tracked Environment Model
+
+- `terraform-proxmox/environments/dev.tfvars` is the only committed environment seed.
+- The tracked `dev` scaffold is the canonical 9-node bootstrap model:
+  - `public-weblogic14c-01`
+  - `public-weblogic12c-01`
+  - `public-database19c-01`
+  - `public-database21c-02`
+  - `public-zabbix-01`
+  - `public-freeipa-01`
+  - `public-keycloak-01`
+  - `public-observability-01`
+  - `public-zimbra-01`
+- Other environments should copy that service layout, then change only environment-specific values such as IPs, storage pools, and Vault CIDR bounds.
 
 ## Standard Entry Points
 
@@ -38,7 +53,11 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
   - `bootstrap_playbooks/oracle821c/main.yml`
   - `bootstrap_playbooks/oracle_weblogic12c/main.yml`
   - `bootstrap_playbooks/oracle_weblogic14c/main.yml`
-  - `ansible_user_management/main.yml`
+  - `bootstrap_playbooks/freeipa/main.yml`
+  - `bootstrap_playbooks/keycloak/main.yml`
+  - `bootstrap_playbooks/observability/main.yml`
+  - `bootstrap_playbooks/zimbra/main.yml`
+  - `user-man/main.yml`
   - `time_sync/main.yml`
   - `bootstrap_playbooks/zabbix_server/main.yml`
 
@@ -46,6 +65,7 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 - Central inventory path pattern: `inventories/<env>/inventory.ini` plus `inventories/aliases.ini`.
 - Project-local `ansible.cfg` files may default to `dev`; for other environments pass explicit `-i` flags.
+- `inventories/aliases.ini` also carries repo-wide helper groups such as `ntp_clients`, which should include Kerberos-sensitive service hosts like FreeIPA, Keycloak, and observability nodes in addition to Oracle/WebLogic clients.
 - Validate inventory wiring with:
   - `ansible-inventory -i inventories/<env>/inventory.ini -i inventories/aliases.ini --graph`
 
@@ -53,8 +73,16 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 - Oracle DB projects (`oracle819c`, `oracle821c`): `v3.13.0-oracle`
 - Oracle WebLogic projects (`oracle_weblogic12c`, `oracle_weblogic14c`): `v3.9.21-weblogic`
+- FreeIPA project (`bootstrap_playbooks/freeipa`): `v3.10.19-freeipa`
+- Keycloak project (`bootstrap_playbooks/keycloak`): `v3.10.19-keycloak`
+- Observability project (`bootstrap_playbooks/observability`): `v3.10.19-observability`
+- Zimbra project (`bootstrap_playbooks/zimbra`): `v3.10.19-zimbra`
 - Zabbix project (`bootstrap_playbooks/zabbix_server`): `v3.10.19-zabbix`
+<<<<<<< HEAD
 - User/time projects (`ansible_user_management`, `time_sync`): `v3.10.19-users`
+=======
+- User/time projects (`user-man`, `time_sync`): `v3.10.19-users`
+>>>>>>> terraform-proxmox-automated-infra
 
 ## 1. Ansible-Based Linux User Management Automation
 
@@ -140,9 +168,11 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 - Base image download and initialization.
 - Proxmox VM template creation.
+- Checksum-verified cloud image sync for `ubuntu22`, `ubuntu24`, `debian12`, `oracle8`, `oracle9`, `rocky9`, `alma9`, and `fedora43`.
 - Zabbix agent pre-install support.
 - System update and SSH hardening baseline.
 - DNS and hostname initialization in templates.
+- Cross-distro first-boot validation for root-disk, data-disk, and swap flows before expanding the template matrix.
 
 ### Advantages
 
@@ -266,13 +296,17 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 ## Project Documentation
 
 - `bootstrap_playbooks/README.md`
+- `bootstrap_playbooks/freeipa/README.md`
+- `bootstrap_playbooks/keycloak/README.md`
+- `bootstrap_playbooks/observability/README.md`
 - `terraform-proxmox/README.md`
 - `bootstrap_playbooks/oracle819c/README.md`
 - `bootstrap_playbooks/oracle821c/README.md`
 - `bootstrap_playbooks/oracle_weblogic12c/README.md`
 - `bootstrap_playbooks/oracle_weblogic14c/README.md`
 - `bootstrap_playbooks/zabbix_server/README.md`
-- `ansible_user_management/README.md`
+- `bootstrap_playbooks/zimbra/README.md`
+- `user-man/README.md`
 - `time_sync/README.md`
 - `inventories/README.md`
 - `docs/oracle-db-weblogic-crud-scenario.md`

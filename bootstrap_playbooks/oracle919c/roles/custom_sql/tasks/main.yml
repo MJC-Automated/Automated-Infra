@@ -1,0 +1,246 @@
+---
+- name: APP SQL | Resolve host target list
+  ansible.builtin.set_fact:
+    oracle_app_sql_targets_resolved: "{{ oracle_server_definition.oracle_app_sql_targets | default(oracle_app_sql_targets | default([]), true) }}"
+  tags: [app_sql]
+
+- name: APP SQL | Capture initial explicit target count
+  ansible.builtin.set_fact:
+    oracle_app_sql_targets_initial_count: "{{ oracle_app_sql_targets_resolved | length }}"
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_defaults_from_pdbs | bool
+  tags: [app_sql]
+
+- name: APP SQL | Build default targets from oracle_pdbs when none provided
+  ansible.builtin.set_fact:
+    oracle_app_sql_targets_resolved: "{{ oracle_app_sql_targets_resolved + [ {
+      'cdb_sid': item.cdb_sid,
+      'pdb_name': item.pdb_name,
+      'database_name': (item.database_name | default(item.pdb_name)),
+      'sql_id': oracle_app_sql_default_sql_id,
+      'sql_template': oracle_app_sql_default_template
+    } ] }}"
+  loop: "{{ oracle_pdbs | default([]) }}"
+  no_log: true
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_defaults_from_pdbs | bool
+    - (oracle_app_sql_targets_initial_count | default(0) | int) == 0
+    - item.cdb_sid is defined
+    - item.cdb_sid | string | length > 0
+    - item.pdb_name is defined
+    - item.pdb_name | string | length > 0
+  tags: [app_sql]
+
+- name: APP SQL | Ensure per-target datafile directories exist
+  ansible.builtin.file:
+    path: "{{ oracle_data_dir }}/{{ item.database_name | default(item.pdb_name) }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0775'
+  loop: "{{ oracle_app_sql_targets_resolved }}"
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+  tags: [app_sql]
+
+- name: APP SQL | Ensure stage directory exists
+  ansible.builtin.file:
+    path: "{{ oracle_app_sql_stage_dir }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0750'
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+  tags: [app_sql]
+
+- name: APP SQL | Validate target definitions
+  ansible.builtin.assert:
+    that:
+      - item.cdb_sid is defined
+      - item.cdb_sid | string | length > 0
+      - item.pdb_name is defined
+      - item.pdb_name | string | length > 0
+    fail_msg: "Each oracle_app_sql_targets item requires cdb_sid and pdb_name."
+  loop: "{{ oracle_app_sql_targets_resolved }}"
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+  tags: [app_sql]
+
+- name: APP SQL | Render SQL template per target
+  ansible.builtin.template:
+    src: "{{ item.sql_template | default(oracle_app_sql_default_template) }}"
+    dest: "{{ oracle_app_sql_stage_dir }}/{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.sql"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: '0640'
+  vars:
+    oracle_app_database_name: "{{ item.database_name | default(item.pdb_name) }}"
+    oracle_app_pdb_name: "{{ item.pdb_name | upper }}"
+    oracle_app_cdb_sid: "{{ item.cdb_sid | upper }}"
+    oracle_app_target_container: "{{ item.container | default(item.pdb_name) | upper }}"
+  loop: "{{ oracle_app_sql_targets_resolved }}"
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+  tags: [app_sql]
+
+- name: APP SQL | Check marker status
+  ansible.builtin.stat:
+    path: "{{ oracle_app_sql_stage_dir }}/.applied_{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.ok"
+  loop: "{{ oracle_app_sql_targets_resolved }}"
+  register: oracle_app_sql_markers
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+  tags: [app_sql]
+
+- name: APP SQL | Ensure USERS tablespace exists in target PDB
+  ansible.builtin.shell: |
+    set -eo pipefail
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item.cdb_sid }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+
+    if ! {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit 1
+    select status from v$instance;
+    exit;
+    EOF
+    then
+      printf "whenever sqlerror exit 1\nstartup;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+    fi
+
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit failure rollback
+    set define off
+    set verify off
+    set feedback off
+    set heading off
+    set pages 0
+    set serveroutput on
+    alter session set container = {{ item.container | default(item.pdb_name) | upper }};
+    DECLARE
+      l_users_ts_exists NUMBER := 0;
+    BEGIN
+      SELECT COUNT(*) INTO l_users_ts_exists
+      FROM dba_tablespaces
+      WHERE tablespace_name = '{{ oracle_app_sql_users_tablespace_name | upper }}';
+      IF l_users_ts_exists = 0 THEN
+        EXECUTE IMMEDIATE 'CREATE TABLESPACE {{ oracle_app_sql_users_tablespace_name | upper }} DATAFILE ''{{ oracle_data_dir }}/{{ item.database_name | default(item.pdb_name) }}/{{ oracle_app_sql_users_datafile_name }}'' SIZE {{ oracle_app_sql_users_tablespace_size_mb }}M REUSE AUTOEXTEND ON NEXT {{ oracle_app_sql_users_tablespace_autoextend_next_mb }}M MAXSIZE UNLIMITED EXTENT MANAGEMENT LOCAL SEGMENT SPACE MANAGEMENT AUTO';
+        DBMS_OUTPUT.PUT_LINE('USERS_TABLESPACE_CREATED');
+      ELSE
+        DBMS_OUTPUT.PUT_LINE('USERS_TABLESPACE_PRESENT');
+      END IF;
+    END;
+    /
+    SELECT CASE WHEN COUNT(*) > 0 THEN 'USERS_TABLESPACE_VERIFIED' ELSE 'USERS_TABLESPACE_MISSING' END
+    FROM dba_tablespaces
+    WHERE tablespace_name = '{{ oracle_app_sql_users_tablespace_name | upper }}';
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  loop: "{{ oracle_app_sql_targets_resolved }}"
+  register: oracle_app_sql_users_tablespace
+  changed_when: "'USERS_TABLESPACE_CREATED' in oracle_app_sql_users_tablespace.stdout"
+  failed_when:
+    - oracle_app_sql_users_tablespace.rc != 0
+    - "'USERS_TABLESPACE_MISSING' in oracle_app_sql_users_tablespace.stdout"
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+  tags: [app_sql]
+
+- name: APP SQL | Execute SQL in target PDB
+  ansible.builtin.shell: |
+    set -eo pipefail
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item.cdb_sid }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+
+    if ! {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit 1
+    select status from v$instance;
+    exit;
+    EOF
+    then
+      printf "whenever sqlerror exit 1\nstartup;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+    fi
+
+    {{ oracle_home }}/bin/sqlplus -s / as sysdba <<'EOF'
+    whenever sqlerror exit failure rollback
+    set define off
+    set verify off
+    alter session set container = {{ item.container | default(item.pdb_name) | upper }};
+    @{{ oracle_app_sql_stage_dir }}/{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.sql
+    exit;
+    EOF
+
+    touch "{{ oracle_app_sql_stage_dir }}/.applied_{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.ok"
+  become: yes
+  become_user: "{{ oracle_user }}"
+  loop: "{{ oracle_app_sql_targets_resolved }}"
+  loop_control:
+    index_var: oracle_app_sql_idx
+  register: oracle_app_sql_exec
+  changed_when: true
+  failed_when: oracle_app_sql_exec.rc != 0
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+    - oracle_app_sql_force | bool or not oracle_app_sql_markers.results[oracle_app_sql_idx].stat.exists
+  tags: [app_sql]
+
+- name: APP SQL | Summary when no targets
+  ansible.builtin.debug:
+    msg: "oracle_app_sql_enabled=true but oracle_app_sql_targets is empty for this host; nothing to apply."
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length == 0
+  tags: [app_sql]
+
+- name: APP SQL | Summary when targets resolved
+  ansible.builtin.debug:
+    msg:
+      - "Resolved APP SQL targets: {{ oracle_app_sql_targets_resolved | length }}"
+      - "Targets: {{ oracle_app_sql_targets_resolved }}"
+  when:
+    - oracle_app_sql_enabled | bool
+    - oracle_app_sql_targets_resolved | length > 0
+  tags: [app_sql]

@@ -1,0 +1,17 @@
+---
+freeipa_domain: "example.internal"
+freeipa_realm: "EXAMPLE.INTERNAL"
+freeipa_setup_dns: true
+freeipa_setup_kra: false
+freeipa_no_ntp: true
+freeipa_manage_firewall: true
+freeipa_configure_hosts: true
+freeipa_forwarders:
+  - "198.51.100.82"
+  - "198.51.100.18"
+freeipa_required_password_length: 12
+freeipa_server_fqdn: "{{ ansible_fqdn | default(inventory_hostname) }}"
+freeipa_server_ip: "{{ ansible_host | default(ansible_default_ipv4.address | default('')) }}"
+
+# Optional extra CLI flags for ipa-server-install.
+freeipa_install_extra_args: []

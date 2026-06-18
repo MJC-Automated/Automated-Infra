@@ -1,0 +1,12 @@
+---
+- name: Validate input and platform
+  ansible.builtin.include_tasks: validate.yml
+
+- name: Prepare host for Zimbra installation
+  ansible.builtin.include_tasks: prepare.yml
+
+- name: Install Zimbra from local artifact
+  ansible.builtin.include_tasks: install.yml
+
+- name: Verify Zimbra service state
+  ansible.builtin.include_tasks: verify.yml

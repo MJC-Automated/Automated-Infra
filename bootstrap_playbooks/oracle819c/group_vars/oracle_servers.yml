@@ -5,14 +5,14 @@
 oracle_allow_destructive: true
 
 oracle_servers:
-  public-database19c-02:
-    oracle_hostname: "public-database19c-03.example.internal"
+  public-database19c-01:
+    oracle_hostname: "public-database19c-02.example.internal"
 
     # Define listeners required on this host.
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "public-database19c-03.example.internal"
+        host: "public-database19c-02.example.internal"
 
     # Define CDBs that should exist on this host.
     oracle_cdbs:

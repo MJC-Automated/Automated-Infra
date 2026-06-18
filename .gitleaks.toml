@@ -1,0 +1,50 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks#configuration
+
+title = "IaC-Homelab gitleaks config"
+
+# ──────────────────────────────────────────────────────────────
+# Allowlist: entries that should NOT trigger a finding.
+#
+# Fingerprints cover secrets already removed from the working
+# tree and purged / rotated, plus false positives from vendored
+# code and example placeholder values.
+# ──────────────────────────────────────────────────────────────
+[allowlist]
+description = "Allowlisted findings"
+
+# Each fingerprint is:  <commit>:<file>:<rule>:<line>
+fingerprints = [
+  # ── False positive: .env.example placeholder "<set-strong-password>" ──
+  "c1484b84007eb4b83d0b4a28efad9eb4ff160c4d:bootstrap_playbooks/observability/.env.example:generic-api-key:4",
+
+  # ── Historical: terraform-proxmox-k8s/.env  (file deleted, tokens rotated) ──
+  "041d84d436e9cb2d14761276abe740e372954dbf:terraform-proxmox-k8s/.env:generic-api-key:2",
+  "17fdb1e3e1971ba6cb8bb3227d52e89776074c5e:terraform-proxmox-k8s/.env:generic-api-key:2",
+  "399a57777f963c6999ee0afddf38f93112c7499b:terraform-proxmox-k8s/.env:generic-api-key:2",
+
+  # ── Historical: *.tfvars with api_token_secret (files deleted, tokens rotated) ──
+  "ece21a3cfd50f9888e5bd9b24c6377ca18075caf:terraform-proxmox-k8s/environments/testing.tfvars:generic-api-key:19",
+  "91306cb7be69a96dce24e6cf5583d2c1ec4c7e83:terraform-proxmox-k8s/environments/prod.tfvars:generic-api-key:19",
+
+  # ── False positive: vendored Ansible ssh.py password prompt regex ──
+  "041d84d436e9cb2d14761276abe740e372954dbf:terraform-proxmox-k8s/tmp_venv/lib/python3.12/site-packages/ansible/plugins/connection/ssh.py:generic-api-key:835",
+
+  # ── False positive: vendored cryptography lib _SK_START constant ──
+  "041d84d436e9cb2d14761276abe740e372954dbf:terraform-proxmox-k8s/tmp_venv/lib/python3.12/site-packages/cryptography/hazmat/primitives/serialization/ssh.py:private-key:78",
+
+  # ── Historical: structure.txt contained api_token_secret + private key header ──
+  "e92526c3bda5b3a17c9e98d4facb0274d901cf86:terraform-proxmox-k8s/structure.txt:generic-api-key:659",
+  "e92526c3bda5b3a17c9e98d4facb0274d901cf86:terraform-proxmox-k8s/structure.txt:private-key:2672",
+
+  # ── False positive: README.md private key header in documentation example ──
+  "3240036757ef9dd2409b483ee21f18f2ab13fab6:terraform-proxmox-k8s/README.md:private-key:366",
+]
+
+# Also globally ignore vendored / virtual-env directories
+paths = [
+  '''tmp_venv/''',
+  '''\.venv/''',
+  '''venv/''',
+  '''node_modules/''',
+]

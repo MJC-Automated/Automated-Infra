@@ -3,43 +3,22 @@
 # ===========================================
 ---
 - name: Include create groups tasks
-  ansible.builtin.include_tasks: create_groups.yml
+  include_tasks: create_groups.yml
   tags:
     - groups
     - create_groups
 
 - name: Include manage users tasks
-  ansible.builtin.include_tasks: manage_users.yml
+  include_tasks: manage_users.yml
   tags:
     - users
     - create_users
     - ssh_keys
     - password_policy
 
-- name: Include password history enforcement tasks
-  ansible.builtin.include_tasks: enforce_password_history.yml
-  tags:
-    - users
-    - security
-    - password_policy
-
-- name: Include automation-account hardening tasks
-  ansible.builtin.include_tasks: harden_automation_account.yml
-  tags:
-    - users
-    - security
-    - automation_account
-
 - name: Include cleanup users tasks
-  ansible.builtin.include_tasks: cleanup_users.yml
+  include_tasks: cleanup_users.yml
   tags:
     - users
     - remove_users
     - cleanup
-
-- name: Include account baseline enforcement tasks
-  ansible.builtin.include_tasks: enforce_account_baseline.yml
-  tags:
-    - users
-    - security
-    - account_enforcement
