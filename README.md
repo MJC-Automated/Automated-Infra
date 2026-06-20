@@ -207,13 +207,79 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 ## 6. Kubernetes Cluster Automation with Kubespray
 
+### Cluster Topology (example)
+
+| Role | VM Name | IP | Cores | RAM | Disk |
+| --- | --- | --- | --- | --- | --- |
+| Control Plane + etcd | `public-k8s-cp-01` | `198.51.100.16` | 4 | 4 GB | 50 GB |
+| Worker Node 1 | `public-k8s-worker-01` | `198.51.100.17` | 2 | 4 GB | 50 GB |
+| Worker Node 2 | `public-k8s-worker-02` | `198.51.100.18` | 2 | 4 GB | 50 GB |
+
+- **Kubespray version**: v2.31.0 (cloned to `/home/kirui/kubespray`)
+- **Inventory**: `/home/kirui/kubespray/inventory/example-k8s/inventory.ini`
+- **OS**: Ubuntu 24.04 (cloud-init template `ubuntu2404`)
+- **Network plugin**: Calico (kubespray default)
+- **Container runtime**: containerd (kubespray default)
+- **etcd topology**: Stacked (runs on control-plane node)
+
 ### Features
 
 - Automated Kubernetes deployment using Kubespray.
-- Support for high-availability cluster topologies.
-- Cloud-init-based node bootstrap integration.
-- Dynamic inventory generation from Terraform outputs.
-- Environment-specific cluster configuration support.
+- Stacked etcd topology for simplified single-master setups.
+- Cloud-init-based node bootstrap integration with Terraform-provisioned VMs.
+- Environment-specific inventory and group_vars configuration.
+- Support for scaling workers by adding entries to `example.tfvars` and the kubespray inventory.
+
+### Advanced Topologies (Unstacked etcd)
+
+For larger production-like deployments, you may want to separate the Control Plane (CP) and etcd nodes (unstacked topology) to improve fault tolerance and resource isolation.
+
+To achieve this:
+1. **Provision dedicated VMs**: Add a new `k8s_etcd` node group in your `tfvars` file alongside the control plane and workers.
+2. **Update Inventory**: Modify your kubespray `inventory.ini` to map the new nodes specifically to the `[etcd]` group, rather than having `[etcd:children]` point to `kube_control_plane`.
+
+Example inventory for unstacked etcd:
+```ini
+[kube_control_plane]
+k8s-cp-1 ansible_host=198.51.100.16
+k8s-cp-2 ansible_host=198.51.100.17
+
+[etcd]
+k8s-etcd-1 ansible_host=198.51.100.19
+k8s-etcd-2 ansible_host=198.51.100.20
+k8s-etcd-3 ansible_host=198.51.100.21
+
+[kube_node]
+k8s-worker-1 ansible_host=198.51.100.22
+```
+
+### Deployment Steps
+
+1. Provision VMs via Terraform (`make apply ENVIRONMENT=example` from `terraform-proxmox/`).
+2. Boot the K8S VMs from Proxmox (they are created in `stopped` state).
+3. Install kubespray Python dependencies:
+   ```bash
+   cd /home/kirui/kubespray
+   pip install -r requirements.txt
+   ```
+4. Verify SSH connectivity:
+   ```bash
+   ansible -i inventory/example-k8s/inventory.ini -m ping all -u ansible
+   ```
+5. Deploy the cluster:
+   ```bash
+   ansible-playbook -i inventory/example-k8s/inventory.ini \
+     --become --become-user=root -u ansible cluster.yml
+   ```
+
+### Lifecycle Commands
+
+| Operation | Command |
+| --- | --- |
+| Scale workers | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible scale.yml` |
+| Remove a node | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible remove-node.yml -e node=<name>` |
+| Upgrade cluster | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible upgrade-cluster.yml` |
+| Reset/teardown | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible reset.yml` |
 
 ### Advantages
 

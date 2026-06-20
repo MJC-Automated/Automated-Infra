@@ -59,10 +59,10 @@
 | ------------- | -------------- |
 | Device        | enp6s18        |
 | Boot Protocol | Static         |
-| IP Address    | 198.51.100.17 |
-| Netmask       | 198.51.100.19  |
-| Gateway       | 198.51.100.16   |
-| DNS           | 198.51.100.18        |
+| IP Address    | 198.51.100.24 |
+| Netmask       | 198.51.100.26  |
+| Gateway       | 198.51.100.23   |
+| DNS           | 198.51.100.25        |
 
 ## Installed Package Groups
 

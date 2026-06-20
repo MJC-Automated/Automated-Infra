@@ -184,12 +184,12 @@ The `inventory.ini` file defines your servers and connection parameters.
 
 ```ini
 [database_servers]
-db01 ansible_host=198.51.100.24
-db02 ansible_host=198.51.100.25 ansible_python_interpreter=/usr/bin/python3
+db01 ansible_host=198.51.100.31
+db02 ansible_host=198.51.100.32 ansible_python_interpreter=/usr/bin/python3
 
 [web_servers]
-web01 ansible_host=198.51.100.26
-web02 ansible_host=198.51.100.27
+web01 ansible_host=198.51.100.33
+web02 ansible_host=198.51.100.34
 
 [all:vars]
 ansible_user=ansible

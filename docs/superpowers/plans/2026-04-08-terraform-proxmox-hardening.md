@@ -1024,13 +1024,13 @@ run "valid_unique_vmids" {
     node_groups = {
       "group1" = {
         "vm1" = {
-          vmid = 100, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 100, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
       "group2" = {
         "vm2" = {
-          vmid = 200, name = "test-vm2", ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.83"
+          vmid = 200, name = "test-vm2", ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
@@ -1046,13 +1046,13 @@ run "duplicate_vmids_rejected" {
     node_groups = {
       "group1" = {
         "vm1" = {
-          vmid = 100, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 100, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
       "group2" = {
         "vm2" = {
-          vmid = 100, name = "test-vm2", ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.83"
+          vmid = 100, name = "test-vm2", ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
@@ -1068,7 +1068,7 @@ run "vmid_below_100_rejected" {
     node_groups = {
       "group1" = {
         "vm1" = {
-          vmid = 99, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 99, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
@@ -1084,7 +1084,7 @@ run "vmid_in_template_range_rejected" {
     node_groups = {
       "group1" = {
         "vm1" = {
-          vmid = 999999990, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 999999990, name = "test-vm1", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
@@ -1119,7 +1119,7 @@ run "explicit_os_profile_override" {
     node_groups = {
       "mygroup" = {
         "vm1" = {
-          vmid = 100, name = "test-vm", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 100, name = "test-vm", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
           os_profile = "oracle9"
         }
@@ -1140,7 +1140,7 @@ run "group_os_profile_map_lookup" {
     node_groups = {
       "database19c" = {
         "vm1" = {
-          vmid = 100, name = "test-db", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 100, name = "test-db", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
@@ -1160,7 +1160,7 @@ run "regex_inference_weblogic14" {
     node_groups = {
       "weblogic14" = {
         "vm1" = {
-          vmid = 100, name = "test-wl", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 100, name = "test-wl", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
@@ -1180,7 +1180,7 @@ run "unknown_group_uses_default" {
     node_groups = {
       "customapp" = {
         "vm1" = {
-          vmid = 100, name = "test-custom", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.83"
+          vmid = 100, name = "test-custom", ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.90"
           cores = 2, memory = 2048, disk_size = "20G"
         }
       }
