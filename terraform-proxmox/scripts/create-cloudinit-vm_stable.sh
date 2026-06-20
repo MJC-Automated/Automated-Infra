@@ -1381,22 +1381,29 @@ write_files:
       zbx_server_active="__ZABBIX_SERVER_ACTIVE__"
 
       if [[ -f "${zbx_conf}" ]]; then
-        if grep -Eq '^[#[:space:]]*Server=' "${zbx_conf}"; then
-          sed -i -E "s|^[#[:space:]]*Server=.*|Server=${zbx_server_passive}|" "${zbx_conf}"
-        else
-          echo "Server=${zbx_server_passive}" >> "${zbx_conf}"
-        fi
+        sed -i -E '/^[#[:space:]]*Server=/d' "${zbx_conf}"
+        echo "Server=${zbx_server_passive}" >> "${zbx_conf}"
 
-        if grep -Eq '^[#[:space:]]*ServerActive=' "${zbx_conf}"; then
-          sed -i -E "s|^[#[:space:]]*ServerActive=.*|ServerActive=${zbx_server_active}|" "${zbx_conf}"
-        else
-          echo "ServerActive=${zbx_server_active}" >> "${zbx_conf}"
-        fi
+        sed -i -E '/^[#[:space:]]*ServerActive=/d' "${zbx_conf}"
+        echo "ServerActive=${zbx_server_active}" >> "${zbx_conf}"
+
+        sed -i -E '/^[#[:space:]]*Hostname=/d' "${zbx_conf}"
+        sed -i -E '/^[#[:space:]]*HostnameItem=/d' "${zbx_conf}"
+        echo "HostnameItem=system.hostname[shorthost]" >> "${zbx_conf}"
       else
         echo "WARNING: ${zbx_conf} not found; skipping Zabbix server configuration."
       fi
 
-      systemctl enable --now zabbix-agent2
+      if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active firewalld >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-port=10050/tcp
+        firewall-cmd --reload
+      fi
+      if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+        ufw allow 10050/tcp
+      fi
+
+      systemctl enable zabbix-agent2
+      systemctl restart zabbix-agent2
 
 runcmd:
   - [ udevadm, settle ]
@@ -1760,22 +1767,29 @@ __LVM_CHOWN_SECTION__
       zbx_server_active="__ZABBIX_SERVER_ACTIVE__"
 
       if [[ -f "${zbx_conf}" ]]; then
-        if grep -Eq '^[#[:space:]]*Server=' "${zbx_conf}"; then
-          sed -i -E "s|^[#[:space:]]*Server=.*|Server=${zbx_server_passive}|" "${zbx_conf}"
-        else
-          echo "Server=${zbx_server_passive}" >> "${zbx_conf}"
-        fi
+        sed -i -E '/^[#[:space:]]*Server=/d' "${zbx_conf}"
+        echo "Server=${zbx_server_passive}" >> "${zbx_conf}"
 
-        if grep -Eq '^[#[:space:]]*ServerActive=' "${zbx_conf}"; then
-          sed -i -E "s|^[#[:space:]]*ServerActive=.*|ServerActive=${zbx_server_active}|" "${zbx_conf}"
-        else
-          echo "ServerActive=${zbx_server_active}" >> "${zbx_conf}"
-        fi
+        sed -i -E '/^[#[:space:]]*ServerActive=/d' "${zbx_conf}"
+        echo "ServerActive=${zbx_server_active}" >> "${zbx_conf}"
+
+        sed -i -E '/^[#[:space:]]*Hostname=/d' "${zbx_conf}"
+        sed -i -E '/^[#[:space:]]*HostnameItem=/d' "${zbx_conf}"
+        echo "HostnameItem=system.hostname[shorthost]" >> "${zbx_conf}"
       else
         echo "WARNING: ${zbx_conf} not found; skipping Zabbix server configuration."
       fi
 
-      systemctl enable --now zabbix-agent2
+      if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active firewalld >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-port=10050/tcp
+        firewall-cmd --reload
+      fi
+      if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+        ufw allow 10050/tcp
+      fi
+
+      systemctl enable zabbix-agent2
+      systemctl restart zabbix-agent2
 
 runcmd:
   - [ udevadm, settle ]
