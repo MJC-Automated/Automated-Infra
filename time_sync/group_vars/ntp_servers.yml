@@ -15,7 +15,7 @@ time_sync_public_servers:
 
 # Permit this subnet to query the NTP server.
 # Override with TIME_SYNC_ALLOWED_SUBNET in time_sync/.env.
-time_sync_allowed_subnet: "192.0.2.0/24"
+time_sync_allowed_subnet: "198.51.100.0/24"
 
 # Optional explicit IP/FQDN that clients should use to reach this NTP server.
 # Recommended when ntp_servers is the Ansible control node and multiple NICs exist.

@@ -123,11 +123,7 @@ ansible-playbook main.yml -l database21c --tags verify
 
 ## CRUD Scenario
 
-<<<<<<< HEAD
 End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `APP_*` logins, delete/reconcile) plus WebLogic follow-up checks:
-=======
-End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `TQ_*` logins, delete/reconcile) plus WebLogic follow-up checks:
->>>>>>> terraform-proxmox-automated-infra
 
 - Admin Console validation should target AdminServer ports.
 - Managed-server `/console` endpoints returning HTTP `404` are expected.

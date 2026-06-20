@@ -78,11 +78,7 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 - Observability project (`bootstrap_playbooks/observability`): `v3.10.19-observability`
 - Zimbra project (`bootstrap_playbooks/zimbra`): `v3.10.19-zimbra`
 - Zabbix project (`bootstrap_playbooks/zabbix_server`): `v3.10.19-zabbix`
-<<<<<<< HEAD
-- User/time projects (`ansible_user_management`, `time_sync`): `v3.10.19-users`
-=======
 - User/time projects (`user-man`, `time_sync`): `v3.10.19-users`
->>>>>>> terraform-proxmox-automated-infra
 
 ## 1. Ansible-Based Linux User Management Automation
 

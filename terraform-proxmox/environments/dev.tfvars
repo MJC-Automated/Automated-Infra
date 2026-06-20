@@ -91,7 +91,7 @@ node_groups = {
     "weblogic14c-dot80" = {
       vmid      = 10000
       name      = "public-weblogic14c-01"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.27"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.27"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -125,7 +125,7 @@ node_groups = {
     "weblogic12c-dot81" = {
       vmid      = 10001
       name      = "public-weblogic12c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.27"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.27"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -173,7 +173,7 @@ node_groups = {
     "database21c-dot83" = {
       vmid      = 10003
       name      = "public-database21c-02"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.27"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.27"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -195,13 +195,8 @@ node_groups = {
   "zabbix" = {
     "zabbix-dot84" = {
       vmid      = 10004
-<<<<<<< HEAD
-      name      = "public-jenkins-02"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.27"
-=======
       name      = "public-zabbix-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.94"
->>>>>>> terraform-proxmox-automated-infra
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.92"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -223,7 +218,7 @@ node_groups = {
     "freeipa-dot85" = {
       vmid       = 10005
       name       = "public-freeipa-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.94"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.92"
       os_profile = "oracle9"
       cores      = 4
       memory     = 8192
@@ -248,7 +243,7 @@ node_groups = {
     "keycloak-dot86" = {
       vmid       = 10006
       name       = "public-keycloak-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.94"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.92"
       os_profile = "ubuntu2404"
       cores      = 4
       memory     = 8192
@@ -273,7 +268,7 @@ node_groups = {
     "observability-dot87" = {
       vmid       = 10007
       name       = "public-observability-01"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.94"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.92"
       os_profile = "ubuntu2404"
       cores      = 6
       memory     = 16384
@@ -299,7 +294,7 @@ node_groups = {
     "zimbra-dot88" = {
       vmid       = 10008
       name       = "public-zimbra-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.94"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.92"
       os_profile = "oracle9"
       cores      = 6
       memory     = 16384
@@ -329,7 +324,7 @@ node_groups = {
     "public-cp-01" = {
       vmid       = 10010
       name       = "public-k8s-cp-02"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.94"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.92"
       os_profile = "ubuntu2404"
       cores      = 4
       memory     = 4096
@@ -344,7 +339,7 @@ node_groups = {
   //   "public-etcd-01" = {
   //     vmid       = 10013
   //     name       = "public-k8s-etcd-01"
-  //     ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.94"
+  //     ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.92"
   //     os_profile = "ubuntu2404"
   //     cores      = 2
   //     memory     = 4096
@@ -358,7 +353,7 @@ node_groups = {
     "public-worker-01" = {
       vmid       = 10011
       name       = "public-k8s-worker-03"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.94"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.92"
       os_profile = "ubuntu2404"
       cores      = 2
       memory     = 4096
@@ -368,7 +363,7 @@ node_groups = {
     "public-worker-02" = {
       vmid       = 10012
       name       = "public-k8s-worker-04"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.94"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.92"
       os_profile = "ubuntu2404"
       cores      = 2
       memory     = 4096

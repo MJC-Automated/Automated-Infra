@@ -18,7 +18,7 @@ IFS=$'\n\t'
 #    --os <type>       OS type (see list above; default: debian-12)            #
 #    --vmid <id>       VM ID (default from config)                             #
 #    --name <name>     VM name (auto-derived from --os + --ip if omitted)      #
-#    --ip <cidr>       IP/CIDR e.g. 203.0.113.0/24 (default from config)     #
+#    --ip <cidr>       IP/CIDR e.g. 192.0.2.0/24 (default from config)     #
 #    --gateway <gw>    Gateway IP (default from config)                        #
 #    --dry-run         Validate config only; do not create or modify VMs       #
 #    --force/--no-force Destroy or preserve an existing VM with same VMID      #
@@ -2334,7 +2334,7 @@ AUTO-DERIVED VM NAME:
   Examples:
     oracle-linux-9 + 198.51.100.0/24  →  oracle9-packer-base-90
     oracle-linux-8 + 203.0.113.0/24  →  oracle8-packer-base-91
-    debian-12      + 203.0.113.0/24  →  debian12-packer-base-80
+    debian-12      + 192.0.2.0/24  →  debian12-packer-base-80
 
 EXAMPLES:
   # Oracle Linux 9 base/source VM (reserved ID/name)

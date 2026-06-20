@@ -118,13 +118,8 @@ Notes:
 
 Template options:
 
-<<<<<<< HEAD
 - `app_bootstrap_full.sql.j2`: full `APP_*` users/tablespaces/grants bootstrap
 - `app_bootstrap_minimal.sql.j2`: minimal bootstrap (core tablespaces + baseline user/grants)
-=======
-- `tq_app_bootstrap_full.sql.j2`: full `TQ_*` users/tablespaces/grants bootstrap
-- `tq_app_bootstrap_minimal.sql.j2`: minimal bootstrap (core tablespaces + baseline user/grants)
->>>>>>> terraform-proxmox-automated-infra
 
 ## Mandatory Prerequisites
 
@@ -179,11 +174,7 @@ ansible-playbook main.yml -l database19c --tags verify
 
 ## CRUD Scenario
 
-<<<<<<< HEAD
 End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `APP_*` logins, delete/reconcile) plus WebLogic follow-up checks:
-=======
-End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `TQ_*` logins, delete/reconcile) plus WebLogic follow-up checks:
->>>>>>> terraform-proxmox-automated-infra
 
 - Admin Console validation should target AdminServer ports.
 - Managed-server `/console` endpoints returning HTTP `404` are expected.

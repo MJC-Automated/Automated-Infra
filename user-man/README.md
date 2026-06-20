@@ -120,10 +120,7 @@ user-man/
 4. **Do not store automation account passwords in vault:** Keep `ansible` key-based only.
 5. **Ansible Config:** The `ansible.cfg` file is pre-configured to use the centralized inventory and `../inventories/aliases.ini`.
 6. **Vault password file hygiene:** If you use `.vault_password`, keep it untracked and restricted (`chmod 600 .vault_password`).
-<<<<<<< HEAD:ansible_user_management/README.md
-=======
 7. **Host targeting:** `main.yml` and `export_pubkeys.yml` target `all_nodes` (Terraform-managed hosts). This avoids running against alias-only hosts such as `ansible-control-node`.
->>>>>>> terraform-proxmox-automated-infra:user-man/README.md
 
 ### Usage
 
@@ -358,11 +355,7 @@ ansible-playbook main.yml
 
 ## Validation Snapshot (2026-02-16)
 
-<<<<<<< HEAD:ansible_user_management/README.md
-Validated against 5 hosts:
-=======
 Current tracked dev topology spans 9 hosts:
->>>>>>> terraform-proxmox-automated-infra:user-man/README.md
 
 - `public-weblogic14c-01`
 - `public-weblogic12c-01`

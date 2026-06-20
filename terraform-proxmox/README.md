@@ -258,13 +258,8 @@ chmod 600 .env
 
 Documented concrete defaults in this repo:
 
-<<<<<<< HEAD
 - `TF_VAR_vault_address=https://198.51.100.76:8200`
 - `VAULT_ADDR=https://198.51.100.76:8200`
-=======
-- `TF_VAR_vault_address=https://198.51.100.61:8200`
-- `VAULT_ADDR=https://198.51.100.61:8200`
->>>>>>> terraform-proxmox-automated-infra
 - `PROXMOX_USER=root`
 - `PROXMOX_HOST_DEV=198.51.100.77`
 - `PROXMOX_HOST_PROD=198.51.100.78`
@@ -315,9 +310,6 @@ mv .env.bak.approle-test .env
 rm -f .vault-token
 ```
 
-<<<<<<< HEAD
-Note: with `environments/dev.tfvars` (`manage_vault_access=true`), governance operations still require an admin token. AppRole is validated above for runtime secret access/login flow.
-=======
 Note: with `environments/dev.tfvars` (`manage_vault_access=true`), governance operations still require an admin token.
 AppRole-only `.env` works for runtime secret reads/login flow, but `make plan` / `make apply` will fail during governance refresh with errors like:
 `failed to create limited child token ... POST /v1/auth/token/create ... permission denied`.
@@ -328,7 +320,6 @@ ROOT_TOKEN="$(tr -d '\n' < ~/.vault-recovery/latest/root-token.txt)"
 VAULT_TOKEN="$ROOT_TOKEN" TF_VAR_vault_token="$ROOT_TOKEN" make apply ENVIRONMENT=<env>
 ```
 
->>>>>>> terraform-proxmox-automated-infra
 For full Terraform AppRole mode (non-governance), set `vault_auth_mode="approle"` and `manage_vault_access=false` in `environments/<env>.tfvars`.
 
 ### 3.2 Obtain Required Secret and Env Values
@@ -818,10 +809,7 @@ These generate templates named `ubuntu2404-template`, `oracle8-template`, and `o
 
 Update `environments/<env>.tfvars`:
 
-<<<<<<< HEAD
-=======
 - `environments/dev.tfvars` is the only committed environment seed and now mirrors the 9-node service topology used to bootstrap richer environments such as `example`.
->>>>>>> terraform-proxmox-automated-infra
 - `target_node` should match the Proxmox node name.
 - `storage_pool` should match your root/template storage.
 - `data_disk_defaults.storage` should match the data-disk pool (e.g., `local-lvm`).
@@ -1083,7 +1071,6 @@ Preflight checklist (recommended before first `plan`/`apply`):
 
 If you need a specific VM IP window, edit `ipconfig0` entries in `environments/<env>.tfvars`.
 Also verify `snippet_storage` matches a storage that supports `snippets` on the target Proxmox.
-<<<<<<< HEAD
 Example for `198.51.100.83-130`:
 
 - `ip=192.0.2.0/24,gw=198.51.100.23`
@@ -1091,15 +1078,6 @@ Example for `198.51.100.83-130`:
 - `ip=203.0.113.0/24,gw=198.51.100.23`
 - `ip=192.0.2.0/24,gw=198.51.100.23`
 - `ip=198.51.100.0/24,gw=198.51.100.23`
-=======
-Example for `198.51.100.84-130`:
-
-- `ip=203.0.113.0/24,gw=198.51.100.85`
-- `ip=192.0.2.0/24,gw=198.51.100.85`
-- `ip=198.51.100.0/24,gw=198.51.100.85`
-- `ip=203.0.113.0/24,gw=198.51.100.85`
-- `ip=192.0.2.0/24,gw=198.51.100.85`
->>>>>>> terraform-proxmox-automated-infra
 
 If you already have base/source VMs for Packer, set `clone_vm_id` in each env Packer vars file:
 
@@ -1114,11 +1092,7 @@ clone_vm_id = 999999990
 clone_vm_id = 999999992
 ```
 
-<<<<<<< HEAD
 Concrete example (dev-like stack on `198.51.100.79` with IPs `198.51.100.83-130`):
-=======
-Concrete example (dev-like stack on `198.51.100.86` with IPs `198.51.100.84-130`):
->>>>>>> terraform-proxmox-automated-infra
 
 ```bash
 make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.79 ENV_TEMPLATE_FORCE=true
@@ -1136,26 +1110,26 @@ make workspace-create ENVIRONMENT=testing
 make plan ENVIRONMENT=testing
 ```
 
-Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `198.51.100.0/24`, Proxmox host `198.51.100.87`, control node `198.51.100.88`):
+Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `203.0.113.0/24`, Proxmox host `198.51.100.84`, control node `198.51.100.85`):
 
 ```bash
-make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.87
+make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.84
 
 make env-template \
   ENVIRONMENT=example \
   TEMPLATE_ENV=dev \
-  PROXMOX_HOST=198.51.100.87 \
+  PROXMOX_HOST=198.51.100.84 \
   PROXMOX_NODE=proxmox \
-  ANSIBLE_HOST=198.51.100.88 \
-  NETWORK_CIDR=198.51.100.0/24 \
-  NETWORK_GW=198.51.100.85 \
+  ANSIBLE_HOST=198.51.100.85 \
+  NETWORK_CIDR=203.0.113.0/24 \
+  NETWORK_GW=198.51.100.86 \
   AUTO_DISCOVER=true \
   ENV_TEMPLATE_FORCE=true
 
 # Then review environments/example.tfvars and adjust env-specific values:
 # - cluster_name = "public-stack"
-# - vault_approle_*_bound_cidrs include 198.51.100.0/24
-# - ipconfig0 entries stay in 198.51.100.0/24
+# - vault_approle_*_bound_cidrs include 203.0.113.0/24
+# - ipconfig0 entries stay in 203.0.113.0/24
 
 make env-bootstrap ENVIRONMENT=example
 # If bootstrap reaches plan successfully, deploy:
