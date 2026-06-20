@@ -161,8 +161,8 @@ readonly DOMAIN="example.internal"     # Domain suffix (FQDN = ${NAME}.${DOMAIN}
 # │ Source Images - One path per OS version                                 │
 # │ Add new versions here; select via --os flag or OS_TYPE default above.   │
 # └─────────────────────────────────────────────────────────────────────────┘
-readonly ORACLE_LINUX_8_IMAGE="/var/lib/vz/template/iso/OL8U10_x86_64-kvm-b271.qcow2"
-readonly ORACLE_LINUX_9_IMAGE="/var/lib/vz/template/iso/OL9U7_x86_64-kvm-b269.qcow2"
+readonly ORACLE_LINUX_8_IMAGE="/var/lib/vz/template/iso/OL8U10_x86_64-kvm-b287.qcow2"
+readonly ORACLE_LINUX_9_IMAGE="/var/lib/vz/template/iso/OL9U7_x86_64-kvm-b289.qcow2"
 readonly UBUNTU_22_IMAGE="/var/lib/vz/template/iso/jammy-server-cloudimg-amd64.img"
 readonly UBUNTU_24_IMAGE="/var/lib/vz/template/iso/noble-server-cloudimg-amd64.img"
 readonly ROCKY_LINUX_9_IMAGE="/var/lib/vz/template/iso/Rocky-9-GenericCloud.latest.x86_64.qcow2"
