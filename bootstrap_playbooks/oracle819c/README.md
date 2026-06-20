@@ -190,6 +190,18 @@ End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `TQ_*`
 
 - [`../../docs/oracle-db-weblogic-crud-scenario.md`](../../docs/oracle-db-weblogic-crud-scenario.md)
 
+## Storage Cleanup
+
+Storage cleanup and disk space monitoring are natively integrated into the playbook and run by default at the end of execution.
+- Generates `/home/oracle/scripts/cleanup_database.sh` to purge old `adump` audit files, ADRCI traces, and `cdump` cores.
+- Deploys `logrotate` rules for listener logs (`/etc/logrotate.d/oracle_listener`).
+- Creates a disk space monitoring cron job (`/home/oracle/scripts/check_disk.sh`) to warn if `/u01` or `/u02` cross an 80% threshold.
+
+To run only the cleanup setup independently without the rest of the database logic:
+```bash
+ansible-playbook main.yml -l database19c --tags cleanup
+```
+
 ## Important Behavior
 
 - This playbook intentionally scopes to `database19c` when that group exists.

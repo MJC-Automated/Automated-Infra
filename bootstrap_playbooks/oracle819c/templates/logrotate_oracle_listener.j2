@@ -1,0 +1,11 @@
+# Managed by Ansible — Oracle listener log rotation
+# Deployed to /etc/logrotate.d/oracle_listener
+{{ cleanup_listener_log_pattern }} {
+    weekly
+    rotate 4
+    copytruncate
+    compress
+    missingok
+    notifempty
+    create 0640 {{ cleanup_file_owner }} {{ cleanup_file_group }}
+}

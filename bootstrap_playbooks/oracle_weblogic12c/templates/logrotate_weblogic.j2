@@ -1,0 +1,15 @@
+# Managed by Ansible — WebLogic stdout/nohup log rotation
+# Deployed to /etc/logrotate.d/weblogic
+{% for domain_home in cleanup_weblogic_domain_homes %}
+{{ domain_home }}/servers/*/logs/*.out
+{{ domain_home }}/servers/*/*.out
+{% endfor %}
+{
+    daily
+    rotate {{ cleanup_keep_count }}
+    copytruncate
+    compress
+    missingok
+    notifempty
+    create 0644 {{ cleanup_file_owner }} {{ cleanup_file_group }}
+}

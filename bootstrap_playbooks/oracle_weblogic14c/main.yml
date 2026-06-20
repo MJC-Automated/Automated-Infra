@@ -1042,7 +1042,7 @@
         port: "{{ admin_port | int }}"
         state: started
         delay: 2
-        timeout: 300
+        timeout: 1800
       when:
         - managed_server_enable | bool
         - manage_managed_systemd | bool
@@ -1096,7 +1096,7 @@
         port: "{{ item.listen_port | int }}"
         state: started
         delay: 2
-        timeout: 300
+        timeout: 1800
       loop: "{{ managed_servers }}"
       when:
         - managed_server_enable | bool
@@ -1342,7 +1342,7 @@
         port: "{{ item.admin_port | int }}"
         state: started
         delay: 2
-        timeout: 300
+        timeout: 1800
       loop: "{{ additional_weblogic_domains_active | default([]) }}"
       when:
         - managed_server_enable | bool
@@ -1387,7 +1387,7 @@
         port: "{{ item.1.listen_port | int }}"
         state: started
         delay: 2
-        timeout: 300
+        timeout: 1800
       loop: "{{ query('subelements', additional_weblogic_domains_active | default([]), 'managed_servers', {'skip_missing': True}) }}"
       when:
         - managed_server_enable | bool
@@ -1571,7 +1571,111 @@
       when: crontab_enabled | bool
       tags: [crontab]
 
+    # ---- Task 14: Storage Cleanup ----
+    # Deploy cleanup scripts, logrotate configs, disk monitoring, and journald settings.
+    # Runs during the nightly restart window (00:00) when WebLogic is stopped.
+
+    - name: "CLEANUP | Build domain homes list (includes additional domains)"
+      ansible.builtin.set_fact:
+        cleanup_weblogic_domain_homes: >-
+          {{ cleanup_weblogic_domain_homes +
+             (additional_weblogic_domains | default([]) | map(attribute='domain_home') | list) }}
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup]
+
+    - name: "CLEANUP | Ensure cleanup log directory exists"
+      ansible.builtin.file:
+        path: "{{ cleanup_log_dir }}"
+        state: directory
+        owner: "{{ cleanup_file_owner }}"
+        group: "{{ cleanup_file_group }}"
+        mode: "0755"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup]
+
+    - name: "CLEANUP | Deploy WebLogic cleanup script"
+      ansible.builtin.template:
+        src: templates/cleanup_weblogic.sh.j2
+        dest: "{{ cleanup_script_dir }}/cleanup_weblogic.sh"
+        owner: "{{ cleanup_file_owner }}"
+        group: "{{ cleanup_file_group }}"
+        mode: "0755"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup]
+
+    - name: "CLEANUP | Deploy logrotate config for WebLogic stdout logs"
+      ansible.builtin.template:
+        src: templates/logrotate_weblogic.j2
+        dest: /etc/logrotate.d/weblogic
+        owner: root
+        group: root
+        mode: "0644"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, logrotate]
+
+    - name: "CLEANUP | Deploy disk space monitoring script"
+      ansible.builtin.template:
+        src: templates/check_disk.sh.j2
+        dest: "{{ cleanup_script_dir }}/check_disk.sh"
+        owner: "{{ cleanup_file_owner }}"
+        group: "{{ cleanup_file_group }}"
+        mode: "0755"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, monitoring]
+
+    - name: "CLEANUP | Add WebLogic cleanup cron job (oracle user)"
+      ansible.builtin.cron:
+        name: "Storage cleanup — WebLogic"
+        user: "{{ cleanup_file_owner }}"
+        minute: "{{ cleanup_wls_cron_minute }}"
+        hour: "{{ cleanup_wls_cron_hour }}"
+        job: "{{ cleanup_script_dir }}/cleanup_weblogic.sh 2>&1"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, crontab]
+
+    - name: "CLEANUP | Add disk check cron job (oracle user)"
+      ansible.builtin.cron:
+        name: "Storage cleanup — disk check"
+        user: "{{ cleanup_file_owner }}"
+        minute: "{{ cleanup_disk_cron_minute }}"
+        hour: "{{ cleanup_disk_cron_hour }}"
+        job: "{{ cleanup_script_dir }}/check_disk.sh 2>&1"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, crontab, monitoring]
+
+    - name: "CLEANUP | Configure journald SystemMaxUse"
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: "^#?SystemMaxUse="
+        line: "SystemMaxUse={{ cleanup_journald_max_use }}"
+        backup: true
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, journald]
+
+    - name: "CLEANUP | Configure journald MaxRetentionSec"
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: "^#?MaxRetentionSec="
+        line: "MaxRetentionSec={{ cleanup_journald_max_retention }}"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, journald]
+
     # --- Final Summary ---
+    - name: "DEPLOY | Deploy WebLogic Remote Console (rconsole)"
+      ansible.builtin.shell: |
+        echo '{{ weblogic_password }}' | {{ oracle_middleware_home }}/oracle_common/common/bin/wlst.sh {{ oracle_middleware_home }}/wlserver/server/bin/remote_console_deployment.py t3://localhost:{{ admin_port }} {{ weblogic_admin_user }}
+      become: true
+      become_user: "{{ weblogic_user }}"
+      environment:
+        JAVA_HOME: "{{ java_home }}"
+      register: _remote_console_deploy
+      changed_when: "'Deploying' in _remote_console_deploy.stdout"
+      failed_when: >
+        _remote_console_deploy.rc != 0 and
+        'already exists' not in _remote_console_deploy.stdout and
+        'already deployed' not in _remote_console_deploy.stdout
+      tags: [deploy, remote_console]
+
     - name: Display WebLogic Deployment Summary
       ansible.builtin.debug:
         msg: |

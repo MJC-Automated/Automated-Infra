@@ -233,6 +233,105 @@
       listen: "root.sh script executed"
 
   post_tasks:
+    # ---- STORAGE CLEANUP: Deploy housekeeping scripts and cron ----
+
+    - name: "CLEANUP | Ensure cleanup script directory exists"
+      ansible.builtin.file:
+        path: "{{ cleanup_script_dir }}"
+        state: directory
+        owner: "{{ cleanup_file_owner }}"
+        group: "{{ cleanup_file_group }}"
+        mode: "0755"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup]
+
+    - name: "CLEANUP | Ensure cleanup log directory exists"
+      ansible.builtin.file:
+        path: "{{ cleanup_log_dir }}"
+        state: directory
+        owner: "{{ cleanup_file_owner }}"
+        group: "{{ cleanup_file_group }}"
+        mode: "0755"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup]
+
+    - name: "CLEANUP | Deploy database cleanup script"
+      ansible.builtin.template:
+        src: templates/cleanup_database.sh.j2
+        dest: "{{ cleanup_script_dir }}/cleanup_database.sh"
+        owner: "{{ cleanup_file_owner }}"
+        group: "{{ cleanup_file_group }}"
+        mode: "0755"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup]
+
+    - name: "CLEANUP | Deploy logrotate config for Oracle listener log"
+      ansible.builtin.template:
+        src: templates/logrotate_oracle_listener.j2
+        dest: /etc/logrotate.d/oracle_listener
+        owner: root
+        group: root
+        mode: "0644"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, logrotate]
+
+    - name: "CLEANUP | Deploy disk space monitoring script"
+      ansible.builtin.template:
+        src: templates/check_disk.sh.j2
+        dest: "{{ cleanup_script_dir }}/check_disk.sh"
+        owner: "{{ cleanup_file_owner }}"
+        group: "{{ cleanup_file_group }}"
+        mode: "0755"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, monitoring]
+
+    - name: "CLEANUP | Set ADRCI SHORTP_POLICY for automatic trace purge"
+      ansible.builtin.shell: >
+        su - {{ cleanup_file_owner }} -c
+        'adrci exec="set homepath {{ item }}; set control (SHORTP_POLICY = 168)"'
+      loop: "{{ cleanup_db_adr_homes }}"
+      changed_when: false
+      failed_when: false
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, adrci]
+
+    - name: "CLEANUP | Add database cleanup cron job (oracle user)"
+      ansible.builtin.cron:
+        name: "Storage cleanup — Oracle Database"
+        user: "{{ cleanup_file_owner }}"
+        minute: "{{ cleanup_db_cron_minute }}"
+        hour: "{{ cleanup_db_cron_hour }}"
+        job: "{{ cleanup_script_dir }}/cleanup_database.sh 2>&1"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, crontab]
+
+    - name: "CLEANUP | Add disk check cron job (oracle user)"
+      ansible.builtin.cron:
+        name: "Storage cleanup — disk check"
+        user: "{{ cleanup_file_owner }}"
+        minute: "{{ cleanup_disk_cron_minute }}"
+        hour: "{{ cleanup_disk_cron_hour }}"
+        job: "{{ cleanup_script_dir }}/check_disk.sh 2>&1"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, crontab, monitoring]
+
+    - name: "CLEANUP | Configure journald SystemMaxUse"
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: "^#?SystemMaxUse="
+        line: "SystemMaxUse={{ cleanup_journald_max_use }}"
+        backup: true
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, journald]
+
+    - name: "CLEANUP | Configure journald MaxRetentionSec"
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: "^#?MaxRetentionSec="
+        line: "MaxRetentionSec={{ cleanup_journald_max_retention }}"
+      when: cleanup_enabled | default(true) | bool
+      tags: [cleanup, journald]
+
     - name: ARTIFACTS | Ensure artifacts base dir is writable on controller
       ansible.builtin.shell: "mkdir -p {{ oracle_artifacts_dir }} && test -w {{ oracle_artifacts_dir }}"
       delegate_to: localhost

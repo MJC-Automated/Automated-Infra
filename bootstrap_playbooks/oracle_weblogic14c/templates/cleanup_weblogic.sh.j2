@@ -1,0 +1,102 @@
+#!/bin/bash
+# ============================================================================
+# WebLogic Cleanup Script
+# Deployed by Ansible — do not edit manually on target hosts.
+# Run daily via cron during the nightly restart window (WebLogic stopped).
+# Keeps the last N items in each managed directory.
+# ============================================================================
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Configuration (injected by Ansible)
+# ---------------------------------------------------------------------------
+# Number of recent items to keep (general / temp / cache)
+KEEP={{ cleanup_keep_count }}
+SKIP=$((KEEP + 1))
+
+# Number of recent server log files to keep
+KEEP_LOGS={{ cleanup_keep_server_logs }}
+SKIP_LOGS=$((KEEP_LOGS + 1))
+
+# Log file for this script's own output
+LOG_FILE={{ cleanup_log_dir }}/cleanup_weblogic.log
+
+# ---------------------------------------------------------------------------
+# Logging helper
+# ---------------------------------------------------------------------------
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] CLEANUP: $*" >> "$LOG_FILE"
+}
+
+# Ensure the log directory exists
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log "========== WebLogic cleanup started =========="
+
+# ===========================================================================
+# W1: Startup logs
+#     Prune old *.log files, keeping the ${KEEP} most recent by mtime.
+# ===========================================================================
+{% for log_dir in cleanup_weblogic_log_dirs %}
+if [ -d "{{ log_dir }}" ]; then
+  log "Pruning startup logs in {{ log_dir }}"
+  DELETED=$(ls -t "{{ log_dir }}"/*.log 2>/dev/null | tail -n +${SKIP} | xargs -r rm -fv | wc -l)
+  log "  Removed ${DELETED} startup log(s)"
+fi
+{% endfor %}
+
+# ===========================================================================
+# W2: _WL_user temp directories
+#     Remove oldest directories, keeping the ${KEEP} most recent.
+# ===========================================================================
+{% for tmp_dir in cleanup_weblogic_tmp_dirs %}
+if [ -d "{{ tmp_dir }}" ]; then
+  log "Pruning _WL_user in {{ tmp_dir }}"
+  TOTAL=$(ls -td "{{ tmp_dir }}"/*/ 2>/dev/null | wc -l)
+  TO_DELETE=$((TOTAL > KEEP ? TOTAL - KEEP : 0))
+  if [ "$TO_DELETE" -gt 0 ]; then
+    ls -td "{{ tmp_dir }}"/*/ | tail -n +${SKIP} | xargs -r rm -rf
+    log "  Removed ${TO_DELETE} _WL_user director(ies) (kept ${KEEP})"
+  else
+    log "  Nothing to prune (${TOTAL} items, keeping ${KEEP})"
+  fi
+fi
+{% endfor %}
+
+# ===========================================================================
+# W3: Cache directories
+#     Remove oldest cache directories, keeping the ${KEEP} most recent.
+# ===========================================================================
+{% for cache_dir in cleanup_weblogic_cache_dirs %}
+if [ -d "{{ cache_dir }}" ]; then
+  log "Pruning cache in {{ cache_dir }}"
+  TOTAL=$(ls -td "{{ cache_dir }}"/*/ 2>/dev/null | wc -l)
+  TO_DELETE=$((TOTAL > KEEP ? TOTAL - KEEP : 0))
+  if [ "$TO_DELETE" -gt 0 ]; then
+    ls -td "{{ cache_dir }}"/*/ | tail -n +${SKIP} | xargs -r rm -rf
+    log "  Removed ${TO_DELETE} cache director(ies) (kept ${KEEP})"
+  else
+    log "  Nothing to prune (${TOTAL} items, keeping ${KEEP})"
+  fi
+fi
+{% endfor %}
+
+# ===========================================================================
+# W5: Domain server logs (keep last KEEP_LOGS)
+#     Prune rotated *.log* files, keeping the ${KEEP_LOGS} most recent.
+# ===========================================================================
+{% for srv_log_dir in cleanup_weblogic_server_log_dirs %}
+if [ -d "{{ srv_log_dir }}" ]; then
+  log "Pruning server logs in {{ srv_log_dir }}"
+  TOTAL=$(ls -t "{{ srv_log_dir }}"/*.log* 2>/dev/null | wc -l)
+  TO_DELETE=$((TOTAL > KEEP_LOGS ? TOTAL - KEEP_LOGS : 0))
+  if [ "$TO_DELETE" -gt 0 ]; then
+    ls -t "{{ srv_log_dir }}"/*.log* | tail -n +${SKIP_LOGS} | xargs -r rm -f
+    log "  Removed ${TO_DELETE} server log(s) (kept ${KEEP_LOGS})"
+  else
+    log "  Nothing to prune (${TOTAL} files, keeping ${KEEP_LOGS})"
+  fi
+fi
+{% endfor %}
+
+log "WebLogic cleanup complete."

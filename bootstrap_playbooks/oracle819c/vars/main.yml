@@ -135,3 +135,27 @@ oracle_dump_dir_enabled: true
 oracle_dump_dir_path: "/Backup-Share/IAC-DUMPS"
 oracle_dump_dir_local_base: "/u02/DUMP_DIR"
 oracle_dump_dir_mode: "0775"
+
+# ---- Storage Cleanup ----
+cleanup_enabled: true
+cleanup_keep_count: 5
+cleanup_log_dir: /var/log/cleanup
+cleanup_script_dir: /home/oracle/scripts
+cleanup_file_owner: oracle
+cleanup_file_group: oinstall
+cleanup_disk_threshold_pct: 80
+cleanup_disk_check_mounts:
+  - /u01
+  - /u02
+  - /Logs
+cleanup_db_cron_minute: "0"
+cleanup_db_cron_hour: "2"
+cleanup_disk_cron_minute: "0"
+cleanup_disk_cron_hour: "6"
+cleanup_journald_max_use: "500M"
+cleanup_journald_max_retention: "7day"
+cleanup_adrci_trace_minutes: 10080
+cleanup_adrci_cdump_minutes: 10080
+cleanup_db_adump_dirs: "{{ oracle_cdbs | map(attribute='sid') | map('regex_replace', '^(.*)$', oracle_admin_dir | default('/u01/app/oracle/admin') ~ '/\\1/adump') | list }}"
+cleanup_db_adr_homes: "{{ oracle_cdbs | map(attribute='sid') | map('regex_replace', '^(.*)$', 'diag/rdbms/\\1/\\1') | list }}"
+cleanup_listener_log_pattern: "/u01/app/oracle/diag/tnslsnr/*/listener/trace/listener.log"

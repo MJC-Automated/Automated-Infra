@@ -16,11 +16,6 @@
 {% set ns.static_count = ns.static_count + 1 %}
 {% endif %}
 {% endfor %}
-{% for pdb in oracle_pdbs | default([]) %}
-{% if (pdb.listener_name | default(oracle_listener_name)) == listener.name %}
-{% set ns.static_count = ns.static_count + 1 %}
-{% endif %}
-{% endfor %}
 {% if ns.static_count > 0 %}
 SID_LIST_{{ listener.name }} =
   (SID_LIST =
@@ -29,15 +24,6 @@ SID_LIST_{{ listener.name }} =
     (SID_DESC =
       (GLOBAL_DBNAME = {{ cdb.global_db_name | default(cdb.sid) }})
       (SID_NAME = {{ cdb.sid }})
-      (ORACLE_HOME = {{ oracle_home }})
-    )
-{% endif %}
-{% endfor %}
-{% for pdb in oracle_pdbs | default([]) %}
-{% if (pdb.listener_name | default(oracle_listener_name)) == listener.name %}
-    (SID_DESC =
-      (GLOBAL_DBNAME = {{ pdb.service_name | default(pdb.pdb_name) }})
-      (SID_NAME = {{ pdb.cdb_sid }})
       (ORACLE_HOME = {{ oracle_home }})
     )
 {% endif %}

@@ -242,3 +242,34 @@ compact_domain_jdbc_password_datasources:
   - "opss-audit-DBDS"
 compact_domain_jrf_template: "{{ compact_domain_jrf_templates[-1] }}"
 compact_domain_soapjms_template: "{{ compact_domain_soapjms_templates[-1] }}"
+
+# ---- Storage Cleanup ----
+cleanup_enabled: true
+cleanup_keep_count: 5
+cleanup_keep_server_logs: 10
+cleanup_log_dir: /var/log/cleanup
+cleanup_script_dir: "/home/{{ weblogic_user }}/scripts"
+cleanup_file_owner: "{{ weblogic_user }}"
+cleanup_file_group: "{{ weblogic_group }}"
+cleanup_disk_threshold_pct: 80
+cleanup_disk_check_mounts:
+  - /u01
+  - /u02
+  - /Logs
+cleanup_wls_cron_minute: "0"
+cleanup_wls_cron_hour: "0"
+cleanup_disk_cron_minute: "0"
+cleanup_disk_cron_hour: "6"
+cleanup_journald_max_use: "500M"
+cleanup_journald_max_retention: "7day"
+# Cleanup paths (derived from domain vars; additional domains auto-included)
+cleanup_weblogic_log_dirs:
+  - "{{ logs_base_dir }}/{{ domain_name }}/admin"
+cleanup_weblogic_tmp_dirs:
+  - "{{ domain_home }}/servers/{{ admin_server_name }}/tmp/_WL_user"
+cleanup_weblogic_cache_dirs:
+  - "{{ domain_home }}/servers/{{ admin_server_name }}/cache"
+cleanup_weblogic_server_log_dirs:
+  - "{{ domain_home }}/servers/{{ admin_server_name }}/logs"
+cleanup_weblogic_domain_homes:
+  - "{{ domain_home }}"
