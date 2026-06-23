@@ -61,19 +61,18 @@ select_branch() {
 # Function to get ALL non-merge commits for a ticket across ALL branches
 get_all_ticket_commits() {
     local ticket="$1"
-    # Use --all to search across all branches, get unique commits, and EXCLUDE merge commits
-    {
-        git log --all --no-merges --grep="$ticket" -i --format="%H|%ct|%aI|%an|%s" 2>/dev/null
-        git log --all --no-merges --grep="${ticket}:" -i --format="%H|%ct|%aI|%an|%s" 2>/dev/null
-        git log --all --no-merges --grep="${ticket} " -i --format="%H|%ct|%aI|%an|%s" 2>/dev/null
-        git log --all --no-merges --grep="\\b${ticket}\\b" -i --format="%H|%ct|%aI|%an|%s" 2>/dev/null
-    } | sort -u
+    # Use --branches --remotes --tags to search across branches/tags, but exclude stashes/reflogs
+    git log --branches --remotes --tags --no-merges --grep="$ticket" -i --format="%H|%ct|%aI|%an|%s" 2>/dev/null | sort -u
 }
 
 # Function to get Change-Id from commit
 get_change_id() {
     local commit_hash="$1"
-    git show -s --format=%B "$commit_hash" 2>/dev/null | grep -i "Change-Id:" | awk '{print $2}' | head -1
+    local body
+    body=$(git log -1 --format="%b" "$commit_hash" 2>/dev/null)
+    if [[ "$body" =~ Change-Id:[[:space:]]*([a-zA-Z0-9]+) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    fi
 }
 
 # Function to check if a change is present in other branches and return the branch name
@@ -84,7 +83,7 @@ is_change_in_branches_with_details() {
     local change_id=$(get_change_id "$commit_hash")
     if [[ -z "$change_id" ]]; then return 1; fi
     for branch in "${branches_to_check[@]}"; do
-        if git log "$branch" "origin/$branch" --grep="Change-Id: $change_id" -F --format="%H" 2>/dev/null | grep -q .; then
+        if { git log "$branch" --grep="Change-Id: $change_id" -F --format="%H" 2>/dev/null; git log "origin/$branch" --grep="Change-Id: $change_id" -F --format="%H" 2>/dev/null; } | grep -q .; then
             echo "$branch"
             return 0
         fi
@@ -100,7 +99,7 @@ is_change_in_branches() {
     local change_id=$(get_change_id "$commit_hash")
     if [[ -z "$change_id" ]]; then return 1; fi
     for branch in "${branches_to_check[@]}"; do
-        if git log "$branch" "origin/$branch" --grep="Change-Id: $change_id" -F --format="%H" 2>/dev/null | grep -q .; then
+        if { git log "$branch" --grep="Change-Id: $change_id" -F --format="%H" 2>/dev/null; git log "origin/$branch" --grep="Change-Id: $change_id" -F --format="%H" 2>/dev/null; } | grep -q .; then
             return 0
         fi
     done
@@ -110,14 +109,11 @@ is_change_in_branches() {
 # Function to check if a specific commit is in production and return reason
 is_commit_in_production_with_reason() {
     local commit_hash="$1"
-    local cutoff_timestamp="$2"
-    local last_main_clone_branch="$3"
-    shift 3
+    local last_main_clone_branch="$2"
+    shift 2
     local branches_to_check=("$@")
-    local commit_timestamp=$(git log -1 --format="%ct" "$commit_hash" 2>/dev/null)
-    if [[ -z "$commit_timestamp" ]]; then return 1; fi
     
-    if [[ "$commit_timestamp" -lt "$cutoff_timestamp" ]]; then
+    if git merge-base --is-ancestor "$commit_hash" "$last_main_clone_branch" 2>/dev/null; then
         echo "Deployed in main branch clone ($last_main_clone_branch)"
         return 0
     fi
@@ -132,15 +128,13 @@ is_commit_in_production_with_reason() {
     return 1
 }
 
-# Function to check if a specific commit is in production (by date or by Change-Id)
+# Function to check if a specific commit is in production (by ancestry or by Change-Id)
 is_commit_in_production() {
     local commit_hash="$1"
-    local cutoff_timestamp="$2"
+    local last_main_clone_branch="$2"
     shift 2
     local branches_to_check=("$@")
-    local commit_timestamp=$(git log -1 --format="%ct" "$commit_hash" 2>/dev/null)
-    if [[ -z "$commit_timestamp" ]]; then return 1; fi
-    if [[ "$commit_timestamp" -lt "$cutoff_timestamp" ]]; then return 0; fi
+    if git merge-base --is-ancestor "$commit_hash" "$last_main_clone_branch" 2>/dev/null; then return 0; fi
     if [[ ${#branches_to_check[@]} -gt 0 ]]; then
         if is_change_in_branches "$commit_hash" "${branches_to_check[@]}"; then return 0; fi
     fi
@@ -150,7 +144,7 @@ is_commit_in_production() {
 # Analyzes a PRE-SUPPLIED list of commits.
 analyze_commit_list_status() {
     local commit_list="$1"
-    local cutoff_timestamp="$2"
+    local last_main_clone_branch="$2"
     shift 2
     local branches_to_check=("$@")
     
@@ -166,7 +160,7 @@ analyze_commit_list_status() {
         if [[ -n "$change_id" ]]; then seen_changes["$change_id"]=1; fi
         
         total_commits=$((total_commits + 1))
-        if is_commit_in_production "$commit_hash" "$cutoff_timestamp" "${branches_to_check[@]}"; then
+        if is_commit_in_production "$commit_hash" "$last_main_clone_branch" "${branches_to_check[@]}"; then
             commits_in_prod=$((commits_in_prod + 1))
         else
             commits_new=$((commits_new + 1))
@@ -182,23 +176,51 @@ analyze_commit_list_status() {
 
 # Function to get ticket subjects
 get_ticket_subjects() {
-    local ticket_file="$1"
-    echo "### Ticket List with Subjects"; echo ""
-    while read -r TICKET; do
+    # First pass: Sort tickets chronologically and print header
+    echo "Analyzing and sorting tickets chronologically..." >&2
+    TICKETS_FILE="$1.sorted"
+    > "${TICKETS_FILE}.tmp"
+
+    while read -r TICKET || [[ -n "$TICKET" ]]; do
+        TICKET="${TICKET//[$'\r']/}"
         [[ -z "$TICKET" ]] && continue
-        local subject=$(git log --all --no-merges --grep="$TICKET" -i --format="%s" -1 2>/dev/null)
-        if [[ -n "$subject" ]]; then echo "- **$TICKET**: $subject";
-        else echo "- **$TICKET**: *(No commits found)*"; fi
-    done < "$ticket_file"
+        # Get all commits with timestamp and subject, sort by timestamp
+        commits=$(git log --branches --tags --remotes --no-merges --grep="$TICKET" -i --format="%ct|%s" 2>/dev/null | sort -n)
+        if [[ -z "$commits" ]]; then
+            echo "9999999999|$TICKET|*(No commits found)*" >> "${TICKETS_FILE}.tmp"
+        else
+            first_commit=$(echo "$commits" | head -1)
+            oldest_ts=$(echo "$first_commit" | cut -d'|' -f1)
+            subject=$(echo "$first_commit" | cut -d'|' -f2-)
+            echo "$oldest_ts|$TICKET|$subject" >> "${TICKETS_FILE}.tmp"
+        fi
+    done < "$1"
+
+    # Sort the temp file and write ordered tickets to TICKETS_FILE
+    sort -n -t'|' -k1,1 "${TICKETS_FILE}.tmp" | cut -d'|' -f2 > "$TICKETS_FILE"
+
+    echo "### Ticket List with Subjects"; echo ""
+    while IFS='|' read -r ts tkt subj; do
+        echo "- **$tkt**: $subj"
+    done < <(sort -n -t'|' -k1,1 "${TICKETS_FILE}.tmp")
     echo ""
+
+    rm -f "${TICKETS_FILE}.tmp"
 }
 
 # --- Setup ---
 echo "=== RELEASE MANAGEMENT SETUP ==="; echo ""
-select_branch "Select the LAST RELEASE BRANCH (The most recent production branch):"
-LAST_RELEASE_BRANCH="$selected_branch"
-select_branch "Select the LAST MAIN-BRANCH CLONE RELEASE (The baseline for this analysis):"
-LAST_MAIN_CLONE_BRANCH="$selected_branch"
+if [[ -n "$2" && -n "$3" ]]; then
+    LAST_RELEASE_BRANCH="$2"
+    LAST_MAIN_CLONE_BRANCH="$3"
+    echo "Using release branch: $LAST_RELEASE_BRANCH"
+    echo "Using baseline branch: $LAST_MAIN_CLONE_BRANCH"
+else
+    select_branch "Select the LAST RELEASE BRANCH (The most recent production branch):"
+    LAST_RELEASE_BRANCH="$selected_branch"
+    select_branch "Select the LAST MAIN-BRANCH CLONE RELEASE (The baseline for this analysis):"
+    LAST_MAIN_CLONE_BRANCH="$selected_branch"
+fi
 echo "Getting release information..."; echo ""
 ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git checkout "$LAST_RELEASE_BRANCH" >/dev/null 2>&1
@@ -209,7 +231,7 @@ MAIN_CLONE_TIMESTAMP=$(git log -1 --format="%ct")
 git checkout "$ORIGINAL_BRANCH" >/dev/null 2>&1
 
 # --- Identify consecutive branches for checking ---
-all_branches_sorted=($(git branch -a | grep -v HEAD | sed 's/^[ *]*//g;s/remotes\/origin\///g' | sort -uV))
+all_branches_sorted=($(git branch -a | grep -v HEAD | sed 's/^[ *]*//g;s/remotes\/origin\///g' | sort -uV | grep -v '^master$' | grep -v '^main$'))
 last_main_clone_index=-1; last_release_index=-1
 for i in "${!all_branches_sorted[@]}"; do
    if [[ "${all_branches_sorted[$i]}" == "$LAST_MAIN_CLONE_BRANCH" ]]; then last_main_clone_index=$i; fi
@@ -243,17 +265,19 @@ if [[ ${#CONSECUTIVE_BRANCHES[@]} -gt 0 ]]; then
 fi
 
 declare -A TICKET_STATUSES
+declare -a GLOBAL_NEW_COMMITS=()
 
 # --- Main Processing Loop ---
 while read -r TICKET; do
   [[ -z "$TICKET" ]] && continue
+  echo "Processing ticket: $TICKET..." >&2
   
   # SIMPLIFIED LOGIC:
   # 1. Get ALL unique, non-merge commits for the ticket. This is the single source of truth.
   all_feature_commits=$(get_all_ticket_commits "$TICKET")
   
   # 2. Analyze this complete list to get the status.
-  PRODUCTION_STATUS=$(analyze_commit_list_status "$all_feature_commits" "$MAIN_CLONE_TIMESTAMP" "${CONSECUTIVE_BRANCHES[@]}")
+  PRODUCTION_STATUS=$(analyze_commit_list_status "$all_feature_commits" "$LAST_MAIN_CLONE_BRANCH" "${CONSECUTIVE_BRANCHES[@]}")
   TICKET_STATUSES["$TICKET"]="$PRODUCTION_STATUS"
   
   STATUS_INDICATOR=""
@@ -269,6 +293,7 @@ while read -r TICKET; do
   # 3. Display the complete, sorted list of commits.
   if [[ -n "$all_feature_commits" ]]; then
     echo "### Commits"; echo ""
+    unset seen_changes_display
     declare -A seen_changes_display
     # Sort by the second field (timestamp), numerically (oldest first).
     sorted_commits=$(echo "$all_feature_commits" | sort -t'|' -k2,2n)
@@ -280,10 +305,12 @@ while read -r TICKET; do
       if [[ -n "$change_id" ]]; then seen_changes_display["$change_id"]=1; fi
       
       PRETTYDATE=$(format_date "$commit_date")
-      PRODUCTION_REASON=$(is_commit_in_production_with_reason "$commit_hash" "$MAIN_CLONE_TIMESTAMP" "$LAST_MAIN_CLONE_BRANCH" "${CONSECUTIVE_BRANCHES[@]}")
+      PRODUCTION_REASON=$(is_commit_in_production_with_reason "$commit_hash" "$LAST_MAIN_CLONE_BRANCH" "${CONSECUTIVE_BRANCHES[@]}")
       COMMIT_STATUS=""
       if [[ -n "$PRODUCTION_REASON" ]]; then
         COMMIT_STATUS=" 🔴 **IN PRODUCTION** (*$PRODUCTION_REASON*)"
+      else
+        GLOBAL_NEW_COMMITS+=("$commit_hash|$commit_timestamp|$TICKET")
       fi
       
       echo "#### Commit: \`$commit_hash\`$COMMIT_STATUS"; echo ""
@@ -296,7 +323,7 @@ while read -r TICKET; do
   fi
   
   echo "---"; echo ""
-done < "$TICKET_FILE"
+done < "${TICKET_FILE}.sorted"
 
 # --- Summary Section ---
 echo "## Summary"; echo ""
@@ -313,7 +340,7 @@ while read -r TICKET; do
     "NEW") echo "- ✅ **$TICKET** - New ticket for this release"; NEW_TICKETS=$((NEW_TICKETS + 1));;
     *) echo "- ❌ **$TICKET** - No commits found"; NOT_FOUND_TICKETS=$((NOT_FOUND_TICKETS + 1));;
   esac
-done < "$TICKET_FILE"
+done < "${TICKET_FILE}.sorted"
 echo ""
 echo "**Total Tickets:** $TOTAL_TICKETS"; echo ""
 echo "**Fully in Production:** $FULL_PRODUCTION_TICKETS"
@@ -324,11 +351,45 @@ echo "**New for Release:** $NEW_TICKETS";
 echo ""
 echo "**Not Found:** $NOT_FOUND_TICKETS"; echo ""
 echo "**Release Candidates:** $((NEW_TICKETS + PARTIAL_PRODUCTION_TICKETS))"; echo ""
-echo "**Note:** Production status is determined by checking if a commit's timestamp is before the baseline date **OR** if its **Change-Id** exists in any subsequent release branches up to **$LAST_RELEASE_BRANCH**."
+echo "**Note:** Production status is determined by checking if a commit is an ancestor of the baseline branch **OR** if its **Change-Id** exists in any subsequent release branches up to **$LAST_RELEASE_BRANCH**."
 echo ""
 echo "**Legend:**"; echo "- 🔴 FULLY IN PRODUCTION: All commits are already deployed"
 echo "- 🟡 PARTIALLY IN PRODUCTION: Some commits deployed, some new"
 echo "- ✅ NEW FOR RELEASE: All commits are new and ready for deployment"
 echo "- ❌ NOT FOUND: No commits found for the ticket"
 echo ""
+
+# --- Merge Conflict Prediction ---
+if [[ ${#GLOBAL_NEW_COMMITS[@]} -gt 0 ]]; then
+    echo "## Merge Conflict Prediction"; echo ""
+    echo "Simulating sequential cherry-pick of new commits onto \`$LAST_RELEASE_BRANCH\`..."; echo ""
+    echo '```text'
+    
+    # Deduplicate globally by hash (to handle commits spanning multiple tickets), then sort by timestamp
+    sorted_global_commits=$(printf "%s\n" "${GLOBAL_NEW_COMMITS[@]}" | sort -t'|' -u -k1,1 | sort -t'|' -k2,2n)
+    
+    TEMP_BRANCH="gerrit_report_dry_run_$$"
+    git checkout -b "$TEMP_BRANCH" "$LAST_RELEASE_BRANCH" >/dev/null 2>&1
+    trap "git cherry-pick --abort >/dev/null 2>&1; git checkout \"$ORIGINAL_BRANCH\" >/dev/null 2>&1; git branch -D \"$TEMP_BRANCH\" >/dev/null 2>&1" EXIT INT TERM
+    
+    while IFS='|' read -r c_hash c_ts c_ticket; do
+        [[ -z "$c_hash" ]] && continue
+        short_hash=$(git rev-parse --short "$c_hash")
+        if git cherry-pick "$c_hash" >/dev/null 2>&1; then
+            echo "[SUCCESS]  $short_hash ($c_ticket)"
+        else
+            echo "[CONFLICT] $short_hash ($c_ticket) - Cherry-pick failed! (Skipped)"
+            git cherry-pick --abort >/dev/null 2>&1
+        fi
+    done <<< "$sorted_global_commits"
+    
+    echo '```'; echo ""
+    
+    git checkout "$ORIGINAL_BRANCH" >/dev/null 2>&1
+    git branch -D "$TEMP_BRANCH" >/dev/null 2>&1
+    trap - EXIT INT TERM
+fi
+
 echo "                     ========================================== End of Report =================================             "
+
+rm -f "${TICKET_FILE}.sorted"
