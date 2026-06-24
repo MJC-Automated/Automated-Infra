@@ -21,23 +21,36 @@
       when: zabbix_firewalld_http_query.rc != 0
 
     - name: Check existing firewalld Zabbix server rule
-      ansible.builtin.command: firewall-cmd --permanent --query-port=10051/tcp
+      ansible.builtin.command: firewall-cmd --permanent --query-port={{ zabbix_server_port }}/tcp
       register: zabbix_firewalld_10051_query
       changed_when: false
       failed_when: false
 
     - name: Add firewalld Zabbix server rule
-      ansible.builtin.command: firewall-cmd --permanent --add-port=10051/tcp
+      ansible.builtin.command: firewall-cmd --permanent --add-port={{ zabbix_server_port }}/tcp
       register: zabbix_firewalld_add_10051
       changed_when: zabbix_firewalld_add_10051.rc == 0
       when: zabbix_firewalld_10051_query.rc != 0
+
+    - name: Check existing firewalld Zabbix agent rule
+      ansible.builtin.command: firewall-cmd --permanent --query-port={{ zabbix_agent_port }}/tcp
+      register: zabbix_firewalld_10050_query
+      changed_when: false
+      failed_when: false
+
+    - name: Add firewalld Zabbix agent rule
+      ansible.builtin.command: firewall-cmd --permanent --add-port={{ zabbix_agent_port }}/tcp
+      register: zabbix_firewalld_add_10050
+      changed_when: zabbix_firewalld_add_10050.rc == 0
+      when: zabbix_firewalld_10050_query.rc != 0
 
     - name: Reload firewalld
       ansible.builtin.command: firewall-cmd --reload
       changed_when: true
       when: >-
         (zabbix_firewalld_add_http is defined and zabbix_firewalld_add_http.changed) or
-        (zabbix_firewalld_add_10051 is defined and zabbix_firewalld_add_10051.changed)
+        (zabbix_firewalld_add_10051 is defined and zabbix_firewalld_add_10051.changed) or
+        (zabbix_firewalld_add_10050 is defined and zabbix_firewalld_add_10050.changed)
 
 - name: Check if ufw is available
   ansible.builtin.command: command -v ufw
@@ -55,8 +68,16 @@
 
 - name: Open Zabbix server port in ufw (best effort)
   ansible.builtin.command: >-
-    ufw allow from {{ zabbix_allow_server_port_cidr }} to any port 10051 proto tcp
+    ufw allow from {{ zabbix_allow_server_port_cidr }} to any port {{ zabbix_server_port }} proto tcp
   register: zabbix_ufw_10051
   changed_when: "'Skipping' not in (zabbix_ufw_10051.stdout | default(''))"
+  failed_when: false
+  when: zabbix_ufw_present.rc == 0
+
+- name: Open Zabbix agent port in ufw (best effort)
+  ansible.builtin.command: >-
+    ufw allow from {{ zabbix_allow_server_port_cidr }} to any port {{ zabbix_agent_port }} proto tcp
+  register: zabbix_ufw_10050
+  changed_when: "'Skipping' not in (zabbix_ufw_10050.stdout | default(''))"
   failed_when: false
   when: zabbix_ufw_present.rc == 0

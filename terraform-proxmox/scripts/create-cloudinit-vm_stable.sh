@@ -13,7 +13,7 @@ IFS=$'\n\t'
 #    alma-linux-9     fedora-43                                                 #
 #                                                                              #
 #  USAGE:                                                                      #
-#    ./create-cloudinit-vm.sh [OPTIONS]                                         #
+#    ./create-cloudinit-vm_stable.sh [OPTIONS]                                  #
 #                                                                              #
 #    --os <type>       OS type (see list above; default: debian-12)            #
 #    --vmid <id>       VM ID (default from config)                             #
@@ -25,9 +25,9 @@ IFS=$'\n\t'
 #    -h / --help       Show full usage and examples                            #
 #                                                                              #
 #  Examples:                                                                   #
-#    ./create-cloudinit-vm.sh --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 198.51.100.0/24
-#    ./create-cloudinit-vm.sh --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 203.0.113.0/24
-#    ./create-cloudinit-vm.sh --os debian-12 --dry-run                         #
+#    ./create-cloudinit-vm_stable.sh --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 198.51.100.0/24
+#    ./create-cloudinit-vm_stable.sh --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 203.0.113.0/24
+#    ./create-cloudinit-vm_stable.sh --os debian-12 --dry-run                         #
 #                                                                              #
 #  Key Features:                                                               #
 #  - Versioned multi-OS via CLI (oracle-linux-8 vs 9, ubuntu-22 vs 24, etc.)  #
@@ -113,6 +113,7 @@ done
 # - Fall back to legacy ZABBIX_SERVER for both settings.
 ZABBIX_SERVER_PASSIVE="${ZABBIX_SERVER_PASSIVE:-${ZABBIX_SERVER:-}}"
 ZABBIX_SERVER_ACTIVE="${ZABBIX_SERVER_ACTIVE:-${ZABBIX_SERVER:-}}"
+ZABBIX_AGENT_PORT="${ZABBIX_AGENT_PORT:-10050}"
 
 # If only one split var is provided, mirror it for the other one.
 if [[ -z "${ZABBIX_SERVER_PASSIVE}" && -n "${ZABBIX_SERVER_ACTIVE}" ]]; then
@@ -182,6 +183,8 @@ readonly DNS="${DNS:-198.51.100.25}"
 readonly CORES="${CORES:-6}"
 readonly MEM="${MEM:-8192}"               # MB
 readonly CPU_TYPE="${CPU_TYPE:-host}"
+readonly VGA_TYPE="${VGA_TYPE:-std}"
+
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Proxmox Storage Backends                                                │
@@ -226,7 +229,7 @@ readonly DO_OS_UPDATE="${DO_OS_UPDATE:-0}"   # 1 = enable background update; 0 =
 # └─────────────────────────────────────────────────────────────────────────┘
 readonly STORAGE_PROVISION_WAIT="900"
 readonly STORAGE_PROVISION_POLL="10"
-readonly CLOUDINIT_VERIFY_WAIT="900"
+readonly CLOUDINIT_VERIFY_WAIT="1800"
 readonly CLOUDINIT_VERIFY_POLL="15"
 readonly CLOUDINIT_STATUS_VERBOSE="0"
 
@@ -264,6 +267,8 @@ readonly WAIT_TIMEOUT="300"
 readonly VERIFY_VM="1"
 readonly VERIFY_TIMEOUT="600"
 readonly VERIFY_RETRY_INTERVAL="15"
+readonly RESET_VGA_TO_DEFAULT="${RESET_VGA_TO_DEFAULT:-1}"  # 1 = reset VGA/display to default at the end of provisioning
+readonly SHUTDOWN_FINAL_VM="${SHUTDOWN_FINAL_VM:-1}"       # 1 = shut down/stop the VM at the end of provisioning
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Timezone (IANA format)                                                  │
@@ -1036,12 +1041,28 @@ preflight_checks() {
   fi
   validate_storage_for_content "$SNIPPET_STORAGE" "snippets"
 
+  if [[ "$FORCE" == "1" ]] && [[ "$DRY_RUN" != "1" ]] && [[ "$IPCIDR" != "dhcp" ]]; then
+    local ip="${IPCIDR%%/*}"
+    log_info "Clearing old SSH host key for $ip from known_hosts"
+    ssh-keygen -f "/root/.ssh/known_hosts" -R "$ip" >/dev/null 2>&1 || true
+  fi
+
   if qm status "$VMID" >/dev/null 2>&1; then
     if [[ "$FORCE" == "1" ]]; then
       log_warn "Destroying existing VM $VMID"
       if [[ "$DRY_RUN" != "1" ]]; then
+        log_info "Stopping VM $VMID..."
         qm stop "$VMID" >/dev/null 2>&1 || true
-        sleep 2
+        local stop_start=$SECONDS
+        while qm status "$VMID" | grep -q "status: running" && (( SECONDS - stop_start < 15 )); do
+          sleep 1
+        done
+        if qm status "$VMID" | grep -q "status: running"; then
+          log_warn "VM $VMID still running after stop signal, trying with skiplock..."
+          qm stop "$VMID" --skiplock 1 >/dev/null 2>&1 || true
+          sleep 3
+        fi
+        log_info "Destroying VM $VMID..."
         qm destroy "$VMID" --purge 1 --destroy-unreferenced-disks 1
         sleep 2
       fi
@@ -1176,6 +1197,9 @@ _substitute_common_placeholders() {
 
   esc="$(sed_escape_repl "$ZABBIX_SERVER_ACTIVE")"
   sed -i "s|__ZABBIX_SERVER_ACTIVE__|$esc|g" "$userdata_file"
+
+  esc="$(sed_escape_repl "$ZABBIX_AGENT_PORT")"
+  sed -i "s|__ZABBIX_AGENT_PORT__|$esc|g" "$userdata_file"
 }
 
 create_cloudinit_config() {
@@ -1338,40 +1362,45 @@ write_files:
       if [[ "__GUEST_DEBUG__" == "1" ]]; then set -x; fi
 
       if ! command -v zabbix_agent2 >/dev/null 2>&1; then
-        if [[ ! -r /etc/os-release ]]; then
-          echo "Skipping Zabbix install: /etc/os-release not found."
-          exit 0
-        fi
-
-        # shellcheck disable=SC1091
-        source /etc/os-release
-        major="${VERSION_ID%%.*}"
-
-        case "${ID}:${major}" in
-          ubuntu:24)
-            if ! dpkg-query -W -f='${Status}' zabbix-release 2>/dev/null | grep -q "install ok installed"; then
-              release_deb="/tmp/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
-              wget -O "${release_deb}" \
-                "https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
-              dpkg -i "${release_deb}"
-              rm -f "${release_deb}"
-            fi
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get -y install zabbix-agent2
-            ;;
-          ol:8|ol:9|oracle:8|oracle:9|oraclelinux:8|oraclelinux:9)
-            if ! rpm -q zabbix-release >/dev/null 2>&1; then
-              rpm -Uvh \
-                "https://repo.zabbix.com/zabbix/7.0/rhel/${major}/x86_64/zabbix-release-latest-7.0.el${major}.noarch.rpm"
-            fi
-            dnf clean all
-            dnf -y install zabbix-agent2
-            ;;
-          *)
-            echo "Skipping Zabbix install on unsupported distro: ${ID:-unknown} ${VERSION_ID:-unknown}"
+        (
+          if [[ ! -r /etc/os-release ]]; then
+            echo "Skipping Zabbix install: /etc/os-release not found."
             exit 0
-            ;;
-        esac
+          fi
+
+          # shellcheck disable=SC1091
+          source /etc/os-release
+          major="${VERSION_ID%%.*}"
+
+          case "${ID}:${major}" in
+            ubuntu:24)
+              if ! dpkg-query -W -f='${Status}' zabbix-release 2>/dev/null | grep -q "install ok installed"; then
+                release_deb="/tmp/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
+                wget --timeout=15 --tries=2 -O "${release_deb}" \
+                  "https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
+                dpkg -i "${release_deb}"
+                rm -f "${release_deb}"
+              fi
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get -y install zabbix-agent2
+              ;;
+            ol:8|ol:9|oracle:8|oracle:9|oraclelinux:8|oraclelinux:9)
+              if ! rpm -q zabbix-release >/dev/null 2>&1; then
+                release_rpm="/tmp/zabbix-release-latest-7.0.el${major}.noarch.rpm"
+                wget --timeout=15 --tries=2 -O "${release_rpm}" \
+                  "https://repo.zabbix.com/zabbix/7.0/rhel/${major}/x86_64/zabbix-release-latest-7.0.el${major}.noarch.rpm"
+                rpm -Uvh "${release_rpm}"
+                rm -f "${release_rpm}"
+              fi
+              dnf clean all
+              dnf -y install zabbix-agent2
+              ;;
+            *)
+              echo "Skipping Zabbix install on unsupported distro: ${ID:-unknown} ${VERSION_ID:-unknown}"
+              exit 0
+              ;;
+          esac
+        ) || echo "WARNING: Zabbix Agent 2 package installation failed. Proceeding anyway."
       else
         echo "zabbix_agent2 already installed; skipping package installation."
       fi
@@ -1381,36 +1410,38 @@ write_files:
       zbx_server_active="__ZABBIX_SERVER_ACTIVE__"
 
       if [[ -f "${zbx_conf}" ]]; then
-        sed -i -E '/^[#[:space:]]*Server=/d' "${zbx_conf}"
+        # Remove any existing Server, ServerActive, and Hostname settings (commented or uncommented)
+        sed -i -E '/^(#?[[:space:]]*)?(Server|ServerActive|Hostname)=/d' "${zbx_conf}"
+        # Append clean config settings at the end of the file
+        echo "" >> "${zbx_conf}"
         echo "Server=${zbx_server_passive}" >> "${zbx_conf}"
-
-        sed -i -E '/^[#[:space:]]*ServerActive=/d' "${zbx_conf}"
         echo "ServerActive=${zbx_server_active}" >> "${zbx_conf}"
-
-        sed -i -E '/^[#[:space:]]*Hostname=/d' "${zbx_conf}"
-        sed -i -E '/^[#[:space:]]*HostnameItem=/d' "${zbx_conf}"
-        echo "HostnameItem=system.hostname[shorthost]" >> "${zbx_conf}"
+        # Note: Hostname is purposely omitted to let Zabbix Agent 2 auto-inherit system.hostname
       else
         echo "WARNING: ${zbx_conf} not found; skipping Zabbix server configuration."
       fi
 
-      if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active firewalld >/dev/null 2>&1; then
-        firewall-cmd --permanent --add-port=10050/tcp
-        firewall-cmd --reload
+      # Ensure firewall allows port __ZABBIX_AGENT_PORT__/tcp
+      if command -v firewall-cmd >/dev/null 2>&1; then
+        if systemctl is-active firewalld >/dev/null 2>&1; then
+          timeout 15 firewall-cmd --permanent --add-port=__ZABBIX_AGENT_PORT__/tcp && timeout 15 firewall-cmd --reload || echo "WARNING: firewall-cmd timed out or failed"
+        fi
       fi
-      if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-        ufw allow 10050/tcp
+      if command -v ufw >/dev/null 2>&1; then
+        ufw allow __ZABBIX_AGENT_PORT__/tcp
+      fi
+      if command -v iptables >/dev/null 2>&1; then
+        iptables -C INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT
       fi
 
-      systemctl enable zabbix-agent2
-      systemctl restart zabbix-agent2
+      systemctl enable --now zabbix-agent2
 
 runcmd:
   - [ udevadm, settle ]
   - [ /usr/local/sbin/install-zabbix-agent2.sh ]
   - [ /usr/local/sbin/ensure-swap.sh ]
   - [ systemctl, enable, --now, qemu-guest-agent ]
-  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then nohup bash -c '__PKG_UPDATE_CMD__' &>/var/log/os-update.log & fi" ]
+  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then echo 'Starting OS updates...' && ( __PKG_UPDATE_CMD__ || echo 'WARNING: OS updates failed' ) &>/var/log/os-update.log && echo 'OS updates completed.'; fi" ]
 
 final_message: "Cloud-init finished. Root disk only configuration."
 EOF
@@ -1724,40 +1755,45 @@ __LVM_CHOWN_SECTION__
       if [[ "__GUEST_DEBUG__" == "1" ]]; then set -x; fi
 
       if ! command -v zabbix_agent2 >/dev/null 2>&1; then
-        if [[ ! -r /etc/os-release ]]; then
-          echo "Skipping Zabbix install: /etc/os-release not found."
-          exit 0
-        fi
-
-        # shellcheck disable=SC1091
-        source /etc/os-release
-        major="${VERSION_ID%%.*}"
-
-        case "${ID}:${major}" in
-          ubuntu:24)
-            if ! dpkg-query -W -f='${Status}' zabbix-release 2>/dev/null | grep -q "install ok installed"; then
-              release_deb="/tmp/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
-              wget -O "${release_deb}" \
-                "https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
-              dpkg -i "${release_deb}"
-              rm -f "${release_deb}"
-            fi
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get -y install zabbix-agent2
-            ;;
-          ol:8|ol:9|oracle:8|oracle:9|oraclelinux:8|oraclelinux:9)
-            if ! rpm -q zabbix-release >/dev/null 2>&1; then
-              rpm -Uvh \
-                "https://repo.zabbix.com/zabbix/7.0/rhel/${major}/x86_64/zabbix-release-latest-7.0.el${major}.noarch.rpm"
-            fi
-            dnf clean all
-            dnf -y install zabbix-agent2
-            ;;
-          *)
-            echo "Skipping Zabbix install on unsupported distro: ${ID:-unknown} ${VERSION_ID:-unknown}"
+        (
+          if [[ ! -r /etc/os-release ]]; then
+            echo "Skipping Zabbix install: /etc/os-release not found."
             exit 0
-            ;;
-        esac
+          fi
+
+          # shellcheck disable=SC1091
+          source /etc/os-release
+          major="${VERSION_ID%%.*}"
+
+          case "${ID}:${major}" in
+            ubuntu:24)
+              if ! dpkg-query -W -f='${Status}' zabbix-release 2>/dev/null | grep -q "install ok installed"; then
+                release_deb="/tmp/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
+                wget --timeout=15 --tries=2 -O "${release_deb}" \
+                  "https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0+ubuntu24.04_all.deb"
+                dpkg -i "${release_deb}"
+                rm -f "${release_deb}"
+              fi
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get -y install zabbix-agent2
+              ;;
+            ol:8|ol:9|oracle:8|oracle:9|oraclelinux:8|oraclelinux:9)
+              if ! rpm -q zabbix-release >/dev/null 2>&1; then
+                release_rpm="/tmp/zabbix-release-latest-7.0.el${major}.noarch.rpm"
+                wget --timeout=15 --tries=2 -O "${release_rpm}" \
+                  "https://repo.zabbix.com/zabbix/7.0/rhel/${major}/x86_64/zabbix-release-latest-7.0.el${major}.noarch.rpm"
+                rpm -Uvh "${release_rpm}"
+                rm -f "${release_rpm}"
+              fi
+              dnf clean all
+              dnf -y install zabbix-agent2
+              ;;
+            *)
+              echo "Skipping Zabbix install on unsupported distro: ${ID:-unknown} ${VERSION_ID:-unknown}"
+              exit 0
+              ;;
+          esac
+        ) || echo "WARNING: Zabbix Agent 2 package installation failed. Proceeding anyway."
       else
         echo "zabbix_agent2 already installed; skipping package installation."
       fi
@@ -1767,36 +1803,38 @@ __LVM_CHOWN_SECTION__
       zbx_server_active="__ZABBIX_SERVER_ACTIVE__"
 
       if [[ -f "${zbx_conf}" ]]; then
-        sed -i -E '/^[#[:space:]]*Server=/d' "${zbx_conf}"
+        # Remove any existing Server, ServerActive, and Hostname settings (commented or uncommented)
+        sed -i -E '/^(#?[[:space:]]*)?(Server|ServerActive|Hostname)=/d' "${zbx_conf}"
+        # Append clean config settings at the end of the file
+        echo "" >> "${zbx_conf}"
         echo "Server=${zbx_server_passive}" >> "${zbx_conf}"
-
-        sed -i -E '/^[#[:space:]]*ServerActive=/d' "${zbx_conf}"
         echo "ServerActive=${zbx_server_active}" >> "${zbx_conf}"
-
-        sed -i -E '/^[#[:space:]]*Hostname=/d' "${zbx_conf}"
-        sed -i -E '/^[#[:space:]]*HostnameItem=/d' "${zbx_conf}"
-        echo "HostnameItem=system.hostname[shorthost]" >> "${zbx_conf}"
+        # Note: Hostname is purposely omitted to let Zabbix Agent 2 auto-inherit system.hostname
       else
         echo "WARNING: ${zbx_conf} not found; skipping Zabbix server configuration."
       fi
 
-      if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active firewalld >/dev/null 2>&1; then
-        firewall-cmd --permanent --add-port=10050/tcp
-        firewall-cmd --reload
+      # Ensure firewall allows port __ZABBIX_AGENT_PORT__/tcp
+      if command -v firewall-cmd >/dev/null 2>&1; then
+        if systemctl is-active firewalld >/dev/null 2>&1; then
+          timeout 15 firewall-cmd --permanent --add-port=__ZABBIX_AGENT_PORT__/tcp && timeout 15 firewall-cmd --reload || echo "WARNING: firewall-cmd timed out or failed"
+        fi
       fi
-      if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-        ufw allow 10050/tcp
+      if command -v ufw >/dev/null 2>&1; then
+        ufw allow __ZABBIX_AGENT_PORT__/tcp
+      fi
+      if command -v iptables >/dev/null 2>&1; then
+        iptables -C INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT
       fi
 
-      systemctl enable zabbix-agent2
-      systemctl restart zabbix-agent2
+      systemctl enable --now zabbix-agent2
 
 runcmd:
   - [ udevadm, settle ]
   - [ /usr/local/sbin/install-zabbix-agent2.sh ]
   - [ systemctl, enable, --now, qemu-guest-agent ]
   - [ /bin/bash, -lc, "/usr/local/sbin/provision_storage.sh" ]
-  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then nohup bash -c '__PKG_UPDATE_CMD__' &>/var/log/os-update.log & fi" ]
+  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then echo 'Starting OS updates...' && ( __PKG_UPDATE_CMD__ || echo 'WARNING: OS updates failed' ) &>/var/log/os-update.log && echo 'OS updates completed.'; fi" ]
 
 final_message: "Cloud-init finished. Storage provisioning complete."
 EOF
@@ -1861,7 +1899,7 @@ create_vm() {
     --bios ovmf \
     --scsihw virtio-scsi-single \
     --serial0 socket \
-    --vga serial0
+    --vga "$VGA_TYPE"
 
   log_info "Virtual machine $VMID created successfully"
 }
@@ -2217,6 +2255,42 @@ run_verification() {
     log_info "Skipping storage verification (data disk disabled)"
   fi
 
+  log_verify "Checking systemd service health..."
+  local failed_services
+  failed_services="$(ssh_execute "systemctl --failed --no-legend" 2>/dev/null || echo "")"
+  failed_services="$(echo "$failed_services" | grep -v '^[[:space:]]*$' || true)"
+  if [[ -z "$failed_services" ]]; then
+    log_info "All systemd services are healthy"
+  else
+    log_warn "Some systemd services are degraded/failed:"
+    echo "$failed_services" | sed 's/^/  /'
+  fi
+
+  log_verify "Checking QEMU Guest Agent status..."
+  if ssh_execute "systemctl is-active --quiet qemu-guest-agent" >/dev/null 2>&1; then
+    log_info "QEMU Guest Agent is running"
+  else
+    log_error "QEMU Guest Agent is NOT running"
+    VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+  fi
+
+  log_verify "Checking disk space usage on root..."
+  local disk_usage
+  disk_usage="$(ssh_execute "df --output=pcent / | tail -n 1 | tr -dc '0-9'" 2>/dev/null || echo 0)"
+  if [[ -n "$disk_usage" ]] && [[ $disk_usage -lt 95 ]]; then
+    log_info "Root filesystem usage is OK: ${disk_usage}%"
+  else
+    log_error "Root filesystem usage is HIGH: ${disk_usage}%"
+    VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+  fi
+
+  log_verify "Checking Zabbix Agent 2 status..."
+  if ssh_execute "systemctl is-active --quiet zabbix-agent2" >/dev/null 2>&1; then
+    log_info "Zabbix Agent 2 is running"
+  else
+    log_warn "Zabbix Agent 2 is NOT active (expected if package download timed out)"
+  fi
+
   log_section "Verification Summary"
 
   if [[ $VERIFICATION_FAILED -eq 0 ]]; then
@@ -2453,6 +2527,49 @@ main() {
   start_vm
   wait_for_vm
   run_verification || true
+
+  if [[ "$DO_OS_UPDATE" == "1" ]] && [[ "$DRY_RUN" != "1" ]]; then
+    log_section "Rebooting VM after OS Upgrades"
+    log_info "Initiating reboot for VM $VMID to verify upgrades..."
+    
+    log_info "Attempting graceful reboot via guest OS SSH..."
+    if ! ssh_execute "sudo -n reboot" >/dev/null 2>&1; then
+      log_warn "SSH reboot command failed or timed out, trying qm reboot..."
+      if ! qm reboot "$VMID" >/dev/null 2>&1; then
+        log_warn "qm reboot failed, performing hard reset..."
+        qm reset "$VMID"
+      fi
+    fi
+
+    log_info "Waiting 15 seconds for VM to shut down and start rebooting..."
+    sleep 15
+    wait_for_vm
+    log_info "Running verification checks after reboot..."
+    # Reset verification failed count to check post-reboot health
+    VERIFICATION_FAILED=0
+    run_verification || true
+  fi
+
+  if [[ "$RESET_VGA_TO_DEFAULT" == "1" ]]; then
+    log_info "Resetting VM display (VGA) configuration to default..."
+    qm set "$VMID" --delete vga || true
+  fi
+
+  if [[ "$SHUTDOWN_FINAL_VM" == "1" ]] && [[ "$DRY_RUN" != "1" ]]; then
+    log_section "Shutting Down VM"
+    log_info "Shutting down VM $VMID..."
+    qm shutdown "$VMID" >/dev/null 2>&1 || true
+    local shutdown_start=$SECONDS
+    while qm status "$VMID" | grep -q "status: running" && (( SECONDS - shutdown_start < 30 )); do
+      sleep 1
+    done
+    if qm status "$VMID" | grep -q "status: running"; then
+      log_warn "VM $VMID did not shut down gracefully; forcing stop..."
+      qm stop "$VMID" >/dev/null 2>&1 || true
+    fi
+    log_info "VM $VMID stopped successfully."
+  fi
+
   print_summary
 
   [[ "$VERIFY_VM" == "1" && $VERIFICATION_FAILED -gt 0 ]] && exit 1

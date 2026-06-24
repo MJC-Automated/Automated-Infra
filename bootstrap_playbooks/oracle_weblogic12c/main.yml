@@ -394,7 +394,7 @@
                 )
               )
               + (nodemanager_enabled | bool | ternary([nodemanager_listen_port], []))
-              + (firewall_extra_ports | default([]))
+              + (firewall_extra_ports | default([])) + [zabbix_agent_port]
             )
             | map('int')
             | unique

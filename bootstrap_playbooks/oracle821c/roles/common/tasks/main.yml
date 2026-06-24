@@ -387,7 +387,8 @@
       {{
         (
           (oracle_listeners | default([]) | selectattr('port', 'defined') | map(attribute='port') | map('string') | list) +
-          [oracle_listener_port | string]
+          [oracle_listener_port | string] +
+          [oracle_zabbix_agent_port | string]
         )
         | reject('equalto', '')
         | unique

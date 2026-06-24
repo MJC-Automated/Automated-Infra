@@ -35,6 +35,8 @@ zabbix_php_timezone: "UTC"
 zabbix_frontend_server_name: ""
 zabbix_allow_http_cidr: "0.0.0.0/0"
 zabbix_allow_server_port_cidr: "0.0.0.0/0"
+zabbix_server_port: 10051
+zabbix_agent_port: 10050
 
 # Backups
 zabbix_backup_enabled: true

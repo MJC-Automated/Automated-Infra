@@ -128,8 +128,9 @@ oracle_manage_tnsnames: true
 oracle_listener_cleanup_unmanaged: true
 oracle_manage_firewalld: true
 oracle_firewall_allow_ssh: true
+oracle_zabbix_agent_port: 10050
 oracle_firewall_prune_stale_tcp_ports: true
-oracle_firewall_protected_tcp_ports: []
+oracle_firewall_protected_tcp_ports: ["{{ oracle_zabbix_agent_port }}"]
 
 # Security: password policy checks
 oracle_password_policy_enforce: true

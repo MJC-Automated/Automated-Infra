@@ -193,6 +193,7 @@ crontab_start_minute: "02"
 # --- Firewall (firewalld) ---
 firewall_manage_enabled: true
 firewall_extra_ports: []
+zabbix_agent_port: 10050
 
 # --- JVM Memory/GC Runtime Args ---
 weblogic_gc_log_dir: "{{ logs_base_dir }}/{{ domain_name }}/gc"

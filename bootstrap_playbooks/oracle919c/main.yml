@@ -81,12 +81,24 @@
 
     - name: PRELOAD | Load host-specific desired state from oracle_servers map
       ansible.builtin.set_fact:
-        oracle_server_definition: "{{ oracle_servers[inventory_hostname] | default({}) }}"
+        oracle_server_definition: >-
+          {{
+            oracle_servers[inventory_hostname]
+            | default(
+                oracle_servers[
+                  oracle_servers.keys()
+                  | select('search', inventory_hostname | regex_replace('^[^\\-]+', ''))
+                  | first
+                  | default('')
+                ]
+                | default({})
+              )
+          }}
       tags: [always]
 
     - name: PRELOAD | Apply per-host overrides
       ansible.builtin.set_fact:
-        oracle_hostname: "{{ oracle_server_definition.oracle_hostname | default(oracle_hostname) }}"
+        oracle_hostname: "{{ (inventory_hostname ~ '.example.internal') if ('.' not in inventory_hostname) else inventory_hostname }}"
         oracle_listeners: "{{ oracle_server_definition.oracle_listeners | default(oracle_listeners) }}"
         oracle_cdbs: "{{ oracle_server_definition.oracle_cdbs | default(oracle_cdbs) }}"
         oracle_pdbs: "{{ oracle_server_definition.oracle_pdbs | default(oracle_pdbs) }}"
@@ -96,6 +108,16 @@
         oracle_app_sql_force: "{{ oracle_server_definition.oracle_app_sql_force | default(oracle_app_sql_force) }}"
         oracle_app_sql_targets: "{{ oracle_server_definition.oracle_app_sql_targets | default(oracle_app_sql_targets) }}"
         oracle_app_sql_defaults_from_pdbs: "{{ oracle_server_definition.oracle_app_sql_defaults_from_pdbs | default(oracle_app_sql_defaults_from_pdbs) }}"
+      tags: [always]
+
+    - name: PRELOAD | Normalize listener hosts to current hostname
+      ansible.builtin.set_fact:
+        oracle_listeners: >-
+          {{
+            oracle_listeners
+            | map('combine', {'host': oracle_hostname})
+            | list
+          }}
       tags: [always]
 
     - name: PRELOAD | Normalize oracle_hostname to absolute FQDN for lookups

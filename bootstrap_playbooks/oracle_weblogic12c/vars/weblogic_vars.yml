@@ -18,6 +18,7 @@ logs_base_dir: "/Logs"
 # --- Operational Toggles ---
 firewall_manage_enabled: true
 firewall_extra_ports: []
+zabbix_agent_port: 10050
 crontab_enabled: true
 dangerous_pkill_enabled: true
 managed_server_enable: true
