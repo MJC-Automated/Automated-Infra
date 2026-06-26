@@ -84,7 +84,7 @@ Expected: Success (dev.tfvars VMIDs 10000-10008 are valid and unique)
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/kirui/IaC-Homelab
+cd /home/example/IaC-Homelab
 git add terraform-proxmox/variables.tf
 git commit -m "feat: add VMID uniqueness and range validation to node_groups"
 ```
@@ -1254,7 +1254,7 @@ git commit -m "feat: add make test, test-terraform, test-scripts targets"
 - [ ] **Step 1: Run full test suite**
 
 ```bash
-cd /home/kirui/IaC-Homelab/terraform-proxmox
+cd /home/example/IaC-Homelab/terraform-proxmox
 terraform validate
 make test
 ```

@@ -84,7 +84,7 @@ oracle_servers:
 
 Preferred inventory is centralized in repo root `ansible.cfg`:
 
-- `inventories/dev/inventory.ini`
+- `inventories/example/inventory.ini`
 - `inventories/aliases.ini`
 
 ## Python Environment

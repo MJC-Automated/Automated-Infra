@@ -134,7 +134,7 @@ ansible-playbook -i ../inventories/<env>/inventory.ini -i ../inventories/aliases
 ansible-playbook main.yml
 
 # Or explicitly point at the Terraform-generated inventory
-ansible-playbook -i ../inventories/dev/inventory.ini -i ../inventories/aliases.ini main.yml
+ansible-playbook -i ../inventories/example/inventory.ini -i ../inventories/aliases.ini main.yml
 
 # Run on Oracle DB servers (aliases.ini -> oracle_servers)
 ansible-playbook main.yml --limit oracle_servers

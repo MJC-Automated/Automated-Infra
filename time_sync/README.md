@@ -118,7 +118,7 @@ pip install -r requirements.txt
 Run from the repository root:
 
 ```bash
-ansible-playbook -i inventories/dev/inventory.ini -i inventories/aliases.ini time_sync/main.yml
+ansible-playbook -i inventories/example/inventory.ini -i inventories/aliases.ini time_sync/main.yml
 ```
 
 For a specific environment:

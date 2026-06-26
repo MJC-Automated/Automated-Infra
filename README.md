@@ -211,8 +211,8 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 | Worker Node 1 | `public-k8s-worker-01` | `198.51.100.17` | 2 | 4 GB | 50 GB |
 | Worker Node 2 | `public-k8s-worker-02` | `198.51.100.18` | 2 | 4 GB | 50 GB |
 
-- **Kubespray version**: v2.31.0 (cloned to `/home/kirui/kubespray`)
-- **Inventory**: `/home/kirui/kubespray/inventory/example-k8s/inventory.ini`
+- **Kubespray version**: v2.31.0 (cloned to `/home/example/kubespray`)
+- **Inventory**: `/home/example/kubespray/inventory/example-k8s/inventory.ini`
 - **OS**: Ubuntu 24.04 (cloud-init template `ubuntu2404`)
 - **Network plugin**: Calico (kubespray default)
 - **Container runtime**: containerd (kubespray default)
@@ -255,7 +255,7 @@ k8s-worker-1 ansible_host=198.51.100.22
 2. Boot the K8S VMs from Proxmox (they are created in `stopped` state).
 3. Install kubespray Python dependencies:
    ```bash
-   cd /home/kirui/kubespray
+   cd /home/example/kubespray
    pip install -r requirements.txt
    ```
 4. Verify SSH connectivity:

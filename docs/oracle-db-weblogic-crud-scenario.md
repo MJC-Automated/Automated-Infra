@@ -76,13 +76,13 @@ oracle_servers:
 Run from `bootstrap_playbooks/oracle819c`:
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --skip-tags artifacts
+ansible-playbook -i ../../inventories/example/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --skip-tags artifacts
 ```
 
 ## 3) Verify Oracle State
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags verify
+ansible-playbook -i ../../inventories/example/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags verify
 ```
 
 Expected:
@@ -111,7 +111,7 @@ oracle_app_sql_force: true
 Or run only SQL/bootstrap tags:
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags app_sql
+ansible-playbook -i ../../inventories/example/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags app_sql
 ```
 
 ## 5) Delete/Reconcile (Optional)
@@ -124,8 +124,8 @@ Set destructive lists for host-level desired deletes:
 Then run with delete tags:
 
 ```bash
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags pdb_delete
-ansible-playbook -i ../../inventories/dev/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags cdb_delete
+ansible-playbook -i ../../inventories/example/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags pdb_delete
+ansible-playbook -i ../../inventories/example/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --tags cdb_delete
 ```
 
 ## 6) WebLogic Follow-Up Checks

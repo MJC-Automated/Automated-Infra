@@ -32,7 +32,7 @@ Service bootstrap playbooks are grouped here to keep app/db automation modular a
 
 From inside `bootstrap_playbooks/*`, `ansible.cfg` points to:
 
-- `../../inventories/dev/inventory.ini`
+- `../../inventories/example/inventory.ini`
 - `../../inventories/aliases.ini`
 
 Run from repo root when possible and pass explicit `-i` for non-dev environments.

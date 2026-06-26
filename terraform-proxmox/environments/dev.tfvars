@@ -315,7 +315,7 @@ node_groups = {
   // =========================================================================
   // Kubernetes Cluster (Kubespray-managed)
   // 1 control-plane/etcd + 2 worker nodes on Ubuntu 24.04
-  // Deploy with: cd /home/kirui/kubespray && ansible-playbook \
+  // Deploy with: cd /home/example/kubespray && ansible-playbook \
   //   -i inventory/dev-k8s/inventory.ini --become -u ansible cluster.yml
   // =========================================================================
 

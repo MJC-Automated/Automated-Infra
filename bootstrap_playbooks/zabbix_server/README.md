@@ -128,7 +128,7 @@ Add your hosts to `zabbix_servers` in:
 From repo root:
 
 ```bash
-ansible-playbook -i inventories/dev/inventory.ini -i inventories/aliases.ini bootstrap_playbooks/zabbix_server/main.yml
+ansible-playbook -i inventories/example/inventory.ini -i inventories/aliases.ini bootstrap_playbooks/zabbix_server/main.yml
 ```
 
 Example: external DB mode with pre-existing DB:
@@ -144,7 +144,7 @@ ZABBIX_DB_IMPORT_SCHEMA=false
 
 ```bash
 ansible-playbook --syntax-check bootstrap_playbooks/zabbix_server/main.yml
-ansible-inventory -i inventories/dev/inventory.ini -i inventories/aliases.ini --graph
+ansible-inventory -i inventories/example/inventory.ini -i inventories/aliases.ini --graph
 ```
 
 ## Troubleshooting

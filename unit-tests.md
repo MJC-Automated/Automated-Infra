@@ -153,7 +153,7 @@ ansible-playbook main.yml --limit "public-weblogic14c-01,public-weblogic12c-01,p
 Read verification:
 
 ```bash
-ansible all -i ~/IaC-Homelab/inventories/dev/inventory.ini \
+ansible all -i ~/IaC-Homelab/inventories/example/inventory.ini \
   -l "public-weblogic14c-01,public-weblogic12c-01,public-database21c-01,public-database19c-01,public-jenkins-01" \
   -b -m shell -a 'set -eu; for u in user2 user1 user3 user4 user5; do id -u "$u"; done'
 ```
@@ -277,7 +277,7 @@ done
 ## User-management security checks
 
 ```bash
-ansible all -i ~/IaC-Homelab/inventories/dev/inventory.ini \
+ansible all -i ~/IaC-Homelab/inventories/example/inventory.ini \
   -l "public-weblogic14c-01,public-weblogic12c-01,public-database21c-01,public-database19c-01,public-jenkins-01" \
   -b -m shell -a '
 set -eu

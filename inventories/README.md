@@ -16,10 +16,10 @@ This directory is the central inventory location for all environments.
 Example:
 
 ```text
-ansible-inventory -i inventories/dev/inventory.ini -i inventories/aliases.ini --graph
+ansible-inventory -i inventories/example/inventory.ini -i inventories/aliases.ini --graph
 
 For example: 
-$ ansible-inventory -i ../inventories/dev/inventory.ini -i ../inventories/aliases.ini --graph
+$ ansible-inventory -i ../inventories/example/inventory.ini -i ../inventories/aliases.ini --graph
 @all:
   |--@ungrouped:
   |--@all_nodes:
