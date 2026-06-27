@@ -156,6 +156,7 @@ oracle_ol9_allow_unpatched_poc: "{{ ORACLE_OL9_ALLOW_UNPATCHED_POC | default(loo
 oracle_default_ru_patch_id: "36582781"
 oracle_default_ru_patch_zip_filename: "p36582629_190000_Linux-x86-64.zip"
 oracle_default_ru_patch_apply_dir: "{{ oracle_stage_dir }}/patches/36582629/36582781"
+oracle_timezone_upgrade_enabled: true
 oracle_default_opatch_zip_filename: "p6880880_121010_Linux-x86-64.zip"
 oracle_ru_patch_id: "{{ ORACLE_RU_PATCH_ID | default(lookup('env', 'ORACLE_RU_PATCH_ID')) | default(oracle_default_ru_patch_id, true) }}"
 oracle_ru_patch_zip_filename: "{{ ORACLE_RU_PATCH_ZIP | default(lookup('env', 'ORACLE_RU_PATCH_ZIP')) | default(oracle_default_ru_patch_zip_filename, true) }}"

@@ -5,13 +5,13 @@
 oracle_allow_destructive: true
 
 oracle_servers:
-  public-database19c-ol9-01:
-    oracle_hostname: "public-database19c-ol9-02.example.internal"
+  public-database19c-ol9-02:
+    oracle_hostname: "public-database19c-ol9-03.example.internal"
 
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "public-database19c-ol9-02.example.internal"
+        host: "public-database19c-ol9-03.example.internal"
 
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"

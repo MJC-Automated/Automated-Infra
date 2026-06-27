@@ -1021,6 +1021,47 @@
     - (oracle_pdbs | default([]) | length) > 0
   tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
 
+- name: CDB | Set DB_SECUREFILE to IGNORE
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sid_cfg="{{ item }}"
+    sid_cfg_lower="$(printf '%s' "$sid_cfg" | tr '[:upper:]' '[:lower:]')"
+    sid="$sid_cfg"
+    if [ -r /etc/oratab ]; then
+      oratab_sid="$(awk -F: -v target="$sid_cfg_lower" 'BEGIN{IGNORECASE=1} $1 !~ /^[[:space:]]*#/ && NF >= 2 { if (tolower($1)==target) { print $1; exit } }' /etc/oratab 2>/dev/null)"
+      if [ -n "$oratab_sid" ]; then
+        sid="$oratab_sid"
+      fi
+    fi
+    if [ "$sid" = "$sid_cfg" ]; then
+      pmon_sid="$(ps -eo args= | awk -v target="$sid_cfg_lower" '/ora_pmon_/ { if (match($0, /ora_pmon_([^[:space:]]+)/, m)) { sid=m[1]; if (tolower(sid)==target) { print sid; exit } } }')"
+      if [ -n "$pmon_sid" ]; then
+        sid="$pmon_sid"
+      fi
+    fi
+    export ORACLE_SID="$sid"
+
+    if ! printf "whenever sqlerror exit 1\nselect status from v\$instance;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba; then
+      printf "whenever sqlerror exit 1\nstartup;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+    fi
+
+    current_val="$(printf "set heading off feedback off pagesize 0 verify off echo off\nselect value from v\$parameter where name = 'db_securefile';\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba)"
+    current_val="$(echo "$current_val" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+    if [ "$current_val" != "IGNORE" ]; then
+      printf "whenever sqlerror exit failure rollback\nalter system set DB_SECUREFILE='IGNORE' scope=both;\nexit;\n" | {{ oracle_home }}/bin/sqlplus -s / as sysdba
+      echo "CHANGED_SECUREFILE"
+    else
+      echo "NO_CHANGE_SECUREFILE"
+    fi
+  become: yes
+  become_user: "{{ oracle_user }}"
+  loop: "{{ oracle_pdbs | map(attribute='cdb_sid') | map('string') | unique | list }}"
+  register: db_securefile_res
+  changed_when: "'CHANGED_SECUREFILE' in db_securefile_res.stdout"
+  failed_when: db_securefile_res.rc != 0
+  tags: [oracle_db_creation, pdb_post_config]
+
 - name: CDB | Apply baseline tuning in spfile
   ansible.builtin.shell: |
     export ORACLE_HOME={{ oracle_home }}
@@ -1208,3 +1249,103 @@
     - cdb_tuning_show is defined
   tags: [oracle_db_creation, pdb_tuning, pdb_post_config]
 # END MANAGED post_pdb_baseline
+
+- name: TIMEZONE | CDB$ROOT Timezone Upgrade
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    export ORACLE_SID={{ item }}
+    
+    versions=$(sqlplus -s / as sysdba <<EOF
+    set heading off feedback off pagesize 0 verify off echo off
+    select property_value from database_properties where property_name = 'DST_PRIMARY_TT_VERSION';
+    select dbms_dst.get_latest_timezone_version from dual;
+    exit;
+    EOF
+    )
+    
+    current_ver=$(echo "$versions" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' | awk 'NR==1' | tr -d '[:space:]')
+    latest_ver=$(echo "$versions" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' | awk 'NR==2' | tr -d '[:space:]')
+    
+    if [ -n "$current_ver" ] && [ -n "$latest_ver" ] && [ "$current_ver" -lt "$latest_ver" ]; then
+      echo "UPGRADE_NEEDED"
+      sqlplus / as sysdba <<EOF
+      whenever sqlerror exit failure
+      @?/rdbms/admin/utltz_upg_check.sql
+      @?/rdbms/admin/utltz_upg_apply.sql
+      exit;
+    EOF
+      echo "UPGRADE_SUCCESS"
+    else
+      echo "NO_UPGRADE_NEEDED"
+    fi
+  become: yes
+  become_user: "{{ oracle_user }}"
+  loop: "{{ oracle_pdbs | map(attribute='cdb_sid') | map('string') | unique | list }}"
+  register: cdb_tz_upgrade_res
+  changed_when: "'UPGRADE_SUCCESS' in cdb_tz_upgrade_res.stdout"
+  when:
+    - oracle_timezone_upgrade_enabled | default(true) | bool
+    - (oracle_pdbs | default([]) | length) > 0
+  tags: [oracle_db_creation, timezone_upgrade, pdb_post_config]
+
+- name: TIMEZONE | Ensure PDBs are open after CDB$ROOT restart
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    export ORACLE_SID={{ item }}
+    sqlplus -s / as sysdba <<EOF
+    whenever sqlerror exit failure
+    alter pluggable database all open;
+    exit;
+    EOF
+  become: yes
+  become_user: "{{ oracle_user }}"
+  loop: "{{ oracle_pdbs | map(attribute='cdb_sid') | map('string') | unique | list }}"
+  when:
+    - oracle_timezone_upgrade_enabled | default(true) | bool
+    - (oracle_pdbs | default([]) | length) > 0
+    - cdb_tz_upgrade_res is changed
+  tags: [oracle_db_creation, timezone_upgrade, pdb_post_config]
+
+- name: TIMEZONE | PDB Timezone Upgrade
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    export ORACLE_SID={{ item.cdb_sid }}
+    
+    versions=$(sqlplus -s / as sysdba <<EOF
+    alter session set container = {{ item.pdb_name }};
+    set heading off feedback off pagesize 0 verify off echo off
+    select property_value from database_properties where property_name = 'DST_PRIMARY_TT_VERSION';
+    select dbms_dst.get_latest_timezone_version from dual;
+    exit;
+    EOF
+    )
+    
+    current_ver=$(echo "$versions" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' | awk 'NR==1' | tr -d '[:space:]')
+    latest_ver=$(echo "$versions" | grep -E '^[[:space:]]*[0-9]+[[:space:]]*$' | awk 'NR==2' | tr -d '[:space:]')
+    
+    if [ -n "$current_ver" ] && [ -n "$latest_ver" ] && [ "$current_ver" -lt "$latest_ver" ]; then
+      echo "UPGRADE_NEEDED"
+      sqlplus / as sysdba <<EOF
+      whenever sqlerror exit failure
+      alter session set container = {{ item.pdb_name }};
+      @?/rdbms/admin/utltz_upg_check.sql
+      @?/rdbms/admin/utltz_upg_apply.sql
+      alter pluggable database {{ item.pdb_name }} save state;
+      exit;
+    EOF
+      echo "UPGRADE_SUCCESS"
+    else
+      echo "NO_UPGRADE_NEEDED"
+    fi
+  become: yes
+  become_user: "{{ oracle_user }}"
+  loop: "{{ oracle_pdbs | default([]) }}"
+  register: pdb_tz_upgrade_res
+  changed_when: "'UPGRADE_SUCCESS' in pdb_tz_upgrade_res.stdout"
+  when:
+    - oracle_timezone_upgrade_enabled | default(true) | bool
+    - (oracle_pdbs | default([]) | length) > 0
+  tags: [oracle_db_creation, timezone_upgrade, pdb_post_config]

@@ -51,16 +51,18 @@ oracle_supported_distros:
   - name: "RedHat"
     major_versions: ["8"]
 oracle_min_kernel_version: "4.18.0"
-oracle_u01_min_gb: 15
+oracle_u01_min_gb: 10
+oracle_u01_postinstall_min_gb: 5
 oracle_tmp_min_gb: 1
 oracle_dev_shm_min_gb: 1
 oracle_tmp_disallowed_options:
   - "noexec"
 oracle_dev_shm_disallowed_options:
   - "noexec"
-oracle_home_min_gb: 15
+oracle_home_min_gb: 10
+oracle_home_postinstall_min_gb: 5
 oracle_fra_min_gb: 5
-oracle_fra_dir: "{{ oracle_base }}/fast_recovery_area"
+oracle_fra_dir: "{{ oracle_data_dir }}/fast_recovery_area"
 oracle_manifest_dir: "{{ playbook_dir }}/artifacts/host_manifests"
 oracle_identity_policy_uid: 54321
 oracle_identity_policy_gid: 54321
@@ -100,10 +102,19 @@ oracle_dbca_async_timeout: 7200
 oracle_dbca_poll_interval: 30
 
 # RU patching (optional)
-oracle_ru_patch_id: "{{ ORACLE_RU_PATCH_ID | default(lookup('env', 'ORACLE_RU_PATCH_ID')) | default('', true) }}"
-oracle_ru_patch_zip_filename: "{{ ORACLE_RU_PATCH_ZIP | default(lookup('env', 'ORACLE_RU_PATCH_ZIP')) | default('', true) }}"
+oracle_patch_enabled: true
+oracle_timezone_upgrade_enabled: true
+oracle_default_ru_patch_id: "36582781"
+oracle_default_ru_patch_zip_filename: "p36582629_190000_Linux-x86-64.zip"
+oracle_default_ru_patch_apply_dir: "{{ oracle_stage_dir }}/patches/36582629/36582781"
+oracle_ru_patch_id: "{{ ORACLE_RU_PATCH_ID | default(lookup('env', 'ORACLE_RU_PATCH_ID')) | default(oracle_default_ru_patch_id, true) }}"
+oracle_ru_patch_zip_filename: "{{ ORACLE_RU_PATCH_ZIP | default(lookup('env', 'ORACLE_RU_PATCH_ZIP')) | default(oracle_default_ru_patch_zip_filename, true) }}"
 oracle_ru_patch_stage_dir: "{{ oracle_stage_dir }}/patches"
 oracle_ru_patch_unzip_dir: "{{ oracle_ru_patch_stage_dir }}/{{ oracle_ru_patch_id }}"
+oracle_ru_patch_apply_dir: "{{ ORACLE_RU_PATCH_APPLY_DIR | default(lookup('env', 'ORACLE_RU_PATCH_APPLY_DIR')) | default((oracle_default_ru_patch_apply_dir if oracle_ru_patch_id == oracle_default_ru_patch_id else oracle_ru_patch_unzip_dir), true) }}"
+oracle_opatch_zip_filename: "{{ ORACLE_OPATCH_ZIP | default(lookup('env', 'ORACLE_OPATCH_ZIP')) | default('p6880880_121010_Linux-x86-64.zip', true) }}"
+oracle_opatch_enabled: "{{ oracle_patch_enabled | bool and (oracle_opatch_zip_filename | string | trim | length > 0) }}"
+oracle_opatch_min_version: "12.2.0.1.42"
 oracle_opatch_log_dir: "{{ oracle_stage_dir }}/opatch_logs"
 oracle_install_log: "{{ oracle_stage_dir }}/runInstaller.log"
 oracle_opatch_inventory_log: "{{ oracle_opatch_log_dir }}/opatch_lsinventory.log"

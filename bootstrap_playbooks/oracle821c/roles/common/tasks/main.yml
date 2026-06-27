@@ -89,6 +89,18 @@
   register: oracle_base_parent_stat
   tags: [precheck]
 
+- name: PRECHECK | Stat Oracle installer completion marker
+  ansible.builtin.stat:
+    path: "{{ oracle_installer_run_marker }}"
+  register: oracle_installer_marker_stat
+  tags: [precheck]
+
+- name: PRECHECK | Set /u01 free-space requirement
+  ansible.builtin.set_fact:
+    oracle_u01_required_gb: "{{ oracle_u01_postinstall_min_gb if oracle_installer_marker_stat.stat.exists else oracle_u01_min_gb }}"
+    oracle_home_required_gb: "{{ oracle_home_postinstall_min_gb if oracle_installer_marker_stat.stat.exists else oracle_home_min_gb }}"
+  tags: [precheck]
+
 - name: PRECHECK | Set oracle base parent df path
   ansible.builtin.set_fact:
     oracle_base_parent_df_path: "{{ oracle_base_parent if oracle_base_parent_stat.stat.exists else (oracle_base_parent | dirname) }}"
@@ -103,8 +115,8 @@
 - name: PRECHECK | Verify oracle base parent free space
   ansible.builtin.assert:
     that:
-      - (base_parent_df.stdout | int) * 1024 >= oracle_u01_min_gb * 1024 * 1024 * 1024
-    fail_msg: "Insufficient space on {{ oracle_base_parent_df_path }}. Required at least {{ oracle_u01_min_gb }}GB."
+      - (base_parent_df.stdout | int) * 1024 >= (oracle_u01_required_gb | int) * 1024 * 1024 * 1024
+    fail_msg: "Insufficient space on {{ oracle_base_parent_df_path }}. Required at least {{ oracle_u01_required_gb }}GB."
   tags: [precheck]
 
 - name: PRECHECK | Determine /tmp and /dev/shm mounts
@@ -215,7 +227,7 @@
     oracle_storage_checks:
       - name: "ORACLE_HOME"
         path: "{{ oracle_home }}"
-        min_gb: "{{ oracle_home_min_gb }}"
+        min_gb: "{{ oracle_home_required_gb }}"
       - name: "FRA"
         path: "{{ oracle_fra_dir }}"
         min_gb: "{{ oracle_fra_min_gb }}"
@@ -230,17 +242,15 @@
 
 - name: PRECHECK | Check storage capacity for Oracle paths
   ansible.builtin.shell: |
-    df -P {{ df_path }} | awk 'NR==2 {print $4}'
+    set -eu
+    df_path="{{ item.path }}"
+    while [ ! -e "$df_path" ] && [ "$df_path" != "/" ]; do
+      df_path="$(dirname "$df_path")"
+    done
+    df -P "$df_path" | awk 'NR==2 {print $4}'
   register: storage_df
   changed_when: false
   loop: "{{ oracle_storage_checks }}"
-  vars:
-    df_path: >-
-      {{
-        oracle_base_parent_df_path
-        if item.name in ['ORACLE_HOME', 'FRA']
-        else (item.path | dirname)
-      }}
   tags: [precheck]
 
 - name: PRECHECK | Assert storage capacity for Oracle paths

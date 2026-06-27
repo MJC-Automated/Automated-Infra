@@ -308,8 +308,34 @@
   when: oracle_ru_enabled | bool
   tags: [oracle_install, oracle_patch]
 
+- name: PATCH | Stop running listener and database before patching
+  ansible.builtin.shell: |
+    if pgrep -f "ora_pmon_|tnslsnr" >/dev/null; then
+      export ORACLE_HOME={{ oracle_home }}
+      export PATH=$ORACLE_HOME/bin:$PATH
+      if [ -f /home/oracle/scripts/stop_all.sh ]; then
+        /home/oracle/scripts/stop_all.sh || true
+      else
+        lsnrctl stop || true
+        ps -eo args= | awk '/ora_pmon_/ {print $1}' | awk -F_ '{print $3}' | while read -r sid; do
+          export ORACLE_SID="$sid"
+          printf "shutdown immediate;\nexit;\n" | sqlplus -s / as sysdba || true
+        done
+      fi
+    else
+      echo "No running Oracle processes detected. Skipping shutdown."
+    fi
+  become: yes
+  become_user: "{{ oracle_user }}"
+  when:
+    - oracle_ru_enabled | bool
+    - ru_patch_check is defined
+    - ru_patch_check.rc != 0
+  tags: [oracle_install, oracle_patch]
+
 - name: PATCH | Apply RU patch if missing
   ansible.builtin.shell: |
+    set -o pipefail
     export ORACLE_HOME={{ oracle_home }}
     export PATH=$ORACLE_HOME/OPatch:$PATH
     opatch apply -silent {{ oracle_ru_patch_apply_dir }} | tee {{ oracle_opatch_log_dir }}/opatch_apply_{{ oracle_ru_patch_id }}.log

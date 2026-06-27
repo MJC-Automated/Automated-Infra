@@ -1,0 +1,26 @@
+#!/bin/bash
+# Daily restart script for Oracle databases and listeners
+# Managed by Ansible
+
+if [ -f {{ oracle_scripts_dir }}/setEnv.sh ]; then
+  . {{ oracle_scripts_dir }}/setEnv.sh
+fi
+
+export ORACLE_HOME={{ oracle_home }}
+export PATH=$ORACLE_HOME/bin:$PATH
+
+echo "Stopping databases..."
+{{ oracle_scripts_dir }}/stop_all.sh
+
+echo "Stopping listener..."
+lsnrctl stop
+
+sleep 5
+
+echo "Starting listener..."
+lsnrctl start
+
+echo "Starting databases..."
+{{ oracle_scripts_dir }}/start_all.sh
+
+echo "Restart completed successfully."

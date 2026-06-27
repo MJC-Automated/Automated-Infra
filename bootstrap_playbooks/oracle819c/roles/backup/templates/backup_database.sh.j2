@@ -1,0 +1,49 @@
+#!/bin/bash
+# Backup script for Oracle pluggable databases using expdp (Data Pump)
+# Managed by Ansible
+
+# Ensure correct oracle environment is loaded
+if [ -f {{ oracle_scripts_dir }}/setEnv.sh ]; then
+  . {{ oracle_scripts_dir }}/setEnv.sh
+fi
+
+TS=$(date +%d-%B-%Y_%H-%M-%S)
+
+# Clean up backups older than {{ oracle_backup_retention_days | default(7) }} days
+echo "Starting cleanup of old backups..."
+{% for pdb in oracle_pdbs %}
+backup_dir="{{ oracle_dump_dir_base_path | default(oracle_dump_dir_local_base) }}/{{ pdb.pdb_name | upper }}"
+if [ -d "$backup_dir" ]; then
+  find "$backup_dir" -name "{{ pdb.pdb_name | upper }}_BACKUP_*" -mtime +{{ oracle_backup_retention_days | default(7) }} -exec rm -f {} \;
+fi
+{% endfor %}
+
+echo "Starting database exports..."
+pids=()
+{% for pdb in oracle_pdbs %}
+# Backup for {{ pdb.pdb_name }}
+export ORACLE_SID={{ pdb.cdb_sid }}
+echo "Exporting PDB {{ pdb.pdb_name }} in background..."
+expdp "system/{{ oracle_db_admin_password }}@//localhost:{{ pdb.listener_port | default(1521) }}/{{ pdb.service_name | default(pdb.pdb_name) }}" \
+  directory=DUMP_DIR \
+  dumpfile={{ pdb.pdb_name | upper }}_BACKUP_${TS}.dmp \
+  logfile={{ pdb.pdb_name | upper }}_BACKUP_${TS}.log \
+  content=all \
+  full=y &
+pids+=($!)
+{% endfor %}
+
+errors=0
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then
+    echo "ERROR: Background export job PID $pid failed" >&2
+    errors=$((errors + 1))
+  fi
+done
+
+if [ "$errors" -ne 0 ]; then
+  echo "Error: One or more database exports failed." >&2
+  exit 1
+fi
+
+echo "All exports completed successfully."

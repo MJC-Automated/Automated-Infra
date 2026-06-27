@@ -193,6 +193,28 @@ To run only the cleanup setup independently without the rest of the database log
 ansible-playbook main.yml -l database19c --tags cleanup
 ```
 
+## RU Patching
+
+RU patching is natively integrated and can be enabled or disabled:
+- `oracle_patch_enabled: true` (default) enables checking and applying the target Release Update patch (`36582781`).
+- The patching tasks are tagged with `oracle_patch`. Use `--skip-tags oracle_patch` or set `oracle_patch_enabled: false` to completely skip the patching phase.
+- Before applying the patch, any running database instances and listener processes are gracefully stopped (using `/home/oracle/scripts/stop_all.sh` or immediate shutdown commands) to avoid file-in-use errors.
+- `set -o pipefail` ensures OPatch command failures are properly reported to Ansible.
+
+## Automated Time Zone Upgrades
+
+To prevent `ORA-39405` errors during Data Pump operations where a source database has a newer timezone version (e.g. DSTv43) than the target container's default (DSTv32):
+- `oracle_timezone_upgrade_enabled: true` (default) checks if the database timezone version is behind the latest version in the patched Oracle Home.
+- If out of date, it automatically runs `@?/rdbms/admin/utltz_upg_check.sql` and `@?/rdbms/admin/utltz_upg_apply.sql` to upgrade CDB$ROOT and all pluggable databases.
+- The upgrade automatically restarts the containers and saves their open states.
+- Timezone upgrade tasks are tagged with `timezone_upgrade`.
+
+## Database Backups & Restarts
+
+Daily operation crontabs are deployed for the `oracle` user:
+- **Daily Backups**: Scheduled at `0 0 * * *` (midnight), running `/home/oracle/scripts/backup_database.sh` to perform concurrent pluggable database exports via `expdp` and rotate old backups. The retention period is controlled by `oracle_backup_retention_days` (default: 7 days).
+- **Daily Restarts**: Scheduled at `0 4 * * *` (4:00 AM) via `/home/oracle/scripts/restart_databases.sh` to gracefully recycle the databases and listeners.
+
 ## Important Behavior
 
 - This playbook intentionally scopes to `database19c` when that group exists.

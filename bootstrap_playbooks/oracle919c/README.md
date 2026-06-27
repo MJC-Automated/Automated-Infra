@@ -27,20 +27,20 @@ Define CDBs/PDBs/listeners under the host key in:
 
 Repository rule:
 
-- The committed desired-state map tracks the requested `example` Oracle Linux 9 host key (`public-database19c-ol9-01`).
+- The committed desired-state map tracks the requested `example` Oracle Linux 9 host key (`public-database19c-ol9-02`).
 - For other environments, copy the same structure under that environment's exact `inventory_hostname`.
 
 Example structure:
 
 ```yaml
 oracle_servers:
-  public-database19c-ol9-01:  # must match inventory_hostname exactly
-    oracle_hostname: "public-database19c-ol9-02.example.internal"
+  public-database19c-ol9-02:  # must match inventory_hostname exactly
+    oracle_hostname: "public-database19c-ol9-03.example.internal"
 
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "public-database19c-ol9-02.example.internal"
+        host: "public-database19c-ol9-03.example.internal"
 
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
@@ -61,7 +61,7 @@ Optional app SQL bootstrap for a host can also be defined there:
 
 ```yaml
 oracle_servers:
-  public-database19c-ol9-01:
+  public-database19c-ol9-02:
     oracle_app_sql_enabled: true
     oracle_app_sql_targets:
       - cdb_sid: "cdb1"
@@ -77,7 +77,7 @@ To add a second CDB and PDB, extend both lists for the same host key:
 
 ```yaml
 oracle_servers:
-  public-database19c-ol9-01:
+  public-database19c-ol9-02:
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
         sid: "cdb1"
@@ -202,6 +202,29 @@ To run only the cleanup setup independently without the rest of the database log
 ```bash
 ansible-playbook main.yml -l database19c_ol9 --tags cleanup
 ```
+
+## RU Patching
+
+RU patching is natively integrated and can be enabled or disabled:
+- `oracle_patch_enabled: true` (default) enables checking and applying the target Release Update patch (`36582781`).
+- The patching tasks are tagged with `oracle_patch`. Use `--skip-tags oracle_patch` or set `oracle_patch_enabled: false` to completely skip the patching phase.
+- Before applying the patch, any running database instances and listener processes are gracefully stopped (using `/home/oracle/scripts/stop_all.sh` or immediate shutdown commands) to avoid file-in-use errors.
+- `set -o pipefail` ensures OPatch command failures are properly reported to Ansible.
+- On OL9, Oracle 19c requires an RU patch for compatibility. By default, `oracle_ol9_require_ru_patch: true` enforces this. For PoC/lab use without patch files, pass `-e oracle_ol9_allow_unpatched_poc=true` to bypass enforcement.
+
+## Automated Time Zone Upgrades
+
+To prevent `ORA-39405` errors during Data Pump operations where a source database has a newer timezone version (e.g. DSTv43) than the target container's default (DSTv32):
+- `oracle_timezone_upgrade_enabled: true` (default) checks if the database timezone version is behind the latest version in the patched Oracle Home.
+- If out of date, it automatically runs `@?/rdbms/admin/utltz_upg_check.sql` and `@?/rdbms/admin/utltz_upg_apply.sql` to upgrade CDB$ROOT and all pluggable databases.
+- The upgrade automatically restarts the containers and saves their open states.
+- Timezone upgrade tasks are tagged with `timezone_upgrade`.
+
+## Database Backups & Restarts
+
+Daily operation crontabs are deployed for the `oracle` user:
+- **Daily Backups**: Scheduled at `0 0 * * *` (midnight), running `/home/oracle/scripts/backup_database.sh` to perform concurrent pluggable database exports via `expdp` and rotate old backups. The retention period is controlled by `oracle_backup_retention_days` (default: 7 days).
+- **Daily Restarts**: Scheduled at `0 4 * * *` (4:00 AM) via `/home/oracle/scripts/restart_databases.sh` to gracefully recycle the databases and listeners.
 
 ## Important Behavior
 

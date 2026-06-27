@@ -1,8 +1,27 @@
 #!/bin/bash
-. {{ oracle_scripts_dir }}/setEnv.sh
+if [ -f {{ oracle_scripts_dir }}/setEnv.sh ]; then
+  . {{ oracle_scripts_dir }}/setEnv.sh
+fi
 
 export ORAENV_ASK=NO
-. oraenv
+if command -v oraenv >/dev/null 2>&1; then
+  . oraenv
+elif [ -f /usr/local/bin/oraenv ]; then
+  . /usr/local/bin/oraenv
+fi
 export ORAENV_ASK=YES
 
-dbshut $ORACLE_HOME
+if [ -n "$ORACLE_HOME" ] && [ -x "$ORACLE_HOME/bin/dbshut" ]; then
+  "$ORACLE_HOME/bin/dbshut" "$ORACLE_HOME"
+else
+  # Fallback manual shutdown if dbshut is not available
+  if command -v lsnrctl >/dev/null 2>&1; then
+    lsnrctl stop || true
+  fi
+  ps -eo args= | awk '/ora_pmon_/ {print $1}' | awk -F_ '{print $3}' | while read -r sid; do
+    export ORACLE_SID="$sid"
+    if command -v sqlplus >/dev/null 2>&1; then
+      printf "shutdown immediate;\nexit;\n" | sqlplus -s / as sysdba || true
+    fi
+  done
+fi
