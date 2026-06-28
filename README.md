@@ -231,10 +231,12 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 For larger production-like deployments, you may want to separate the Control Plane (CP) and etcd nodes (unstacked topology) to improve fault tolerance and resource isolation.
 
 To achieve this:
+
 1. **Provision dedicated VMs**: Add a new `k8s_etcd` node group in your `tfvars` file alongside the control plane and workers.
 2. **Update Inventory**: Modify your kubespray `inventory.ini` to map the new nodes specifically to the `[etcd]` group, rather than having `[etcd:children]` point to `kube_control_plane`.
 
 Example inventory for unstacked etcd:
+
 ```ini
 [kube_control_plane]
 k8s-cp-1 ansible_host=198.51.100.10
@@ -254,15 +256,20 @@ k8s-worker-1 ansible_host=198.51.100.16
 1. Provision VMs via Terraform (`make apply ENVIRONMENT=example` from `terraform-proxmox/`).
 2. Boot the K8S VMs from Proxmox (they are created in `stopped` state).
 3. Install kubespray Python dependencies:
+
    ```bash
    cd /home/example/kubespray
    pip install -r requirements.txt
    ```
+
 4. Verify SSH connectivity:
+
    ```bash
    ansible -i inventory/example-k8s/inventory.ini -m ping all -u ansible
    ```
+
 5. Deploy the cluster:
+
    ```bash
    ansible-playbook -i inventory/example-k8s/inventory.ini \
      --become --become-user=root -u ansible cluster.yml
