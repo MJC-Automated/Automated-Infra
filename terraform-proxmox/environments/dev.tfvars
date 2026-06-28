@@ -91,7 +91,7 @@ node_groups = {
     "weblogic14c-dot80" = {
       vmid      = 10000
       name      = "public-weblogic14c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.27"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.22"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -125,7 +125,7 @@ node_groups = {
     "weblogic12c-dot81" = {
       vmid      = 10001
       name      = "public-weblogic12c-01"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.27"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.22"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -150,7 +150,7 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.27"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.22"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -168,12 +168,36 @@ node_groups = {
     }
   }
 
+  // Oracle Linux 9.7: Database 19c
+  "database19c_ol9" = {
+    "public-ol9-01" = {
+      vmid       = 10009
+      name       = "public-database19c-ol9-01"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.22"
+      os_profile = "oracle9"
+      cores      = 8
+      memory     = 10240
+      disk_size  = "50G"
+      tags       = "database19c,ol9"
+      data_disk  = { size = "65G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/u01", size_gb = "30", owner = "root", group = "root" },
+          { mount = "/u02", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
   // Oracle Linux 8: Database 21c
   "database21c" = {
     "database21c-dot83" = {
       vmid      = 10003
-      name      = "public-database21c-02"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.27"
+      name      = "public-database21c-01"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.22"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -196,7 +220,7 @@ node_groups = {
     "zabbix-dot84" = {
       vmid      = 10004
       name      = "public-zabbix-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.102"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.47"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -218,7 +242,7 @@ node_groups = {
     "freeipa-dot85" = {
       vmid       = 10005
       name       = "public-freeipa-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.102"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.47"
       os_profile = "oracle9"
       cores      = 4
       memory     = 8192
@@ -243,7 +267,7 @@ node_groups = {
     "keycloak-dot86" = {
       vmid       = 10006
       name       = "public-keycloak-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.102"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.47"
       os_profile = "ubuntu2404"
       cores      = 4
       memory     = 8192
@@ -268,7 +292,7 @@ node_groups = {
     "observability-dot87" = {
       vmid       = 10007
       name       = "public-observability-01"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.102"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.47"
       os_profile = "ubuntu2404"
       cores      = 6
       memory     = 16384
@@ -294,7 +318,7 @@ node_groups = {
     "zimbra-dot88" = {
       vmid       = 10008
       name       = "public-zimbra-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.102"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.47"
       os_profile = "oracle9"
       cores      = 6
       memory     = 16384
@@ -324,7 +348,7 @@ node_groups = {
     "public-cp-01" = {
       vmid       = 10010
       name       = "public-k8s-cp-02"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.102"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.47"
       os_profile = "ubuntu2404"
       cores      = 4
       memory     = 4096
@@ -335,25 +359,25 @@ node_groups = {
 
   // Example: Unstacked etcd Topology
   // For production, you may want to run etcd on dedicated nodes.
-  // "k8s_etcd" = {
-  //   "public-etcd-01" = {
-  //     vmid       = 10013
-  //     name       = "public-k8s-etcd-01"
-  //     ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.102"
-  //     os_profile = "ubuntu2404"
-  //     cores      = 2
-  //     memory     = 4096
-  //     disk_size  = "50G"
-  //     tags       = "kubernetes,k8s,etcd"
-  //   }
-  // }
+  "k8s_etcd" = {
+    "public-etcd-01" = {
+      vmid       = 10013
+      name       = "public-k8s-etcd-01"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.47"
+      os_profile = "ubuntu2404"
+      cores      = 2
+      memory     = 4096
+      disk_size  = "50G"
+      tags       = "kubernetes,k8s,etcd"
+    }
+  }
 
   // Kubernetes: Worker Nodes
   "k8s_workers" = {
     "public-worker-01" = {
       vmid       = 10011
       name       = "public-k8s-worker-03"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.102"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.47"
       os_profile = "ubuntu2404"
       cores      = 2
       memory     = 4096
@@ -363,7 +387,7 @@ node_groups = {
     "public-worker-02" = {
       vmid       = 10012
       name       = "public-k8s-worker-04"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.102"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.47"
       os_profile = "ubuntu2404"
       cores      = 2
       memory     = 4096

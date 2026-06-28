@@ -236,7 +236,7 @@ variable "additional_disks" {
 }
 
 variable "ipconfig0" {
-  description = "IP configuration string for the first network interface (e.g., 'ip=192.0.2.0/24,gw=198.51.100.23')."
+  description = "IP configuration string for the first network interface (e.g., 'ip=198.51.100.0/24,gw=198.51.100.27')."
   type        = string
 }
 

@@ -37,7 +37,7 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
   - `public-weblogic14c-01`
   - `public-weblogic12c-01`
   - `public-database19c-01`
-  - `public-database21c-02`
+  - `public-database21c-01`
   - `public-zabbix-01`
   - `public-freeipa-01`
   - `public-keycloak-01`
@@ -207,9 +207,9 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 | Role | VM Name | IP | Cores | RAM | Disk |
 | --- | --- | --- | --- | --- | --- |
-| Control Plane + etcd | `public-k8s-cp-01` | `198.51.100.16` | 4 | 4 GB | 50 GB |
-| Worker Node 1 | `public-k8s-worker-01` | `198.51.100.17` | 2 | 4 GB | 50 GB |
-| Worker Node 2 | `public-k8s-worker-02` | `198.51.100.18` | 2 | 4 GB | 50 GB |
+| Control Plane + etcd | `public-k8s-cp-01` | `198.51.100.10` | 4 | 4 GB | 50 GB |
+| Worker Node 1 | `public-k8s-worker-01` | `198.51.100.11` | 2 | 4 GB | 50 GB |
+| Worker Node 2 | `public-k8s-worker-02` | `198.51.100.12` | 2 | 4 GB | 50 GB |
 
 - **Kubespray version**: v2.31.0 (cloned to `/home/example/kubespray`)
 - **Inventory**: `/home/example/kubespray/inventory/example-k8s/inventory.ini`
@@ -237,16 +237,16 @@ To achieve this:
 Example inventory for unstacked etcd:
 ```ini
 [kube_control_plane]
-k8s-cp-1 ansible_host=198.51.100.16
-k8s-cp-2 ansible_host=198.51.100.17
+k8s-cp-1 ansible_host=198.51.100.10
+k8s-cp-2 ansible_host=198.51.100.11
 
 [etcd]
-k8s-etcd-1 ansible_host=198.51.100.19
-k8s-etcd-2 ansible_host=198.51.100.20
-k8s-etcd-3 ansible_host=198.51.100.21
+k8s-etcd-1 ansible_host=198.51.100.13
+k8s-etcd-2 ansible_host=198.51.100.14
+k8s-etcd-3 ansible_host=198.51.100.15
 
 [kube_node]
-k8s-worker-1 ansible_host=198.51.100.22
+k8s-worker-1 ansible_host=198.51.100.16
 ```
 
 ### Deployment Steps

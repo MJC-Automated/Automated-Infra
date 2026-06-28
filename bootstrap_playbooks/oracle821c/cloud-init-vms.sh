@@ -75,8 +75,8 @@ readonly FEDORA_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-1.6
 # └─────────────────────────────────────────────────────────────────────────┘
 readonly BRIDGE="vmbr0"
 readonly IPCIDR="192.0.2.0/24"    # Use "dhcp" for DHCP or "10.x.x.x/24"
-readonly GATEWAY="198.51.100.27"
-readonly DNS="198.51.100.25"
+readonly GATEWAY="198.51.100.22"
+readonly DNS="198.51.100.43"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Resource Allocation                                                     │

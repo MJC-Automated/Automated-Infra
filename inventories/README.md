@@ -24,7 +24,7 @@ $ ansible-inventory -i ../inventories/example/inventory.ini -i ../inventories/al
   |--@ungrouped:
   |--@all_nodes:
   |  |--public-database19c-01
-  |  |--public-database21c-02
+  |  |--public-database21c-01
   |  |--public-freeipa-01
   |  |--public-keycloak-01
   |  |--public-observability-01
@@ -54,7 +54,7 @@ $ ansible-inventory -i ../inventories/example/inventory.ini -i ../inventories/al
   |  |  |--@database19c:
   |  |  |  |--public-database19c-01
   |  |  |--@database21c:
-  |  |  |  |--public-database21c-02
+  |  |  |  |--public-database21c-01
   |  |--@weblogic_servers:
   |  |  |--@weblogic12c:
   |  |  |  |--public-weblogic12c-01

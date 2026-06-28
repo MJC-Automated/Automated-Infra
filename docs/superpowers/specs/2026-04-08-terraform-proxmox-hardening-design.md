@@ -328,7 +328,7 @@ mock_provider "proxmox" {
     defaults = {
       vmid      = 10000
       name      = "test-vm"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.88"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.32"
     }
   }
 }
@@ -347,7 +347,7 @@ Run via `terraform test`. All tests use mock providers.
 - Valid unique VMIDs in range → `command = plan`, expect success
 
 **`ip_parsing.tftest.hcl`:**
-- Standard `ip=198.51.100.0/24,gw=198.51.100.88` → parsed to `198.51.100.88`
+- Standard `ip=198.51.100.0/24,gw=198.51.100.32` → parsed to `198.51.100.32`
 - DHCP → returns raw string `dhcp`
 - Malformed string → returns raw string
 - (Requires test output block exposing `local.vm_parsed_host_ips`)

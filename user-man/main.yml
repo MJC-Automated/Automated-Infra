@@ -8,9 +8,6 @@
   become: true
   gather_facts: true
 
-  vars_files:
-    - group_vars/secret_vars.yml
-
   pre_tasks:
     - name: Assert Ansible Core version is supported
       ansible.builtin.assert:

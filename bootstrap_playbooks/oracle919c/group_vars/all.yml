@@ -1,9 +1,0 @@
----
-# Set ORACLE_DB_ADMIN_PASSWORD via .env / controller environment,
-# or provide vault_oracle_db_admin_password from Ansible Vault.
-pdb_admin_user: "pdb_admin"
-oracle_allow_destructive: false
-oracle_sysdba_user: "sys"
-oracle_sysdba_password: "{{ oracle_db_admin_password }}"
-oracle_cdbs_delete: []
-oracle_pdbs_delete: []

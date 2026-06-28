@@ -78,7 +78,7 @@ DATA_STORAGE ?=
 BASE_VM_BRIDGE ?= vmbr0
 BASE_VM_IPCIDR ?= dhcp
 BASE_VM_GATEWAY ?=
-BASE_VM_DNS ?= 198.51.100.87
+BASE_VM_DNS ?= 198.51.100.31
 BASE_VM_OS_STORAGE ?= local-lvm
 BASE_VM_DATA_STORAGE ?= local-lvm
 BASE_VM_EFI_STORAGE ?= local-lvm
@@ -276,9 +276,9 @@ help:
 	    @echo "${YELLOW}Examples:${NC}"
 	    @echo "  make deploy ENVIRONMENT=dev"
 	    @echo "  make plan ENVIRONMENT=prod"
-	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.80"
-	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.80 AUTO_DISCOVER=true"
-	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.80 PROXMOX_NODE=proxmox"
+	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.23"
+	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.23 AUTO_DISCOVER=true"
+	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.23 PROXMOX_NODE=proxmox"
 	    @echo "  make workspace-create ENVIRONMENT=testing"
 	    @echo "  make backup ENVIRONMENT=prod"
 	    @echo "  make tree"
@@ -855,6 +855,9 @@ prod:
 
 testing:
 	    @$(MAKE) workspace-select ENVIRONMENT=testing
+
+tq-pve1:
+	    @$(MAKE) workspace-select ENVIRONMENT=tq-pve1
 
 # Show workspace-specific resources
 show: workspace-select

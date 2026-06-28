@@ -26,20 +26,20 @@ Define CDBs/PDBs/listeners under the host key in:
 
 Repository rule:
 
-- The committed desired-state map tracks the canonical `dev` host key only (`public-database21c-02`).
+- The committed desired-state map tracks the canonical `dev` host key only (`public-database21c-01`).
 - For other environments, copy the same structure under that environment's exact `inventory_hostname` instead of tracking parallel non-dev host keys in this repo.
 
 Example structure:
 
 ```yaml
 oracle_servers:
-  public-database21c-02:
-    oracle_hostname: "public-database21c-03.example.internal"
+  public-database21c-01:
+    oracle_hostname: "public-database21c-02.example.internal"
 
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "public-database21c-03.example.internal"
+        host: "public-database21c-02.example.internal"
 
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
@@ -60,7 +60,7 @@ Optional app SQL bootstrap for a host can also be defined there:
 
 ```yaml
 oracle_servers:
-  public-database21c-02:
+  public-database21c-01:
     oracle_app_sql_enabled: true
     oracle_app_sql_targets:
       - cdb_sid: "cdb1"

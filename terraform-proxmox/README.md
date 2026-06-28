@@ -258,12 +258,12 @@ chmod 600 .env
 
 Documented concrete defaults in this repo:
 
-- `TF_VAR_vault_address=https://198.51.100.76:8200`
-- `VAULT_ADDR=https://198.51.100.76:8200`
+- `TF_VAR_vault_address=https://198.51.100.18:8200`
+- `VAULT_ADDR=https://198.51.100.18:8200`
 - `PROXMOX_USER=root`
-- `PROXMOX_HOST_DEV=198.51.100.77`
-- `PROXMOX_HOST_PROD=198.51.100.78`
-- `PROXMOX_HOST_TESTING=198.51.100.79`
+- `PROXMOX_HOST_DEV=198.51.100.19`
+- `PROXMOX_HOST_PROD=198.51.100.20`
+- `PROXMOX_HOST_TESTING=198.51.100.21`
 
 Required values intentionally not documented as concrete literals:
 
@@ -330,9 +330,9 @@ Use this checklist when `.env` was removed (for example after `make clean-all`).
 
 ```bash
 # Use the same reachable endpoint for both variables.
-# This repo documents a LAN default of 198.51.100.76 for dev examples.
-VAULT_ADDR=https://198.51.100.76:8200
-TF_VAR_vault_address=https://198.51.100.76:8200
+# This repo documents a LAN default of 198.51.100.18 for dev examples.
+VAULT_ADDR=https://198.51.100.18:8200
+TF_VAR_vault_address=https://198.51.100.18:8200
 ```
 
 1. `VAULT_TOKEN` / `TF_VAR_vault_token` (token mode, admin/governance workflows)
@@ -459,10 +459,10 @@ make vault-mode-verify ENVIRONMENT=dev
 Optional overrides:
 
 ```bash
-make vault-mode-lan ENVIRONMENT=dev VAULT_LAN_IP=198.51.100.76 VAULT_LAN_HOST=198.51.100.76
+make vault-mode-lan ENVIRONMENT=dev VAULT_LAN_IP=198.51.100.18 VAULT_LAN_HOST=198.51.100.18
 
 # Regenerate Vault cert only (adds SANs for 127.0.0.1 + LAN host/IP)
-make vault-tls-regenerate VAULT_LAN_IP=198.51.100.76 VAULT_LAN_HOST=198.51.100.76
+make vault-tls-regenerate VAULT_LAN_IP=198.51.100.18 VAULT_LAN_HOST=198.51.100.18
 ```
 
 If your host has multiple NICs and LAN switch verification fails with `no route to host` or `connection refused`, pin the exact source IP:
@@ -567,8 +567,8 @@ bash -n .env
 Minimum required keys for this repo:
 
 ```bash
-TF_VAR_vault_address=https://198.51.100.76:8200
-VAULT_ADDR=https://198.51.100.76:8200
+TF_VAR_vault_address=https://198.51.100.18:8200
+VAULT_ADDR=https://198.51.100.18:8200
 VAULT_SKIP_VERIFY=true
 ```
 
@@ -824,7 +824,7 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.27"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.22"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -904,15 +904,15 @@ Override defaults in `.env` if needed:
 
 ```bash
 PROXMOX_USER=root
-PROXMOX_HOST_DEV=198.51.100.77
-PROXMOX_HOST_PROD=198.51.100.78
-PROXMOX_HOST_TESTING=198.51.100.79
+PROXMOX_HOST_DEV=198.51.100.19
+PROXMOX_HOST_PROD=198.51.100.20
+PROXMOX_HOST_TESTING=198.51.100.21
 # Additional environments:
-# PROXMOX_HOST_QA=198.51.100.80
+# PROXMOX_HOST_QA=198.51.100.23
 # PROXMOX_NODE_QA=proxmox
-# ANSIBLE_HOST_QA=198.51.100.81
+# ANSIBLE_HOST_QA=198.51.100.24
 # NETWORK_CIDR_QA=203.0.113.0/24
-# NETWORK_GW_QA=198.51.100.82
+# NETWORK_GW_QA=198.51.100.25
 # STORAGE_POOL_QA=local-lvm
 # DATA_STORAGE_QA=local-lvm
 AUTO_DISCOVER=true
@@ -992,13 +992,13 @@ From `terraform-proxmox/`:
 
 ```bash
 # Optional: inspect discovered values first
-make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.80
+make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.23
 
 # Scaffold using discovery (default AUTO_DISCOVER=true)
 make env-template \
   ENVIRONMENT=qa \
   TEMPLATE_ENV=dev \
-  PROXMOX_HOST=198.51.100.80 \
+  PROXMOX_HOST=198.51.100.23 \
   AUTO_DISCOVER=true
 ```
 
@@ -1071,13 +1071,13 @@ Preflight checklist (recommended before first `plan`/`apply`):
 
 If you need a specific VM IP window, edit `ipconfig0` entries in `environments/<env>.tfvars`.
 Also verify `snippet_storage` matches a storage that supports `snippets` on the target Proxmox.
-Example for `198.51.100.83-130`:
+Example for `198.51.100.26-130`:
 
-- `ip=192.0.2.0/24,gw=198.51.100.23`
-- `ip=198.51.100.0/24,gw=198.51.100.23`
-- `ip=203.0.113.0/24,gw=198.51.100.23`
-- `ip=192.0.2.0/24,gw=198.51.100.23`
-- `ip=198.51.100.0/24,gw=198.51.100.23`
+- `ip=192.0.2.0/24,gw=198.51.100.27`
+- `ip=198.51.100.0/24,gw=198.51.100.27`
+- `ip=203.0.113.0/24,gw=198.51.100.27`
+- `ip=192.0.2.0/24,gw=198.51.100.27`
+- `ip=198.51.100.0/24,gw=198.51.100.27`
 
 If you already have base/source VMs for Packer, set `clone_vm_id` in each env Packer vars file:
 
@@ -1092,13 +1092,13 @@ clone_vm_id = 999999990
 clone_vm_id = 999999992
 ```
 
-Concrete example (dev-like stack on `198.51.100.79` with IPs `198.51.100.83-130`):
+Concrete example (dev-like stack on `198.51.100.21` with IPs `198.51.100.26-130`):
 
 ```bash
-make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.79 ENV_TEMPLATE_FORCE=true
+make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.21 ENV_TEMPLATE_FORCE=true
 
 # Edit environments/testing.tfvars:
-# - ipconfig0 values to 198.51.100.83-129
+# - ipconfig0 values to 198.51.100.26-129
 # - cloudinit_first_access_ssh_public_key with required public keys
 # - clone_template values (or os_profiles override) if template names differ on Proxmox
 # Edit packer/*/vars.testing.pkrvars.hcl clone_vm_id values to 999999991/999999990/999999992
@@ -1110,19 +1110,19 @@ make workspace-create ENVIRONMENT=testing
 make plan ENVIRONMENT=testing
 ```
 
-Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `203.0.113.0/24`, Proxmox host `198.51.100.84`, control node `198.51.100.85`):
+Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `203.0.113.0/24`, Proxmox host `198.51.100.28`, control node `198.51.100.29`):
 
 ```bash
-make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.84
+make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.28
 
 make env-template \
   ENVIRONMENT=example \
   TEMPLATE_ENV=dev \
-  PROXMOX_HOST=198.51.100.84 \
+  PROXMOX_HOST=198.51.100.28 \
   PROXMOX_NODE=proxmox \
-  ANSIBLE_HOST=198.51.100.85 \
+  ANSIBLE_HOST=198.51.100.29 \
   NETWORK_CIDR=203.0.113.0/24 \
-  NETWORK_GW=198.51.100.86 \
+  NETWORK_GW=198.51.100.30 \
   AUTO_DISCOVER=true \
   ENV_TEMPLATE_FORCE=true
 
@@ -1139,9 +1139,9 @@ make apply ENVIRONMENT=example
 If discovery picked values you want to override, pass them explicitly:
 
 ```bash
-make env-template ENVIRONMENT=qa PROXMOX_HOST=198.51.100.80 \
+make env-template ENVIRONMENT=qa PROXMOX_HOST=198.51.100.23 \
   PROXMOX_NODE=proxmox STORAGE_POOL=local-zfs DATA_STORAGE=local-lvm \
-  NETWORK_CIDR=203.0.113.0/24 NETWORK_GW=198.51.100.82 ENV_TEMPLATE_FORCE=true
+  NETWORK_CIDR=203.0.113.0/24 NETWORK_GW=198.51.100.25 ENV_TEMPLATE_FORCE=true
 ```
 
 ### 12.3 Bootstrap End-to-End Until Plan

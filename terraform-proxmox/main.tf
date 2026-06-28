@@ -297,7 +297,44 @@ module "proxmox_vms" {
   force_create = var.force_create
   name         = each.value.config.name
   ipconfig0    = each.value.config.ipconfig0
-  description  = "VM in group ${each.value.group}"
+  description = join("\n", compact([
+    "VM Group: ${each.value.group}",
+    "VM Name: ${each.value.config.name}",
+    "VMID: ${each.value.config.vmid}",
+    "",
+    "--- Infrastructure Metadata ---",
+    "Managed by: terraform-proxmox",
+    "Environment: ${local.environment}",
+    "Project: ${var.project_name}",
+    "Owner: ${var.owner}",
+    "CostCenter: ${var.cost_center}",
+    "Workspace: ${terraform.workspace}",
+    "Build Date: ${local.creation_timestamp != "" ? local.creation_timestamp : "unspecified"}",
+    "",
+    "--- System Specification ---",
+    "OS Profile: ${local.vm_os_profile[each.key]}",
+    "Clone Template: ${compact([
+      trimspace(try(each.value.config.clone_template, "")),
+      trimspace(local.vm_profile_data[each.key].clone_template),
+      trimspace(var.clone_template)
+    ])[0]}",
+    "Cores: ${each.value.config.cores}",
+    "Memory: ${each.value.config.memory} MB",
+    "Root Disk Size: ${each.value.config.disk_size}",
+    "Data Disk Size: ${try(each.value.config.data_disk.size, "none")}",
+    "IP Configuration: ${each.value.config.ipconfig0}",
+    "",
+    "--- Partitions (Logical Volumes) ---",
+    try(each.value.config.partitioning.enabled, false) ? join("\n", concat([
+      "Device: ${try(each.value.config.partitioning.disk_device, "/dev/vdb")}",
+      "Volume Group: ${try(each.value.config.partitioning.vg_name, "vgdata")}",
+      "Filesystem: ${try(each.value.config.partitioning.fs_type, "ext4")}",
+      "Mounts:"
+    ], [
+      for m in try(each.value.config.partitioning.mounts, []) :
+      "  - Mount: ${m.mount}, Size: ${m.size_gb} GB, Owner: ${try(m.owner, "root")}:${try(m.group, "root")}"
+    ])) : "Partitioning: Disabled"
+  ]))
   target_node  = var.target_node
   pool         = var.vm_pool
   clone_template = compact([
@@ -345,10 +382,12 @@ module "proxmox_vms" {
   cloudinit_first_access_user           = var.cloudinit_first_access_user
   cloudinit_first_access_ssh_public_key = var.cloudinit_first_access_ssh_public_key
 
-  tags = merge(local.common_tags, {
-    Role = each.value.group
-    Name = each.value.key
-  })
+  tags = {
+    for tag in compact(distinct(concat(
+      split(",", try(each.value.config.tags, "")),
+      [split("-", each.value.config.name)[0], "terraform"]
+    ))) : tag => ""
+  }
 
   depends_on = [module.vm_pool]
 }

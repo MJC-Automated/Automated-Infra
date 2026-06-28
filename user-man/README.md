@@ -359,7 +359,7 @@ Current tracked dev topology spans 9 hosts:
 
 - `public-weblogic14c-01`
 - `public-weblogic12c-01`
-- `public-database21c-02`
+- `public-database21c-01`
 - `public-database19c-01`
 - `public-zabbix-01`
 - `public-freeipa-01`

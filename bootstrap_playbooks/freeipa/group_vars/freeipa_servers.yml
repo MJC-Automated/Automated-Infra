@@ -7,8 +7,8 @@ freeipa_no_ntp: true
 freeipa_manage_firewall: true
 freeipa_configure_hosts: true
 freeipa_forwarders:
-  - "198.51.100.87"
-  - "198.51.100.25"
+  - "198.51.100.31"
+  - "198.51.100.43"
 freeipa_required_password_length: 12
 freeipa_server_fqdn: "{{ ansible_fqdn | default(inventory_hostname) }}"
 freeipa_server_ip: "{{ ansible_host | default(ansible_default_ipv4.address | default('')) }}"

@@ -25,8 +25,8 @@ IFS=$'\n\t'
 #    -h / --help       Show full usage and examples                            #
 #                                                                              #
 #  Examples:                                                                   #
-#    ./create-cloudinit-vm_stable.sh --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 198.51.100.0/24
-#    ./create-cloudinit-vm_stable.sh --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 203.0.113.0/24
+#    ./create-cloudinit-vm_stable.sh --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 203.0.113.0/24
+#    ./create-cloudinit-vm_stable.sh --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 192.0.2.0/24
 #    ./create-cloudinit-vm_stable.sh --os debian-12 --dry-run                         #
 #                                                                              #
 #  Key Features:                                                               #
@@ -54,10 +54,10 @@ IFS=$'\n\t'
 #    PASSWORD="<set-strong-cloud-init-password>"                                #
 #    SSH_KEYS_FILE="/root/.ssh/authorized_keys"                                 #
 #    # Backward-compatible single target (sets both Server and ServerActive)    #
-#    ZABBIX_SERVER="198.51.100.30"                                                #
+#    ZABBIX_SERVER="198.51.100.17"                                                #
 #    # Optional explicit split targets                                            #
-#    ZABBIX_SERVER_PASSIVE="198.51.100.30"                                        #
-#    ZABBIX_SERVER_ACTIVE="198.51.100.30:10051"                                   #
+#    ZABBIX_SERVER_PASSIVE="198.51.100.17"                                        #
+#    ZABBIX_SERVER_ACTIVE="198.51.100.17:10051"                                   #
 #                                                                              #
 ################################################################################
 
@@ -82,10 +82,10 @@ Required content:
   CIUSER="ansible"
   PASSWORD="<set-strong-cloud-init-password>"
   SSH_KEYS_FILE="/root/.ssh/authorized_keys"
-  ZABBIX_SERVER="198.51.100.30"
+  ZABBIX_SERVER="198.51.100.17"
   # Optional explicit split targets:
-  # ZABBIX_SERVER_PASSIVE="198.51.100.30"
-  # ZABBIX_SERVER_ACTIVE="198.51.100.30:10051"
+  # ZABBIX_SERVER_PASSIVE="198.51.100.17"
+  # ZABBIX_SERVER_ACTIVE="198.51.100.17:10051"
 
 EOF
   exit 1
@@ -128,10 +128,10 @@ if [[ -z "${ZABBIX_SERVER_PASSIVE}" || -z "${ZABBIX_SERVER_ACTIVE}" ]]; then
 ERROR: Zabbix target is not configured in ${ENV_FILE}
 
 Set either:
-  ZABBIX_SERVER="198.51.100.30"
+  ZABBIX_SERVER="198.51.100.17"
 or explicit split values:
-  ZABBIX_SERVER_PASSIVE="198.51.100.30"
-  ZABBIX_SERVER_ACTIVE="198.51.100.30:10051"
+  ZABBIX_SERVER_PASSIVE="198.51.100.17"
+  ZABBIX_SERVER_ACTIVE="198.51.100.17:10051"
 EOF
   exit 1
 fi
@@ -151,8 +151,8 @@ unset _secret_var
 VMID="${VMID:-999999991}"
 NAME="${NAME:-}"          # Leave empty → auto-derived from OS_TYPE + IP last octet
 OS_TYPE="${OS_TYPE:-oracle-linux-8}"  # See detect_os_config() for supported values
-IPCIDR="${IPCIDR:-192.0.2.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
-GATEWAY="${GATEWAY:-198.51.100.23}"
+IPCIDR="${IPCIDR:-198.51.100.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
+GATEWAY="${GATEWAY:-198.51.100.27}"
 FORCE="${FORCE:-1}"       # 1 = destroy existing VM, 0 = abort if exists
 DRY_RUN="${DRY_RUN:-0}"   # 1 = show what would happen without executing
 
@@ -175,7 +175,7 @@ readonly FEDORA_43_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-
 # │ Network Configuration                                                   │
 # └─────────────────────────────────────────────────────────────────────────┘
 readonly BRIDGE="${BRIDGE:-vmbr0}"
-readonly DNS="${DNS:-198.51.100.25}"
+readonly DNS="${DNS:-198.51.100.43}"
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ Resource Allocation                                                     │
@@ -2406,22 +2406,22 @@ AUTO-DERIVED VM NAME:
   If --name is omitted the name is built as:
     <os-short-label>-packer-base-<last-ip-octet>
   Examples:
-    oracle-linux-9 + 198.51.100.0/24  →  oracle9-packer-base-90
-    oracle-linux-8 + 203.0.113.0/24  →  oracle8-packer-base-91
+    oracle-linux-9 + 203.0.113.0/24  →  oracle9-packer-base-90
+    oracle-linux-8 + 192.0.2.0/24  →  oracle8-packer-base-91
     debian-12      + 192.0.2.0/24  →  debian12-packer-base-80
 
 EXAMPLES:
   # Oracle Linux 9 base/source VM (reserved ID/name)
-  $(basename "$0") --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 198.51.100.0/24
+  $(basename "$0") --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 203.0.113.0/24
 
   # Oracle Linux 8 base/source VM (reserved ID/name)
-  $(basename "$0") --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 203.0.113.0/24
+  $(basename "$0") --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 192.0.2.0/24
 
   # Debian 12 dry-run (no changes made)
   $(basename "$0") --os debian-12 --dry-run
 
   # Ubuntu 24 base/source VM (reserved ID/name)
-  $(basename "$0") --os ubuntu-24 --vmid 999999992 --name ubuntu2404-packer-base --ip 192.0.2.0/24
+  $(basename "$0") --os ubuntu-24 --vmid 999999992 --name ubuntu2404-packer-base --ip 198.51.100.0/24
 
 EOF
 }
