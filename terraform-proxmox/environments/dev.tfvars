@@ -92,7 +92,7 @@ node_groups = {
       vmid      = 10000
       name      = "public-weblogic14c-01"
       ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.22"
-      cores     = 8
+      cores     = 6
       memory    = 10240
       disk_size = "50G"
       // Optional: place this VM's root/cloud-init disks on a different VM-disk pool.
@@ -126,7 +126,7 @@ node_groups = {
       vmid      = 10001
       name      = "public-weblogic12c-01"
       ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.22"
-      cores     = 8
+      cores     = 6
       memory    = 10240
       disk_size = "50G"
       tags      = "weblogic12c"
@@ -151,7 +151,7 @@ node_groups = {
       vmid      = 10002
       name      = "public-database19c-01"
       ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.22"
-      cores     = 8
+      cores     = 6
       memory    = 10240
       disk_size = "50G"
       tags      = "database19c"
@@ -175,7 +175,7 @@ node_groups = {
       name       = "public-database19c-ol9-01"
       ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.22"
       os_profile = "oracle9"
-      cores      = 8
+      cores      = 6
       memory     = 10240
       disk_size  = "50G"
       tags       = "database19c,ol9"
@@ -198,7 +198,7 @@ node_groups = {
       vmid      = 10003
       name      = "public-database21c-01"
       ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.22"
-      cores     = 8
+      cores     = 6
       memory    = 10240
       disk_size = "50G"
       tags      = "database21c"
@@ -221,7 +221,7 @@ node_groups = {
       vmid      = 10004
       name      = "public-zabbix-01"
       ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.47"
-      cores     = 8
+      cores     = 6
       memory    = 10240
       disk_size = "50G"
       tags      = "zabbix"
