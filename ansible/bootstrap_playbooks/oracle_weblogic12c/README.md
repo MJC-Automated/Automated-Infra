@@ -168,10 +168,12 @@ In the wizard choose:
 ## Storage Cleanup
 
 Storage cleanup and disk space monitoring are natively integrated into the playbook and run by default at the end of execution.
+
 - Generates `/home/oracle/scripts/cleanup_weblogic.sh` to purge old `*.out`, `*.log`, and `*.log0*` files older than 5 days.
 - Creates a disk space monitoring cron job (`/home/oracle/scripts/check_disk.sh`) to warn if `/u01`, `/u02`, or `/Logs` cross an 80% threshold.
 
 To run only the cleanup setup independently without the rest of the WebLogic logic:
+
 ```bash
 ansible-playbook main.yml -l weblogic12c --tags cleanup
 ```
