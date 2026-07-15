@@ -1,0 +1,7 @@
+---
+# Keep database backups on the dedicated Zabbix data volume provisioned by Terraform.
+zabbix_backup_mount_point: /zabbix
+zabbix_backup_dir: "{{ zabbix_backup_mount_point }}/zabbix-data"
+zabbix_backup_require_mount: true
+zabbix_backup_keep_archived: 6
+zabbix_backup_keep_max: 7

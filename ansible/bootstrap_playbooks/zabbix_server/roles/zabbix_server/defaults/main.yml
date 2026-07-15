@@ -1,0 +1,148 @@
+---
+# Core
+zabbix_version: "7.0"
+
+# Database mode: internal (local PostgreSQL on Zabbix host) or external (remote PostgreSQL)
+zabbix_db_mode: internal
+zabbix_db_host: "127.0.0.1"
+zabbix_db_port: 5432
+zabbix_db_name: zabbix
+zabbix_db_user: zabbix
+zabbix_db_password: ""
+zabbix_required_password_length: 20
+zabbix_generate_local_passwords: true
+zabbix_db_password_path: "{{ playbook_dir }}/files/zabbix_db_password"
+zabbix_api_password_path: "{{ playbook_dir }}/files/zabbix_api_password"
+zabbix_local_secret_owner: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
+zabbix_local_secret_group: "{{ lookup('pipe', 'id -gn ' ~ zabbix_local_secret_owner) }}"
+zabbix_db_schema: ""
+zabbix_db_credentials_store: plaintext
+zabbix_db_vault_url: "https://localhost:8200"
+zabbix_db_vault_prefix: ""
+zabbix_db_vault_db_path: ""
+zabbix_db_vault_token: ""
+zabbix_db_vault_cache: false
+
+# Credentials for optional DB bootstrap when zabbix_db_manage_user_and_db=true
+zabbix_db_admin_user: postgres
+zabbix_db_admin_password: ""
+zabbix_db_manage_user_and_db: true
+
+# Import /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz when dbversion table is absent
+zabbix_db_import_schema: true
+
+# Optional extras
+zabbix_manage_agent2_plugins: false
+zabbix_manage_firewall: false
+zabbix_oracle_exclude_epel_zabbix: true
+zabbix_service_enable: true
+zabbix_service_start: true
+zabbix_php_timezone: "UTC"
+zabbix_frontend_server_name: ""
+zabbix_allow_http_cidr: "0.0.0.0/0"
+zabbix_allow_server_port_cidr: "0.0.0.0/0"
+zabbix_server_port: 10051
+zabbix_agent_port: 10050
+
+# Backups
+zabbix_backup_enabled: true
+zabbix_backup_mount_point: /var/backups
+zabbix_backup_dir: "{{ zabbix_backup_mount_point }}/zabbix-data"
+zabbix_backup_keep_archived: 6
+zabbix_backup_keep_max: 7
+zabbix_backup_schedule_hour: 2
+zabbix_backup_schedule_minute: 15
+zabbix_backup_require_mount: false
+zabbix_backup_script_path: /usr/local/bin/zabbix-db-backup.sh
+zabbix_backup_log_path: /var/log/zabbix-db-backup.log
+
+# Platform matrix aligned with Zabbix official package instructions (7.0)
+zabbix_platform_matrix:
+  Ubuntu:
+    supported_major: "24"
+    repo_package_url: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_version }}+ubuntu24.04_all.deb"
+    repo_package_file: "/tmp/zabbix-release_latest_{{ zabbix_version }}+ubuntu24.04_all.deb"
+    server_packages:
+      - zabbix-server-pgsql
+      - zabbix-frontend-php
+      - php8.3-pgsql
+      - zabbix-apache-conf
+      - zabbix-sql-scripts
+      - zabbix-agent2
+    plugin_packages:
+      - zabbix-agent2-plugin-mongodb
+      - zabbix-agent2-plugin-mssql
+      - zabbix-agent2-plugin-postgresql
+    postgresql_packages:
+      - postgresql
+      - postgresql-client
+      - postgresql-contrib
+    postgresql_client_packages:
+      - postgresql-client
+    postgresql_service: postgresql
+    http_services:
+      - apache2
+    apache_conf_path: /etc/zabbix/apache.conf
+    web_group: www-data
+    web_config_path: /etc/zabbix/web/zabbix.conf.php
+
+  OracleLinux:
+    supported_major: "9"
+    repo_rpm_url: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}/oracle/9/x86_64/zabbix-release-latest-{{ zabbix_version }}.el9.noarch.rpm"
+    server_packages:
+      - zabbix-server-pgsql
+      - zabbix-web-pgsql
+      - zabbix-apache-conf
+      - zabbix-sql-scripts
+      - zabbix-selinux-policy
+      - zabbix-agent2
+    plugin_packages:
+      - zabbix-agent2-plugin-mongodb
+      - zabbix-agent2-plugin-mssql
+      - zabbix-agent2-plugin-postgresql
+    postgresql_packages:
+      - postgresql-server
+      - postgresql
+    postgresql_client_packages:
+      - postgresql
+    postgresql_service: postgresql
+    postgresql_initdb_check: /var/lib/pgsql/data/PG_VERSION
+    postgresql_initdb_command: postgresql-setup --initdb
+    http_services:
+      - httpd
+      - php-fpm
+    apache_conf_path: /etc/httpd/conf.d/zabbix.conf
+    web_group: apache
+    web_config_path: /etc/zabbix/web/zabbix.conf.php
+
+# Auto-discovery defaults
+zabbix_api_user: "Admin"
+zabbix_api_password: ""
+zabbix_api_bootstrap_password: "zabbix"
+zabbix_discovery_rule_name: "{{ cluster_environment | default('managed') | title }} VM Auto-Discovery"
+zabbix_discovery_rule_delay: "60s"
+zabbix_discovery_action_name: "Auto-Discover {{ cluster_environment | default('managed') | title }} VMs Action"
+zabbix_discovery_action_esc_period: "1h"
+zabbix_discovery_excluded_groups: []
+zabbix_discovery_host_groups:
+  - "Linux servers"
+zabbix_discovery_templates:
+  - "Linux by Zabbix agent"
+
+# Optional email alert path. Recipient usernames must already have media access
+# appropriate for the configured media type.
+zabbix_email_alerts_enabled: false
+zabbix_email_media_type_name: "IaC SMTP"
+zabbix_email_smtp_server: ""
+zabbix_email_smtp_port: 587
+zabbix_email_smtp_helo: "localhost"
+zabbix_email_from: ""
+zabbix_email_security: "STARTTLS"
+zabbix_email_verify_peer: true
+zabbix_email_verify_host: true
+zabbix_email_smtp_authentication: true
+zabbix_email_smtp_username: ""
+zabbix_email_smtp_password: ""
+zabbix_email_recipient_users: []
+zabbix_email_min_severity: "warning"
+zabbix_email_action_name: "Email managed infrastructure problems"

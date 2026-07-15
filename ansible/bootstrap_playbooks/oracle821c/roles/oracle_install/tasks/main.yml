@@ -1,0 +1,352 @@
+---
+# roles/oracle_install/tasks/main.yml
+
+- name: DIRS | Create Oracle home directory parent structure
+  ansible.builtin.file:
+    path: "{{ oracle_base }}/{{ oracle_product_version_dir }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0775"
+  tags: [dirs, oracle_install]
+
+- name: DIRS | Create final Oracle home directory
+  ansible.builtin.file:
+    path: "{{ oracle_home }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0775"
+  tags: [dirs, oracle_install]
+
+- name: DIRS | Create staging directory for Oracle software
+  ansible.builtin.file:
+    path: "{{ oracle_stage_dir }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0775"
+  tags: [dirs, oracle_install]
+
+- name: SW | Check if Oracle software is already unzipped
+  ansible.builtin.stat:
+    path: "{{ oracle_software_unzipped_marker }}"
+  register: sw_unzipped_check
+  tags: [oracle_install]
+
+- name: SW | Copy Oracle software zip file to staging directory
+  ansible.builtin.copy:
+    src: "/resources/{{ oracle_software_zip_filename }}"
+    dest: "{{ oracle_stage_dir }}/{{ oracle_software_zip_filename }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0644"
+  when: not sw_unzipped_check.stat.exists
+  tags: [oracle_install]
+
+- name: SW | Unzip Oracle software into ORACLE_HOME
+  ansible.builtin.unarchive:
+    src: "{{ oracle_stage_dir }}/{{ oracle_software_zip_filename }}"
+    dest: "{{ oracle_home }}"
+    remote_src: true
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    creates: "{{ oracle_software_unzipped_marker }}"
+  when: not sw_unzipped_check.stat.exists
+  tags: [oracle_install]
+
+- name: SW | Template Oracle installer response file (db_install.rsp)
+  ansible.builtin.template:
+    src: db_install_21c.rsp.j2
+    dest: "{{ db_install_rsp_dest_path }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0640"
+  tags: [oracle_install]
+
+- name: SW | Template Oracle installer expect script
+  ansible.builtin.template:
+    src: oracle_runinstaller.exp.j2
+    dest: "{{ oracle_installer_expect_dest_path }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0750"
+  no_log: true
+  tags: [oracle_install]
+
+- name: SW | Run Oracle Installer using expect script
+  ansible.builtin.command: "expect {{ oracle_installer_expect_dest_path }}"
+  become: true
+  become_user: "{{ oracle_user }}"
+  tags: [oracle_install]
+  args:
+    creates: "{{ oracle_installer_run_marker }}"
+  register: installer_run
+  failed_when: (installer_run.rc | default(1)) not in [0, 6] # 6 means succeeded with warnings
+
+- name: SW | Run orainstRoot.sh script to setup central inventory pointer
+  ansible.builtin.command: "{{ oracle_inventory_loc }}/orainstRoot.sh"
+  args:
+    creates: "{{ orainst_root_sh_done_flag }}"
+  register: orainst_root_sh_run
+  tags: [oracle_install]
+
+- name: Create orainstRoot.sh done flag  # noqa: no-handler
+  ansible.builtin.file:
+    path: "{{ orainst_root_sh_done_flag }}"
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when: orainst_root_sh_run is changed
+  tags: [oracle_install]
+
+- name: SW | Normalize root.sh macro include path to current ORACLE_HOME
+  ansible.builtin.replace:
+    path: "{{ oracle_home }}/root.sh"
+    regexp: '(^\s*\.\s+["'']?).*(/install/utl/rootmacro\.sh["'']?)$'
+    replace: "\\1{{ oracle_home }}/install/utl/rootmacro.sh"
+  tags: [oracle_install]
+
+- name: SW | Run root.sh script to finalize software installation
+  ansible.builtin.command: "{{ oracle_home }}/root.sh"
+  args:
+    creates: "{{ root_sh_done_flag }}"
+  register: root_sh_run
+  tags: [oracle_install]
+
+- name: Create root.sh done flag  # noqa: no-handler
+  ansible.builtin.file:
+    path: "{{ root_sh_done_flag }}"
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when: root_sh_run is changed
+  tags: [oracle_install]
+
+- name: SW | Check for oradism binary
+  ansible.builtin.stat:
+    path: "{{ oracle_home }}/bin/oradism"
+  register: oracle_oradism_stat
+  tags: [oracle_install]
+
+- name: SW | Ensure oradism has required root setuid permissions
+  ansible.builtin.file:
+    path: "{{ oracle_home }}/bin/oradism"
+    owner: root
+    group: "{{ oracle_group_dba }}"
+    mode: "4750"
+  when: oracle_oradism_stat.stat.exists
+  tags: [oracle_install]
+
+- name: PATCH | Determine if RU patching is enabled
+  ansible.builtin.set_fact:
+    oracle_ru_enabled: "{{ oracle_patch_enabled | default(true) | bool and (oracle_ru_patch_id | length > 0) and (oracle_ru_patch_zip_filename | length > 0) }}"
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Check applied RU patches
+  ansible.builtin.shell: |
+    set -o pipefail
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/OPatch:$PATH
+    opatch lspatches | grep -F "{{ oracle_ru_patch_id }}"
+  become: true
+  become_user: "{{ oracle_user }}"
+  register: ru_patch_check
+  changed_when: false
+  failed_when: false
+  when: oracle_ru_enabled | bool
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Ensure patch staging and log directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0775"
+  loop:
+    - "{{ oracle_ru_patch_stage_dir }}"
+    - "{{ oracle_opatch_log_dir }}"
+  when:
+    - oracle_ru_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Copy RU patch zip to stage
+  ansible.builtin.copy:
+    src: "/resources/{{ oracle_ru_patch_zip_filename }}"
+    dest: "{{ oracle_ru_patch_stage_dir }}/{{ oracle_ru_patch_zip_filename }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0644"
+  when:
+    - oracle_ru_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Unzip RU patch
+  ansible.builtin.unarchive:
+    src: "{{ oracle_ru_patch_stage_dir }}/{{ oracle_ru_patch_zip_filename }}"
+    dest: "{{ oracle_ru_patch_stage_dir }}"
+    remote_src: true
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+  when:
+    - oracle_ru_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Copy OPatch zip to stage when provided
+  ansible.builtin.copy:
+    src: "/resources/{{ oracle_opatch_zip_filename }}"
+    dest: "{{ oracle_stage_dir }}/{{ oracle_opatch_zip_filename }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0644"
+  when:
+    - oracle_opatch_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Read OPatch version from provided zip
+  ansible.builtin.shell: |
+    set -o pipefail
+    set -eo pipefail
+    unzip -p "/resources/{{ oracle_opatch_zip_filename }}" OPatch/version.txt | awk -F: '/OPATCH_VERSION/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}'
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  register: oracle_opatch_zip_version
+  changed_when: false
+  when:
+    - oracle_opatch_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Assert provided OPatch zip supports 21c
+  ansible.builtin.assert:
+    that:
+      - oracle_opatch_zip_version.stdout | trim is version(oracle_opatch_min_version, '>=')
+    fail_msg: >-
+      OPatch zip {{ oracle_opatch_zip_filename }} reports version
+      {{ oracle_opatch_zip_version.stdout | default('unknown', true) | trim }}.
+      Oracle 21c RU install requires OPatch {{ oracle_opatch_min_version }} or later;
+      validate the archive contents, not just the filename.
+  when:
+    - oracle_opatch_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Read currently installed OPatch version
+  ansible.builtin.shell: |
+    set -o pipefail
+    if [ -f "{{ oracle_home }}/OPatch/version.txt" ]; then
+      awk -F: '/OPATCH_VERSION/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "{{ oracle_home }}/OPatch/version.txt"
+    fi
+  register: oracle_opatch_installed_version
+  changed_when: false
+  failed_when: false
+  when:
+    - oracle_opatch_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Install latest OPatch into ORACLE_HOME when provided
+  ansible.builtin.unarchive:
+    src: "{{ oracle_stage_dir }}/{{ oracle_opatch_zip_filename }}"
+    dest: "{{ oracle_home }}"
+    remote_src: true
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+  when:
+    - oracle_opatch_enabled | bool
+    - ru_patch_check.rc | default(0) != 0
+    - >-
+      (oracle_opatch_installed_version.stdout | default('', true) | trim | length == 0)
+      or
+      (oracle_opatch_installed_version.stdout | trim is version(oracle_opatch_zip_version.stdout | trim, '<'))
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Stop running listener and database before patching
+  ansible.builtin.shell: |
+    set -o pipefail
+    if pgrep -f "ora_pmon_|tnslsnr" >/dev/null; then
+      export ORACLE_HOME={{ oracle_home }}
+      export PATH=$ORACLE_HOME/bin:$PATH
+      if [ -f /home/oracle/scripts/stop_all.sh ]; then
+        /home/oracle/scripts/stop_all.sh < /dev/null || true
+      else
+        lsnrctl stop < /dev/null || true
+        ps -eo args= | awk '/ora_pmon_/ {print $1}' | awk -F_ '{print $3}' | while read -r sid; do
+          export ORACLE_SID="$sid"
+          printf "shutdown immediate;\nexit;\n" | sqlplus -s / as sysdba || true
+        done
+      fi
+    else
+      echo "No running Oracle processes detected. Skipping shutdown."
+    fi
+  become: true
+  become_user: "{{ oracle_user }}"
+  register: oracle_patch_shutdown
+  changed_when: "'No running Oracle processes detected' not in oracle_patch_shutdown.stdout"
+  when:
+    - oracle_ru_enabled | bool
+    - ru_patch_check is defined
+    - ru_patch_check.rc != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Apply RU patch if missing
+  ansible.builtin.shell: |
+    set -o pipefail
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/OPatch:$PATH
+    opatch apply -silent {{ oracle_ru_patch_apply_dir }} | tee {{ oracle_opatch_log_dir }}/opatch_apply_{{ oracle_ru_patch_id }}.log
+  become: true
+  become_user: "{{ oracle_user }}"
+  register: ru_patch_apply
+  changed_when: "'OPatch succeeded' in ru_patch_apply.stdout or ru_patch_apply.rc == 0"
+  failed_when: ru_patch_apply.rc != 0
+  when:
+    - oracle_ru_enabled | bool
+    - ru_patch_check is defined
+    - ru_patch_check.rc != 0
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Record OPatch inventory
+  ansible.builtin.shell: |
+    set -o pipefail
+    export ORACLE_HOME={{ oracle_home }}
+    export PATH=$ORACLE_HOME/OPatch:$PATH
+    opatch lsinventory > {{ oracle_opatch_inventory_log }}
+  become: true
+  become_user: "{{ oracle_user }}"
+  register: opatch_inventory
+  changed_when: false
+  failed_when: false
+  when: oracle_ru_enabled | bool
+  tags: [oracle_install, oracle_patch]
+
+- name: CLEANUP | Remove consumed Oracle software archive
+  ansible.builtin.file:
+    path: "{{ oracle_stage_dir }}/{{ oracle_software_zip_filename }}"
+    state: absent
+  tags: [oracle_install]
+
+- name: CLEANUP | Remove consumed RU patch archive
+  ansible.builtin.file:
+    path: "{{ oracle_ru_patch_stage_dir }}/{{ oracle_ru_patch_zip_filename }}"
+    state: absent
+  when: oracle_ru_enabled | bool
+  tags: [oracle_install, oracle_patch]
+
+- name: CLEANUP | Remove consumed OPatch archive
+  ansible.builtin.file:
+    path: "{{ oracle_stage_dir }}/{{ oracle_opatch_zip_filename }}"
+    state: absent
+  when:
+    - oracle_ru_enabled | bool
+    - oracle_opatch_enabled | bool
+  tags: [oracle_install, oracle_patch]

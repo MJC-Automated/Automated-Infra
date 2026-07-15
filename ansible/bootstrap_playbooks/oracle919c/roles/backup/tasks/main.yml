@@ -1,0 +1,109 @@
+---
+# roles/backup/tasks/main.yml
+
+- name: RMAN | Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ oracle_rman_backup_dir }}"
+    state: directory
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0750"
+  when: oracle_enable_rman | bool
+  tags: [rman, backup]
+
+- name: RMAN | Ensure CDB is started
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.sid }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    sqlplus -s / as sysdba <<'EOF'
+    startup;
+    exit;
+    EOF
+  become: true
+  become_user: "{{ oracle_user }}"
+  register: rman_startup
+  changed_when: "'ORACLE instance started' in rman_startup.stdout"
+  failed_when: rman_startup.rc != 0 and (rman_startup.stdout is not search('ORA-01081'))
+  loop: "{{ oracle_cdbs }}"
+  when: oracle_enable_rman | bool
+  tags: [rman, backup]
+
+- name: RMAN | Configure baseline settings
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.sid }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    rman target / <<'EOF'
+    CONFIGURE RETENTION POLICY TO RECOVERY WINDOW OF {{ oracle_rman_retention_days }} DAYS;
+    CONFIGURE CONTROLFILE AUTOBACKUP ON;
+    CONFIGURE DEVICE TYPE DISK PARALLELISM {{ oracle_rman_parallelism }};
+    CONFIGURE CHANNEL DEVICE TYPE DISK FORMAT '{{ oracle_rman_backup_dir }}/%d_%U.bkp';
+    SHOW ALL;
+    EXIT;
+    EOF
+  become: true
+  become_user: "{{ oracle_user }}"
+  register: rman_config
+  changed_when: false
+  failed_when: rman_config.rc != 0
+  loop: "{{ oracle_cdbs }}"
+  when: oracle_enable_rman | bool
+  tags: [rman, backup]
+
+- name: RMAN | Validate database (optional)
+  ansible.builtin.shell: |
+    export ORACLE_HOME={{ oracle_home }}
+    export ORACLE_SID={{ item.sid }}
+    export PATH=$ORACLE_HOME/bin:$PATH
+    rman target / <<'EOF'
+    BACKUP VALIDATE CHECK LOGICAL DATABASE;
+    EXIT;
+    EOF
+  become: true
+  become_user: "{{ oracle_user }}"
+  register: rman_validate
+  changed_when: false
+  failed_when: rman_validate.rc != 0
+  loop: "{{ oracle_cdbs }}"
+  when:
+    - oracle_enable_rman | bool
+    - oracle_rman_validate
+  tags: [rman, backup, validation]
+
+- name: BACKUP | Ensure backup script is deployed
+  ansible.builtin.template:
+    src: backup_database.sh.j2
+    dest: "{{ oracle_scripts_dir }}/backup_database.sh"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0700"
+  no_log: true
+  tags: [backup, database_backup]
+
+- name: BACKUP | Ensure restart script is deployed
+  ansible.builtin.template:
+    src: restart_databases.sh.j2
+    dest: "{{ oracle_scripts_dir }}/restart_databases.sh"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0755"
+  tags: [backup, database_restart]
+
+- name: BACKUP | Add cron job for daily database backup
+  ansible.builtin.cron:
+    name: "Daily database backup (expdp)"
+    user: "{{ oracle_user }}"
+    minute: "0"
+    hour: "0"
+    job: "{{ oracle_scripts_dir }}/backup_database.sh > {{ oracle_scripts_dir }}/backup_database.log 2>&1"
+  tags: [backup, database_backup, crontab]
+
+- name: BACKUP | Add cron job for daily database restart
+  ansible.builtin.cron:
+    name: "Daily database restart"
+    user: "{{ oracle_user }}"
+    minute: "0"
+    hour: "4"
+    job: "{{ oracle_scripts_dir }}/restart_databases.sh > {{ oracle_scripts_dir }}/restart_databases.log 2>&1"
+  tags: [backup, database_restart, crontab]

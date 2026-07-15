@@ -1,0 +1,98 @@
+---
+# defaults file for jenkins role
+jenkins_version: "2.555.3"
+jenkins_package_path: ""
+jenkins_repo_url: "https://pkg.jenkins.io/debian-stable"
+jenkins_repo_key_url: "{{ jenkins_repo_url }}/jenkins.io-2026.key"
+
+jenkins_http_port: 8080
+jenkins_listen_address: "0.0.0.0"
+jenkins_url: "http://{{ ansible_host }}:{{ jenkins_http_port }}"
+jenkins_system_message: "Homelab Jenkins managed by Ansible"
+jenkins_controller_executors: 0
+jenkins_java_opts: "-Xms512m -Xmx2048m -Djenkins.install.runSetupWizard=false -Djenkins.model.Jenkins.slaveAgentPort=-1"
+jenkins_required_password_length: 16
+
+# Jenkins 2.555.x requires Java 21 or 25 on the controller and agents.
+jenkins_java_install_method: "apt" # apt, local, or auto
+jenkins_java_package: "openjdk-21-jdk"
+jenkins_java_home: "/usr/lib/jvm/java-21-openjdk-amd64"
+
+# Optional local JDK settings from /resources. Set jenkins_java_install_method
+# to local or auto after placing a Java 21 archive on the controller.
+jdk_archive_path: "/resources/jdk-21_linux-x64_bin.tar.gz"
+jdk_dest_dir: "/opt"
+jdk_version_dir: "jdk-21.0.11+10"
+java_home: "{{ jdk_dest_dir }}/{{ jdk_version_dir }}"
+
+jenkins_plugin_manager_version: "2.13.0"
+jenkins_plugin_manager_local_path: "/resources/jenkins-plugin-manager-{{ jenkins_plugin_manager_version }}.jar"
+jenkins_plugin_manager_url: "https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/{{ jenkins_plugin_manager_version }}/jenkins-plugin-manager-{{
+  jenkins_plugin_manager_version }}.jar"
+jenkins_war_path: "/usr/share/java/jenkins.war"
+
+# Core plugins to install
+jenkins_plugins:
+  - configuration-as-code
+  - git
+  - workflow-aggregator
+  - credentials
+  - credentials-binding
+  - ssh-slaves
+  - ssh-agent
+  - gitlab-plugin
+  - cloudbees-folder
+  - job-dsl
+  - matrix-auth
+  - pipeline-stage-view
+  - timestamper
+  - ws-cleanup
+  - build-timeout
+  - junit
+  - email-ext
+  - dark-theme
+  - theme-manager
+
+# Admin credentials
+jenkins_admin_user: "admin"
+jenkins_admin_password: ""
+jenkins_admin_password_path: "{{ playbook_dir }}/files/jenkins_admin_password"
+
+# UI preferences
+jenkins_theme: "darkSystem"
+jenkins_disable_user_themes: true
+
+# Jenkins Agent (SSH-based build node) defaults
+jenkins_manage_agents: true
+jenkins_autodiscover_agents: true
+jenkins_allow_external_agents: false
+jenkins_agent_name: "{{ inventory_hostname }}"
+jenkins_agent_host: "{{ ansible_host | default(inventory_hostname) }}"
+jenkins_agent_user: "jenkins"
+jenkins_agent_work_dir: "/home/jenkins"
+jenkins_agent_executors: 4
+jenkins_agent_labels:
+  - linux
+  - docker
+  - homelab
+jenkins_agent_mode: "EXCLUSIVE"
+jenkins_agent_port: 22
+jenkins_agent_jvm_options: "-Xmx512m"
+jenkins_agent_ssh_host_key_verification: "nonVerifying" # nonVerifying or manuallyTrusted
+jenkins_agent_private_key_path: "{{ playbook_dir }}/files/jenkins_agent_key"
+jenkins_agent_manage_sshd_allow_user: true
+jenkins_agent_sshd_allow_user_path: "/etc/ssh/sshd_config.d/60-jenkins-agent.conf"
+
+jenkins_agent_packages:
+  - git
+  - curl
+  - ca-certificates
+  - unzip
+  - make
+  - python3
+  - python3-pip
+jenkins_agent_install_docker: true
+jenkins_agent_docker_packages:
+  - docker.io
+
+jenkins_agents: []

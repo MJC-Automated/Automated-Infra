@@ -1,0 +1,16 @@
+---
+- name: Validate supported OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian"
+    fail_msg: "Observability role currently targets Ubuntu/Debian hosts."
+
+- name: Validate required Grafana admin password
+  ansible.builtin.assert:
+    that:
+      - observability_grafana_admin_password | string | length >= observability_required_password_length
+      - not (observability_grafana_admin_password | string is match('^<.*>$'))
+    fail_msg: >-
+      observability_grafana_admin_password must be set with at least
+      {{ observability_required_password_length }} characters.
+  no_log: true

@@ -1,0 +1,96 @@
+---
+- name: Ensure Jenkins plugin directory exists
+  ansible.builtin.file:
+    path: /var/lib/jenkins/plugins
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0755"
+
+- name: Check local Jenkins Plugin Manager on controller
+  ansible.builtin.stat:
+    path: "{{ jenkins_plugin_manager_local_path }}"
+  delegate_to: localhost
+  become: false
+  register: jenkins_local_plugin_manager
+
+- name: Copy local Jenkins Plugin Manager CLI tool
+  ansible.builtin.copy:
+    src: "{{ jenkins_plugin_manager_local_path }}"
+    dest: /opt/jenkins-plugin-manager.jar
+    mode: "0644"
+  when: jenkins_local_plugin_manager.stat.exists
+
+- name: Download Jenkins Plugin Manager CLI tool
+  ansible.builtin.get_url:
+    url: "{{ jenkins_plugin_manager_url }}"
+    dest: /opt/jenkins-plugin-manager.jar
+    mode: "0644"
+  when: not jenkins_local_plugin_manager.stat.exists
+
+- name: Run Jenkins Plugin Manager to install plugins
+  ansible.builtin.command: >
+    java -jar /opt/jenkins-plugin-manager.jar
+    --war {{ jenkins_war_path }}
+    --plugin-download-directory /var/lib/jenkins/plugins
+    --plugins {{ jenkins_plugins | join(' ') }}
+  register: plugin_install_out
+  changed_when: "'Installing' in plugin_install_out.stdout or 'Downloading' in plugin_install_out.stdout or 'Will install' in plugin_install_out.stdout"
+  notify: Restart jenkins
+
+- name: Ensure Jenkins directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0755"
+  loop:
+    - /var/lib/jenkins
+    - /var/lib/jenkins/plugins
+
+- name: Ensure Jenkins plugin ownership is correct
+  ansible.builtin.file:
+    path: /var/lib/jenkins/plugins
+    state: directory
+    owner: jenkins
+    group: jenkins
+    recurse: true
+
+- name: Write JCasC configuration file
+  ansible.builtin.template:
+    src: jenkins.yaml.j2
+    dest: /var/lib/jenkins/jenkins.yaml
+    owner: jenkins
+    group: jenkins
+    mode: "0600"
+  no_log: true
+  notify: Restart jenkins
+
+- name: Create systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/jenkins.service.d
+    state: directory
+    mode: "0755"
+
+- name: Create systemd override configuration
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      Environment="JENKINS_PORT={{ jenkins_http_port }}"
+      Environment="JENKINS_LISTEN_ADDRESS={{ jenkins_listen_address }}"
+      Environment="JAVA_OPTS={{ jenkins_java_opts }}"
+      Environment="CASC_JENKINS_CONFIG=/var/lib/jenkins/jenkins.yaml"
+    dest: /etc/systemd/system/jenkins.service.d/override.conf
+    mode: "0644"
+  notify:
+    - Reload systemd daemon
+    - Restart jenkins
+
+- name: Reset Jenkins failed state before restart
+  ansible.builtin.command: systemctl reset-failed jenkins.service
+  changed_when: false
+  failed_when: false
+
+- name: Flush handlers to reload systemd and restart Jenkins
+  ansible.builtin.meta: flush_handlers

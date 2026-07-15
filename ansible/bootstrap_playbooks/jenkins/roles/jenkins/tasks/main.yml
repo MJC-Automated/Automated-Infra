@@ -1,0 +1,29 @@
+---
+# tasks file for jenkins role
+
+- name: Install Java JDK from local resources
+  ansible.builtin.import_tasks: java.yml
+  tags: [java, os_prereqs]
+
+- name: Configure Jenkins Agent Node
+  ansible.builtin.import_tasks: agent.yml
+  when:
+    - "'jenkins_agent' in group_names"
+    - jenkins_manage_agents | bool
+  tags: [jenkins_agent, configure]
+
+- name: Install and Configure Jenkins Controller
+  when: "'jenkins' in group_names"
+  tags: [jenkins_controller]
+  block:
+    - name: Install Jenkins Controller packages
+      ansible.builtin.import_tasks: install.yml
+      tags: [os_prereqs, install]
+
+    - name: Configure Jenkins Controller configuration
+      ansible.builtin.import_tasks: configure.yml
+      tags: [configure, systemd_service]
+
+    - name: Verify Jenkins Controller health
+      ansible.builtin.import_tasks: verify.yml
+      tags: [verify]

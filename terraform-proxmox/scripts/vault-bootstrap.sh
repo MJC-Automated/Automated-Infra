@@ -241,12 +241,21 @@ if [[ ! -f "${TFVARS_FILE}" ]]; then
   exit 1
 fi
 
+explicit_vault_token="${VAULT_TOKEN:-}"
+explicit_tf_vault_token="${TF_VAR_vault_token:-}"
 if [[ -f "${ENV_FILE}" ]]; then
   set -a
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
   set +a
 fi
+if [[ -n "${explicit_vault_token}" ]]; then
+  VAULT_TOKEN="${explicit_vault_token}"
+fi
+if [[ -n "${explicit_tf_vault_token}" ]]; then
+  TF_VAR_vault_token="${explicit_tf_vault_token}"
+fi
+unset explicit_vault_token explicit_tf_vault_token
 
 ensure_vault_tls_env
 

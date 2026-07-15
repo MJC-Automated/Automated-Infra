@@ -1,0 +1,12 @@
+---
+profile: production
+
+# Internal Oracle subroles intentionally share the public oracle_* variable
+# namespace. Renaming those variables after each role directory would break the
+# inventory and playbook contract without improving isolation.
+skip_list:
+  - var-naming[no-role-prefix]
+  - yaml[line-length]
+
+exclude_paths:
+  - .ansible/

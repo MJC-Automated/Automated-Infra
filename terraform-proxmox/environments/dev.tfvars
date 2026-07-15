@@ -49,8 +49,8 @@ vault_secret_prefix = "terraform"
 // Optional AppRole hardening examples:
 vault_approle_secret_id_num_uses      = 0
 vault_approle_secret_id_ttl_seconds   = 86400
-vault_approle_secret_id_bound_cidrs   = ["192.0.2.0/24", "127.0.0.1"]
-vault_approle_token_bound_cidrs       = ["192.0.2.0/24", "127.0.0.1"]
+vault_approle_secret_id_bound_cidrs   = ["203.0.113.0/24", "127.0.0.1"]
+vault_approle_token_bound_cidrs       = ["203.0.113.0/24", "127.0.0.1"]
 vault_approle_token_no_default_policy = true
 
 // Optional multi-key template (uncomment and replace values if needed):
@@ -75,10 +75,18 @@ vm_defaults = {
   cpu_type      = "host"
   network_model = "virtio"
 
+  // Persistent EFI vars disk for OVMF/q35 guests.
+  // This avoids Proxmox creating a temporary efivars disk on VM start.
+  efi_disk_enabled = true
+  // efi_disk_storage      = ""    // Defaults to each VM's disk storage.
+  // efi_disk_type         = "4m"
+  // efi_disk_format       = "raw"
+  // efi_pre_enrolled_keys = false
+
   // HA/power/protection defaults for all VMs (optional):
   // ha_state           = ""
   // ha_group           = ""
-  // vm_state           = "running"
+  // power_state           = "running"
   // start_at_node_boot = false
   // protection         = false
   // balloon            = 0
@@ -91,7 +99,7 @@ node_groups = {
     "weblogic14c-dot80" = {
       vmid      = 10000
       name      = "public-weblogic14c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.22"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.18"
       cores     = 6
       memory    = 10240
       disk_size = "50G"
@@ -100,7 +108,7 @@ node_groups = {
       // Optional HA/power/protection per-VM overrides:
       // ha_state           = "started"
       // ha_group           = "platform-ha"
-      // vm_state           = "running"
+      // power_state           = "running"
       // start_at_node_boot = true
       // protection         = true
       // balloon            = 8192
@@ -125,7 +133,7 @@ node_groups = {
     "weblogic12c-dot81" = {
       vmid      = 10001
       name      = "public-weblogic12c-01"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.22"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.18"
       cores     = 6
       memory    = 10240
       disk_size = "50G"
@@ -150,7 +158,7 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.22"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.18"
       cores     = 6
       memory    = 10240
       disk_size = "50G"
@@ -173,7 +181,7 @@ node_groups = {
     "public-ol9-01" = {
       vmid       = 10009
       name       = "public-database19c-ol9-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.22"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.18"
       os_profile = "oracle9"
       cores      = 6
       memory     = 10240
@@ -197,7 +205,7 @@ node_groups = {
     "database21c-dot83" = {
       vmid      = 10003
       name      = "public-database21c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.22"
+      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.18"
       cores     = 6
       memory    = 10240
       disk_size = "50G"
@@ -220,7 +228,7 @@ node_groups = {
     "zabbix-dot84" = {
       vmid      = 10004
       name      = "public-zabbix-01"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.47"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.24"
       cores     = 6
       memory    = 10240
       disk_size = "50G"
@@ -242,7 +250,7 @@ node_groups = {
     "freeipa-dot85" = {
       vmid       = 10005
       name       = "public-freeipa-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.47"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
       os_profile = "oracle9"
       cores      = 4
       memory     = 8192
@@ -256,7 +264,7 @@ node_groups = {
         mounts = [
           { mount = "/var/lib/dirsrv", size_gb = "10", owner = "root", group = "root" },
           { mount = "/var/lib/ipa", size_gb = "10", owner = "root", group = "root" },
-          { mount = "/var/log", size_gb = "AUTO", owner = "root", group = "root" }
+          { mount = "/var/log/dirsrv", size_gb = "AUTO", owner = "root", group = "root" }
         ]
       }
     }
@@ -267,7 +275,7 @@ node_groups = {
     "keycloak-dot86" = {
       vmid       = 10006
       name       = "public-keycloak-01"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.47"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
       os_profile = "ubuntu2404"
       cores      = 4
       memory     = 8192
@@ -292,7 +300,7 @@ node_groups = {
     "observability-dot87" = {
       vmid       = 10007
       name       = "public-observability-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.47"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
       os_profile = "ubuntu2404"
       cores      = 6
       memory     = 16384
@@ -307,7 +315,7 @@ node_groups = {
           { mount = "/var/lib/prometheus", size_gb = "8", owner = "root", group = "root" },
           { mount = "/var/lib/loki", size_gb = "8", owner = "root", group = "root" },
           { mount = "/var/lib/grafana", size_gb = "8", owner = "root", group = "root" },
-          { mount = "/var/log/observability", size_gb = "AUTO", owner = "root", group = "root" }
+          { mount = "/var/lib/tempo", size_gb = "AUTO", owner = "root", group = "root" }
         ]
       }
     }
@@ -318,7 +326,7 @@ node_groups = {
     "zimbra-dot88" = {
       vmid       = 10008
       name       = "public-zimbra-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.47"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
       os_profile = "oracle9"
       cores      = 6
       memory     = 16384
@@ -336,6 +344,98 @@ node_groups = {
     }
   }
 
+  // Ubuntu 24.04: Jenkins controller
+  "jenkins" = {
+    "jenkins-dot94" = {
+      vmid       = 10014
+      name       = "public-jenkins-01"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
+      os_profile = "ubuntu2404"
+      cores      = 4
+      memory     = 15360
+      disk_size  = "50G"
+      tags       = "cicd,jenkins"
+      data_disk  = { size = "30G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/jenkins", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
+  // Ubuntu 24.04: GitLab server
+  "gitlab" = {
+    "gitlab-dot95" = {
+      vmid       = 10015
+      name       = "public-gitlab-01"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
+      os_profile = "ubuntu2404"
+      cores      = 4
+      memory     = 15360
+      disk_size  = "50G"
+      tags       = "cicd,gitlab"
+      data_disk  = { size = "40G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/opt/gitlab", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
+  // Ubuntu 24.04: Jenkins build agent
+  "jenkins_agent" = {
+    "public-agent-01" = {
+      vmid       = 10016
+      name       = "public-jenkins-agent-01"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
+      os_profile = "ubuntu2404"
+      cores      = 4
+      memory     = 15360
+      disk_size  = "50G"
+      tags       = "cicd,jenkins-agent"
+      data_disk  = { size = "30G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/home/jenkins", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
+  // Ubuntu 24.04: GitLab Runner
+  "gitlab_runner" = {
+    "public-runner-01" = {
+      vmid       = 10017
+      name       = "public-gitlab-runner-01"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
+      os_profile = "ubuntu2404"
+      cores      = 4
+      memory     = 15360
+      disk_size  = "50G"
+      tags       = "cicd,gitlab-runner"
+      data_disk  = { size = "30G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/docker", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
+    }
+  }
+
   // =========================================================================
   // Kubernetes Cluster (Kubespray-managed)
   // 1 control-plane/etcd + 2 worker nodes on Ubuntu 24.04
@@ -347,13 +447,24 @@ node_groups = {
   "k8s_control_plane" = {
     "public-cp-01" = {
       vmid       = 10010
-      name       = "public-k8s-cp-02"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.47"
+      name       = "public-k8s-cp-01"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
       os_profile = "ubuntu2404"
       cores      = 4
       memory     = 4096
       disk_size  = "50G"
       tags       = "kubernetes,k8s,control-plane,etcd"
+      data_disk  = { size = "40G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/kubelet", size_gb = "12", owner = "root", group = "root" },
+          { mount = "/var/lib/containerd", size_gb = "20", owner = "root", group = "root" },
+          { mount = "/var/lib/etcd", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
     }
   }
 
@@ -363,12 +474,21 @@ node_groups = {
     "public-etcd-01" = {
       vmid       = 10013
       name       = "public-k8s-etcd-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.47"
+      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
       os_profile = "ubuntu2404"
       cores      = 2
       memory     = 4096
       disk_size  = "50G"
       tags       = "kubernetes,k8s,etcd"
+      data_disk  = { size = "20G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/etcd", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
     }
   }
 
@@ -376,23 +496,43 @@ node_groups = {
   "k8s_workers" = {
     "public-worker-01" = {
       vmid       = 10011
-      name       = "public-k8s-worker-03"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.47"
+      name       = "public-k8s-worker-01"
+      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
       os_profile = "ubuntu2404"
       cores      = 2
       memory     = 4096
       disk_size  = "50G"
       tags       = "kubernetes,k8s,worker"
+      data_disk  = { size = "40G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/kubelet", size_gb = "12", owner = "root", group = "root" },
+          { mount = "/var/lib/containerd", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
     }
     "public-worker-02" = {
       vmid       = 10012
-      name       = "public-k8s-worker-04"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.47"
+      name       = "public-k8s-worker-02"
+      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
       os_profile = "ubuntu2404"
       cores      = 2
       memory     = 4096
       disk_size  = "50G"
       tags       = "kubernetes,k8s,worker"
+      data_disk  = { size = "40G" }
+      partitioning = {
+        enabled     = true
+        disk_device = "/dev/vda"
+        vg_name     = "vgdata"
+        mounts = [
+          { mount = "/var/lib/kubelet", size_gb = "12", owner = "root", group = "root" },
+          { mount = "/var/lib/containerd", size_gb = "AUTO", owner = "root", group = "root" }
+        ]
+      }
     }
   }
 }

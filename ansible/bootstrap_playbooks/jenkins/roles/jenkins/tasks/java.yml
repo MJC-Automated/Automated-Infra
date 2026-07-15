@@ -1,0 +1,129 @@
+---
+- name: Check local JDK archive on controller
+  ansible.builtin.stat:
+    path: "{{ jdk_archive_path }}"
+  delegate_to: localhost
+  become: false
+  register: jenkins_local_jdk_archive
+  when: jenkins_java_install_method in ['local', 'auto']
+
+- name: Fail when local Java install was requested but archive is missing
+  ansible.builtin.assert:
+    that:
+      - jenkins_local_jdk_archive.stat.exists
+      - jenkins_local_jdk_archive.stat.isreg
+    fail_msg: "JDK archive {{ jdk_archive_path }} was not found on the controller. Place a Java 21 archive under /resources or set JENKINS_JAVA_INSTALL_METHOD=apt."
+  when: jenkins_java_install_method == 'local'
+
+- name: Resolve effective Java install method
+  ansible.builtin.set_fact:
+    jenkins_effective_java_install_method: >-
+      {{
+        'local'
+        if (
+          jenkins_java_install_method == 'local'
+          or (jenkins_java_install_method == 'auto' and (jenkins_local_jdk_archive.stat.exists | default(false)))
+        )
+        else 'apt'
+      }}
+
+- name: Install Java package
+  ansible.builtin.apt:
+    name: "{{ jenkins_java_package }}"
+    state: present
+    update_cache: true
+  register: jenkins_java_install
+  until: jenkins_java_install is succeeded
+  retries: 3
+  delay: 10
+  when: jenkins_effective_java_install_method == 'apt'
+
+- name: Use packaged Java home
+  ansible.builtin.set_fact:
+    java_home: "{{ jenkins_java_home }}"
+  when: jenkins_effective_java_install_method == 'apt'
+
+- name: Ensure target directory exists for JDK extraction
+  ansible.builtin.file:
+    path: "{{ jdk_dest_dir }}"
+    state: directory
+    mode: "0755"
+  when: jenkins_effective_java_install_method == 'local'
+
+- name: Extract JDK archive from controller resources
+  ansible.builtin.unarchive:
+    src: "{{ jdk_archive_path }}"
+    dest: "{{ jdk_dest_dir }}"
+    remote_src: false
+    owner: root
+    group: root
+    mode: "0755"
+    creates: "{{ java_home }}/bin/java"
+  when: jenkins_effective_java_install_method == 'local'
+
+- name: Query Java alternatives
+  ansible.builtin.command:
+    argv:
+      - update-alternatives
+      - --query
+      - "{{ item }}"
+  loop:
+    - java
+    - javac
+    - keytool
+  register: jenkins_java_alternative_query
+  changed_when: false
+  failed_when: false
+
+- name: Register missing Java alternatives
+  ansible.builtin.command:
+    argv:
+      - update-alternatives
+      - --install
+      - /usr/bin/{{ item }}
+      - "{{ item }}"
+      - "{{ java_home }}/bin/{{ item }}"
+      - "2100"
+  loop:
+    - java
+    - javac
+    - keytool
+  loop_control:
+    index_var: java_alternative_index
+  when: >-
+    jenkins_java_alternative_query.results[java_alternative_index].rc != 0
+    or (java_home ~ '/bin/' ~ item) not in (jenkins_java_alternative_query.results[java_alternative_index].stdout | default(''))
+  changed_when: true
+
+- name: Select Java alternatives
+  ansible.builtin.command:
+    argv:
+      - update-alternatives
+      - --set
+      - "{{ item }}"
+      - "{{ java_home }}/bin/{{ item }}"
+  loop:
+    - java
+    - javac
+    - keytool
+  loop_control:
+    index_var: java_alternative_index
+  when: >-
+    jenkins_java_alternative_query.results[java_alternative_index].rc != 0
+    or ('Value: ' ~ java_home ~ '/bin/' ~ item) not in (jenkins_java_alternative_query.results[java_alternative_index].stdout | default(''))
+  changed_when: true
+
+- name: Set JAVA_HOME in /etc/environment
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    regexp: "^JAVA_HOME="
+    line: 'JAVA_HOME="{{ java_home }}"'
+    state: present
+
+- name: Create profile.d script for Java environment variables
+  ansible.builtin.copy:
+    content: |
+      export JAVA_HOME="{{ java_home }}"
+      export PATH="$JAVA_HOME/bin:$PATH"
+    dest: /etc/profile.d/java.sh
+    mode: "0644"

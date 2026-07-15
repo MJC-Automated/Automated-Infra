@@ -141,10 +141,70 @@ locals {
     key => format("vendor=%s:snippets/%s", var.snippet_storage, basename(path))
   }
 
+  partitioning_snippet_content = {
+    for key, vm in local.partitioned_vms :
+    key => templatefile("${path.module}/templates/cloud-init-partition.yaml.tpl", {
+      disk_device = try(vm.config.partitioning.disk_device, "/dev/vdb")
+      vg_name     = try(vm.config.partitioning.vg_name, "vgdata")
+      fs_type     = try(vm.config.partitioning.fs_type, local.vm_profile_data[key].fs_type, "ext4")
+      mounts = [
+        for m in vm.config.partitioning.mounts : {
+          mount        = m.mount
+          size_gb      = tostring(m.size_gb)
+          size_is_auto = upper(tostring(m.size_gb)) == "AUTO"
+          owner        = try(m.owner, "root")
+          group        = try(m.group, "root")
+          lv_name      = trim(replace(m.mount, "/", "_"), "_")
+        }
+      ]
+    })
+  }
+
   vm_cicustom = {
     for key, vm in local.flattened_vms :
     key => (
       trimspace(try(vm.config.cicustom, "")) != "" ? vm.config.cicustom : lookup(local.partitioning_cicustom, key, "")
+    )
+  }
+
+  vm_nameserver = {
+    for key, vm in local.flattened_vms :
+    key => trimspace(try(vm.config.nameserver, "")) != "" ? trimspace(vm.config.nameserver) : var.vm_defaults.nameserver
+  }
+
+  vm_searchdomain = {
+    for key, vm in local.flattened_vms :
+    key => trimspace(try(vm.config.searchdomain, "")) != "" ? trimspace(vm.config.searchdomain) : var.vm_defaults.searchdomain
+  }
+
+  vm_skip_ipv6 = {
+    for key, vm in local.flattened_vms :
+    key => coalesce(try(vm.config.skip_ipv6, null), var.vm_defaults.skip_ipv6)
+  }
+
+  vm_backup_enabled = {
+    for key, vm in local.flattened_vms :
+    key => coalesce(try(vm.config.backup, null), var.backup_defaults.enabled)
+  }
+
+  vm_backup_storage = {
+    for key, vm in local.flattened_vms :
+    key => compact([
+      trimspace(try(vm.config.backup_storage, "")),
+      trimspace(var.backup_defaults.storage)
+    ])
+  }
+
+  vm_force_recreate_trigger = {
+    for key, vm in local.flattened_vms :
+    key => (
+      trimspace(try(vm.config.force_recreate_on_change_of, "")) != "" ?
+      trimspace(vm.config.force_recreate_on_change_of) :
+      (
+        var.force_recreate_on_partitioning_change && contains(keys(local.partitioning_snippet_content), key) ?
+        sha256(local.partitioning_snippet_content[key]) :
+        ""
+      )
     )
   }
 
@@ -186,7 +246,7 @@ locals {
     ["# All hosts", "[all_nodes]"],
     [
       for vm_key in sort(keys(local.flattened_vms)) : format(
-        "%s ansible_host=%s vmid=%s node_role=%s os_profile=%s os_family=%s ansible_python_interpreter=%s cores=%s memory_mb=%s disk_size=%s",
+        "%s ansible_host=%s vmid=%s node_role=%s os_profile=%s os_family=%s ansible_python_interpreter=%s cores=%s memory_mb=%s disk_size=%s backup_enabled=%s backup_storage=%s",
         local.flattened_vms[vm_key].config.name,
         split("/", split("=", split(",", local.flattened_vms[vm_key].config.ipconfig0)[0])[1])[0],
         local.flattened_vms[vm_key].config.vmid,
@@ -196,7 +256,9 @@ locals {
         local.vm_profile_data[vm_key].ansible_python_interpreter,
         local.flattened_vms[vm_key].config.cores,
         local.flattened_vms[vm_key].config.memory,
-        local.flattened_vms[vm_key].config.disk_size
+        local.flattened_vms[vm_key].config.disk_size,
+        tostring(local.vm_backup_enabled[vm_key]),
+        length(local.vm_backup_storage[vm_key]) > 0 ? local.vm_backup_storage[vm_key][0] : "none"
       )
     ],
     [""]
@@ -236,6 +298,16 @@ provider "vault" {
   }
 }
 
+check "enabled_vm_backups_have_storage" {
+  assert {
+    condition = alltrue([
+      for key, enabled in local.vm_backup_enabled :
+      !enabled || length(local.vm_backup_storage[key]) > 0
+    ])
+    error_message = "Every VM with backup enabled must resolve backup_storage from its VM definition or backup_defaults.storage."
+  }
+}
+
 provider "vault" {
   alias   = "admin"
   address = var.vault_address
@@ -249,11 +321,16 @@ ephemeral "vault_kv_secret_v2" "proxmox_creds" {
 }
 
 provider "proxmox" {
-  pm_api_url          = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_api_url
-  pm_api_token_id     = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_api_token_id
-  pm_api_token_secret = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_api_token_secret
-  pm_tls_insecure     = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_tls_insecure
-  pm_log_file         = local.log_config.file
+  pm_api_url                  = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_api_url
+  pm_api_token_id             = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_api_token_id
+  pm_api_token_secret         = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_api_token_secret
+  pm_tls_insecure             = ephemeral.vault_kv_secret_v2.proxmox_creds.data.proxmox_config_tls_insecure
+  pm_log_enable               = var.proxmox_log_enable
+  pm_log_file                 = local.log_config.file
+  pm_parallel                 = var.proxmox_parallel
+  pm_debug                    = var.proxmox_debug
+  pm_minimum_permission_check = var.proxmox_minimum_permission_check
+  pm_minimum_permission_list  = length(var.proxmox_minimum_permission_list) > 0 ? var.proxmox_minimum_permission_list : null
   pm_log_levels = {
     _default    = local.log_config.level
     _capturelog = ""
@@ -322,6 +399,8 @@ module "proxmox_vms" {
     "Memory: ${each.value.config.memory} MB",
     "Root Disk Size: ${each.value.config.disk_size}",
     "Data Disk Size: ${try(each.value.config.data_disk.size, "none")}",
+    "Backup Enabled: ${local.vm_backup_enabled[each.key]}",
+    "Backup Storage: ${length(local.vm_backup_storage[each.key]) > 0 ? local.vm_backup_storage[each.key][0] : "none"}",
     "IP Configuration: ${each.value.config.ipconfig0}",
     "",
     "--- Partitions (Logical Volumes) ---",
@@ -330,13 +409,13 @@ module "proxmox_vms" {
       "Volume Group: ${try(each.value.config.partitioning.vg_name, "vgdata")}",
       "Filesystem: ${try(each.value.config.partitioning.fs_type, "ext4")}",
       "Mounts:"
-    ], [
+      ], [
       for m in try(each.value.config.partitioning.mounts, []) :
       "  - Mount: ${m.mount}, Size: ${m.size_gb} GB, Owner: ${try(m.owner, "root")}:${try(m.group, "root")}"
     ])) : "Partitioning: Disabled"
   ]))
-  target_node  = var.target_node
-  pool         = var.vm_pool
+  target_node = var.target_node
+  pool        = var.vm_pool
   clone_template = compact([
     trimspace(try(each.value.config.clone_template, "")),
     trimspace(local.vm_profile_data[each.key].clone_template),
@@ -349,11 +428,26 @@ module "proxmox_vms" {
   memory_mb        = each.value.config.memory
   bios             = var.vm_defaults.bios
   machine          = var.vm_defaults.machine
-  scsihw           = var.vm_defaults.scsihw
-  boot_order       = var.vm_defaults.boot_order
-  boot_disk_device = var.vm_defaults.boot_disk_device
-  network_bridge   = var.network_bridge
-  network_model    = var.vm_defaults.network_model
+  efi_disk_enabled = coalesce(try(each.value.config.efi_disk_enabled, null), var.vm_defaults.efi_disk_enabled)
+  efi_disk_storage = compact([
+    trimspace(try(each.value.config.efi_disk_storage, "")),
+    trimspace(var.vm_defaults.efi_disk_storage),
+    local.vm_disk_storage[each.key]
+  ])[0]
+  efi_disk_type = compact([
+    trimspace(try(each.value.config.efi_disk_type, "")),
+    trimspace(var.vm_defaults.efi_disk_type)
+  ])[0]
+  efi_disk_format = compact([
+    trimspace(try(each.value.config.efi_disk_format, "")),
+    trimspace(var.vm_defaults.efi_disk_format)
+  ])[0]
+  efi_pre_enrolled_keys = coalesce(try(each.value.config.efi_pre_enrolled_keys, null), var.vm_defaults.efi_pre_enrolled_keys)
+  scsihw                = var.vm_defaults.scsihw
+  boot_order            = var.vm_defaults.boot_order
+  boot_disk_device      = var.vm_defaults.boot_disk_device
+  network_bridge        = var.network_bridge
+  network_model         = var.vm_defaults.network_model
   ha_state = (
     trimspace(try(each.value.config.ha_state, "")) != "" ?
     trimspace(each.value.config.ha_state) :
@@ -364,14 +458,18 @@ module "proxmox_vms" {
     trimspace(each.value.config.ha_group) :
     trimspace(var.vm_defaults.ha_group)
   )
-  vm_state = (
-    trimspace(try(each.value.config.vm_state, "")) != "" ?
-    trimspace(each.value.config.vm_state) :
-    trimspace(var.vm_defaults.vm_state)
+  power_state = (
+    trimspace(try(each.value.config.power_state, "")) != "" ?
+    trimspace(each.value.config.power_state) :
+    trimspace(var.vm_defaults.power_state)
   )
   start_at_node_boot = coalesce(try(each.value.config.start_at_node_boot, null), var.vm_defaults.start_at_node_boot)
   protection         = coalesce(try(each.value.config.protection, null), var.vm_defaults.protection)
+  backup_enabled     = local.vm_backup_enabled[each.key]
   balloon            = coalesce(try(each.value.config.balloon, null), var.vm_defaults.balloon)
+  nameserver         = local.vm_nameserver[each.key]
+  searchdomain       = local.vm_searchdomain[each.key]
+  skip_ipv6          = local.vm_skip_ipv6[each.key]
   cloudinit_storage  = local.vm_disk_storage[each.key]
   bootdisk_storage   = local.vm_disk_storage[each.key]
   bootdisk_size      = each.value.config.disk_size
@@ -379,6 +477,7 @@ module "proxmox_vms" {
 
   additional_disks                      = local.vm_additional_disks[each.key]
   cicustom                              = local.vm_cicustom[each.key]
+  force_recreate_on_change_of           = local.vm_force_recreate_trigger[each.key]
   cloudinit_first_access_user           = var.cloudinit_first_access_user
   cloudinit_first_access_ssh_public_key = var.cloudinit_first_access_ssh_public_key
 
@@ -395,22 +494,8 @@ module "proxmox_vms" {
 resource "local_file" "partitioning_snippet" {
   for_each = local.partitioned_vms
 
-  filename = local.partitioning_snippet_paths[each.key]
-  content = templatefile("${path.module}/templates/cloud-init-partition.yaml.tpl", {
-    disk_device = try(each.value.config.partitioning.disk_device, "/dev/vdb")
-    vg_name     = try(each.value.config.partitioning.vg_name, "vgdata")
-    fs_type     = try(each.value.config.partitioning.fs_type, local.vm_profile_data[each.key].fs_type, "ext4")
-    mounts = [
-      for m in each.value.config.partitioning.mounts : {
-        mount        = m.mount
-        size_gb      = tostring(m.size_gb)
-        size_is_auto = upper(tostring(m.size_gb)) == "AUTO"
-        owner        = try(m.owner, "root")
-        group        = try(m.group, "root")
-        lv_name      = trim(replace(m.mount, "/", "_"), "_")
-      }
-    ]
-  })
+  filename        = local.partitioning_snippet_paths[each.key]
+  content         = local.partitioning_snippet_content[each.key]
   file_permission = "0600"
 }
 
@@ -427,13 +512,21 @@ resource "local_file" "deployment_summary" {
     cluster_name = var.cluster_name
     deployment_info = merge({
       terraform_version = ">=1.0.0"
-      provider_version  = "3.0.2-rc07"
+      provider_version  = "3.0.2-rc08"
       }, local.creation_timestamp != "" ? {
       timestamp = local.creation_timestamp
     } : {})
     infrastructure = {
       total_vms = length(local.flattened_vms)
       groups    = local.summary_groups
+      backup_policy = {
+        for key, vm in local.flattened_vms : key => {
+          vmid    = vm.config.vmid
+          name    = vm.config.name
+          enabled = local.vm_backup_enabled[key]
+          storage = length(local.vm_backup_storage[key]) > 0 ? local.vm_backup_storage[key][0] : null
+        }
+      }
     }
     resource_allocation = {
       total_cpu_cores = sum([

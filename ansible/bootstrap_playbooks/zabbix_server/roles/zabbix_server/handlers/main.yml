@@ -1,0 +1,6 @@
+---
+- name: Restart zabbix stack
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: restarted
+  loop: "{{ zabbix_runtime_services }}"

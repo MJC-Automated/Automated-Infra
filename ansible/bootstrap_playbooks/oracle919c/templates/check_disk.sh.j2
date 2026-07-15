@@ -1,0 +1,46 @@
+#!/bin/bash
+# /home/oracle/scripts/check_disk.sh
+# Disk space monitoring — logs warnings when usage exceeds threshold
+# Deployed by Ansible. Run daily via cron.
+
+set -euo pipefail
+
+THRESHOLD={{ cleanup_disk_threshold_pct }}
+LOG_FILE={{ cleanup_log_dir }}/disk_check.log
+
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] DISK_CHECK: $*" >> "$LOG_FILE"; }
+
+log "Starting disk space check (threshold: ${THRESHOLD}%)"
+
+VALID_MOUNTS=()
+for mount_path in {{ cleanup_disk_check_mounts | join(' ') }}; do
+  if [ -e "$mount_path" ]; then
+    VALID_MOUNTS+=("$mount_path")
+  else
+    log "Skipping missing path: $mount_path"
+  fi
+done
+
+if [ -z "${VALID_MOUNTS[*]:-}" ]; then
+  log "No configured paths exist; disk space check skipped"
+  exit 0
+fi
+
+DF_OUTPUT=$(df -Ph "${VALID_MOUNTS[@]}" 2>/dev/null)
+printf '%s\n' "$DF_OUTPUT" | awk -v t=$THRESHOLD 'NR>1 {
+  gsub(/%/,"",$5)
+  if ($5+0 >= t) {
+    print "[" strftime("%Y-%m-%d %H:%M:%S") "] DISK_CHECK: WARNING: " $6 " at " $5 "% usage (" $3 " used / " $2 " total)"
+  }
+}' >> "$LOG_FILE"
+
+# Count alerts from the last run
+ALERTS=$(printf '%s\n' "$DF_OUTPUT" | awk -v t=$THRESHOLD 'NR>1 { gsub(/%/,"",$5); if ($5+0 >= t) count++ } END { print count+0 }')
+
+if [ "$ALERTS" -gt 0 ]; then
+  log "${ALERTS} mount(s) above ${THRESHOLD}% threshold"
+else
+  log "All mounts below ${THRESHOLD}% threshold"
+fi

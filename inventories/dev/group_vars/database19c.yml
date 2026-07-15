@@ -47,4 +47,4 @@ oracle_servers:
         pdb_name: "PDB1"
         database_name: "PDB1"
         sql_id: "tq_app_bootstrap"
-        sql_template: "tq_app_bootstrap_full.sql.j2"
+        sql_template: "app_bootstrap_full.sql.j2"

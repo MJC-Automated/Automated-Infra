@@ -1,0 +1,228 @@
+---
+- name: Check if FreeIPA is already configured
+  ansible.builtin.stat:
+    path: /etc/ipa/default.conf
+  register: freeipa_install_marker
+
+- name: Ensure static hostname is set
+  ansible.builtin.hostname:
+    name: "{{ freeipa_server_fqdn }}"
+
+- name: Derive FreeIPA short hostname
+  ansible.builtin.set_fact:
+    freeipa_server_shortname: "{{ freeipa_server_fqdn.split('.')[0] }}"
+
+- name: Remove short-host loopback IPv4 mapping from cloud-init defaults
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.0\\.1\\s+{{ freeipa_server_shortname | regex_escape }}(?:\\s+|$).*$"
+    state: absent
+  when: freeipa_configure_hosts | bool
+
+- name: Remove short-host loopback IPv6 mapping from cloud-init defaults
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^::1\\s+{{ freeipa_server_shortname | regex_escape }}(?:\\s+|$).*$"
+    state: absent
+  when: freeipa_configure_hosts | bool
+
+- name: Remove default localhost-only loopback IPv4 mapping
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.0\\.1\\s+localhost\\.example.internal\\s+localhost$"
+    state: absent
+  when: freeipa_configure_hosts | bool
+
+- name: Remove default localhost-only loopback IPv6 mapping
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^::1\\s+localhost\\.example.internal\\s+localhost$"
+    state: absent
+  when: freeipa_configure_hosts | bool
+
+- name: Remove short-host primary IP mapping from cloud-init defaults
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^{{ freeipa_server_ip | regex_escape }}\\s+{{ freeipa_server_shortname | regex_escape }}(?:\\s+|$).*$"
+    state: absent
+  when:
+    - freeipa_configure_hosts | bool
+    - freeipa_server_ip | string | length > 0
+
+- name: Ensure /etc/hosts loopback IPv4 does not alias FreeIPA hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.0\\.1\\s+.*$"
+    line: "127.0.0.1 localhost localhost.localdomain localhost4 localhost4.localdomain4"
+    state: present
+  when: freeipa_configure_hosts | bool
+
+- name: Ensure /etc/hosts loopback IPv6 does not alias FreeIPA hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^::1\\s+.*$"
+    line: "::1 localhost localhost.localdomain localhost6 localhost6.localdomain6"
+    state: present
+  when: freeipa_configure_hosts | bool
+
+- name: Ensure /etc/hosts has server IP FQDN mapping
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^{{ freeipa_server_ip | regex_escape }}\\s+.*$"
+    line: "{{ freeipa_server_ip }} {{ freeipa_server_fqdn }} {{ freeipa_server_shortname }}"
+    state: present
+  when:
+    - freeipa_configure_hosts | bool
+    - freeipa_server_ip | string | length > 0
+
+- name: Check ipa service active state when marker exists
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - ipa
+  register: freeipa_ipa_service_state
+  changed_when: false
+  failed_when: false
+  when: freeipa_install_marker.stat.exists
+
+- name: Report existing FreeIPA service state before managed recovery
+  ansible.builtin.debug:
+    msg: >-
+      Existing FreeIPA install detected with ipa service state
+      '{{ freeipa_ipa_service_state.stdout | default("unknown") | trim }}';
+      attempting systemd recovery instead of reinstalling.
+  when:
+    - freeipa_install_marker.stat.exists
+    - (freeipa_ipa_service_state.stdout | default("") | trim) != "active"
+
+- name: Determine whether FreeIPA install is required
+  ansible.builtin.set_fact:
+    freeipa_install_required: "{{ not freeipa_install_marker.stat.exists }}"
+
+- name: Assemble ipa-server-install command
+  ansible.builtin.set_fact:
+    freeipa_install_cmd: >-
+      ipa-server-install --unattended
+      --realm={{ freeipa_realm }}
+      --domain={{ freeipa_domain }}
+      --hostname={{ freeipa_server_fqdn }}
+      {{ '--ip-address=' ~ freeipa_server_ip if (freeipa_server_ip | string | length > 0) else '' }}
+      --ds-password={{ freeipa_ds_password | quote }}
+      --admin-password={{ freeipa_admin_password | quote }}
+      {{ '--setup-dns' if freeipa_setup_dns | bool else '' }}
+      {{ '--setup-kra' if freeipa_setup_kra | bool else '' }}
+      {{ '--no-ntp' if freeipa_no_ntp | bool else '' }}
+      {{ '--no-host-dns' if freeipa_no_host_dns | bool else '' }}
+      {% if freeipa_setup_dns | bool %}{% for fwd in freeipa_forwarders %} --forwarder={{ fwd }} {% endfor %}{% endif %}
+      {% for arg in freeipa_install_extra_args %} {{ arg }} {% endfor %}
+  no_log: true
+
+- name: Install FreeIPA server (first run only)
+  when: freeipa_install_required | bool
+  block:
+    - name: Run ipa-server-install
+      ansible.builtin.command: "{{ freeipa_install_cmd }}"
+      register: freeipa_install_result
+      no_log: true
+      changed_when: true
+  rescue:
+    - name: Collect ipaserver-install log tail for troubleshooting
+      ansible.builtin.command:
+        argv:
+          - tail
+          - -n
+          - "80"
+          - /var/log/ipaserver-install.log
+      register: freeipa_install_log_tail
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with contextual FreeIPA installer error
+      ansible.builtin.fail:
+        msg: >-
+          ipa-server-install failed. Tail of /var/log/ipaserver-install.log:
+          {{ freeipa_install_log_tail.stdout | default('unavailable') }}
+
+- name: Ensure ipa service is enabled and started
+  ansible.builtin.systemd:
+    name: ipa
+    enabled: true
+    state: started
+
+- name: Check whether integrated FreeIPA DNS is configured
+  ansible.builtin.shell: |
+    set -euo pipefail
+    trap 'kdestroy >/dev/null 2>&1 || true' EXIT
+    printf '%s\n' "$FREEIPA_ADMIN_PASSWORD" | kinit admin
+    ipa dnszone-show {{ freeipa_domain | quote }}
+  args:
+    executable: /bin/bash
+  environment:
+    FREEIPA_ADMIN_PASSWORD: "{{ freeipa_admin_password }}"
+  register: freeipa_dns_status
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: freeipa_setup_dns | bool
+
+- name: Fail when FreeIPA DNS status check returns an unexpected error
+  ansible.builtin.fail:
+    msg: >-
+      Unable to determine FreeIPA DNS status:
+      {{ freeipa_dns_status.stdout | default(freeipa_dns_status.stderr, true) | default('no diagnostic output') }}
+  when:
+    - freeipa_setup_dns | bool
+    - freeipa_dns_status.rc != 0
+    - "'DNS is not configured' not in ((freeipa_dns_status.stdout | default('')) ~ (freeipa_dns_status.stderr | default('')))"
+
+- name: Assemble ipa-dns-install command
+  ansible.builtin.set_fact:
+    freeipa_dns_install_cmd: >-
+      ipa-dns-install --unattended
+      --ip-address={{ freeipa_server_ip }}
+      {{ '--no-forwarders' if (freeipa_forwarders | length == 0) else '' }}
+      {% for fwd in freeipa_forwarders %} --forwarder={{ fwd }} {% endfor %}
+  no_log: true
+  when:
+    - freeipa_setup_dns | bool
+    - freeipa_dns_status.rc != 0
+
+- name: Configure integrated FreeIPA DNS when requested but missing
+  ansible.builtin.shell: |
+    set -euo pipefail
+    trap 'kdestroy >/dev/null 2>&1 || true' EXIT
+    printf '%s\n' "$FREEIPA_ADMIN_PASSWORD" | kinit admin
+    {{ freeipa_dns_install_cmd }}
+  args:
+    executable: /bin/bash
+  environment:
+    FREEIPA_ADMIN_PASSWORD: "{{ freeipa_admin_password }}"
+  register: freeipa_dns_install_result
+  changed_when: true
+  no_log: true
+  when:
+    - freeipa_setup_dns | bool
+    - freeipa_dns_status.rc != 0
+
+- name: Ensure integrated DNS service is enabled and started
+  ansible.builtin.systemd:
+    name: named
+    enabled: true
+    state: started
+  when: freeipa_setup_dns | bool
+
+- name: Reconcile FreeIPA DNS system records
+  ansible.builtin.shell: |
+    set -euo pipefail
+    trap 'kdestroy >/dev/null 2>&1 || true' EXIT
+    printf '%s\n' "$FREEIPA_ADMIN_PASSWORD" | kinit admin
+    ipa dns-update-system-records
+  args:
+    executable: /bin/bash
+  environment:
+    FREEIPA_ADMIN_PASSWORD: "{{ freeipa_admin_password }}"
+  register: freeipa_dns_update_records
+  changed_when: false
+  no_log: true
+  when: freeipa_setup_dns | bool

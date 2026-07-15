@@ -1,0 +1,250 @@
+---
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: true
+  register: gitlab_runner_docker_prereq_install
+  until: gitlab_runner_docker_prereq_install is succeeded
+  retries: 3
+  delay: 10
+  when: gitlab_runner_install_docker | bool
+
+- name: Ensure Docker apt keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - gitlab_runner_install_docker | bool
+    - gitlab_runner_docker_package_source == 'docker'
+
+- name: Download Docker repository key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - gitlab_runner_install_docker | bool
+    - gitlab_runner_docker_package_source == 'docker'
+
+- name: Add Docker repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts.distribution_release }} stable"
+    state: present
+    filename: docker
+  when:
+    - gitlab_runner_install_docker | bool
+    - gitlab_runner_docker_package_source == 'docker'
+
+- name: Install Docker packages from Docker repository
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+    state: present
+    update_cache: true
+  register: gitlab_runner_docker_repo_install
+  until: gitlab_runner_docker_repo_install is succeeded
+  retries: 3
+  delay: 10
+  when:
+    - gitlab_runner_install_docker | bool
+    - gitlab_runner_docker_package_source == 'docker'
+
+- name: Install Docker packages from Ubuntu repository
+  ansible.builtin.apt:
+    name:
+      - docker.io
+    state: present
+    update_cache: true
+  register: gitlab_runner_docker_ubuntu_install
+  until: gitlab_runner_docker_ubuntu_install is succeeded
+  retries: 3
+  delay: 10
+  when:
+    - gitlab_runner_install_docker | bool
+    - gitlab_runner_docker_package_source == 'ubuntu'
+
+- name: Ensure Docker is started and enabled
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  when: gitlab_runner_install_docker | bool
+
+- name: Check local GitLab Runner package on controller
+  ansible.builtin.stat:
+    path: "{{ gitlab_runner_package_path }}"
+  delegate_to: localhost
+  become: false
+  register: gitlab_runner_local_package
+  when: gitlab_runner_package_path | length > 0
+
+- name: Assert configured local GitLab Runner package exists
+  ansible.builtin.assert:
+    that:
+      - gitlab_runner_local_package.stat.exists
+      - gitlab_runner_local_package.stat.isreg
+    fail_msg: "GitLab Runner package {{ gitlab_runner_package_path }} was not found on the controller."
+  when: gitlab_runner_package_path | length > 0
+
+- name: Copy local GitLab Runner package to target
+  ansible.builtin.copy:
+    src: "{{ gitlab_runner_package_path }}"
+    dest: "/tmp/{{ gitlab_runner_package_path | basename }}"
+    mode: "0644"
+  when: gitlab_runner_package_path | length > 0
+
+- name: Install GitLab Runner from local package
+  ansible.builtin.apt:
+    deb: "/tmp/{{ gitlab_runner_package_path | basename }}"
+    state: present
+  register: gitlab_runner_local_package_install
+  until: gitlab_runner_local_package_install is succeeded
+  retries: 3
+  delay: 10
+  when: gitlab_runner_package_path | length > 0
+
+- name: Check whether the GitLab Runner repository is configured
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/runner_gitlab-runner.list
+  register: gitlab_runner_repository_source
+  when: gitlab_runner_package_path | length == 0
+
+- name: Add gitlab-runner repository script
+  ansible.builtin.get_url:
+    url: https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh
+    dest: /tmp/gitlab_runner_install.sh
+    mode: "0755"
+  register: gitlab_runner_repository_script_download
+  until: gitlab_runner_repository_script_download is succeeded
+  retries: 3
+  delay: 10
+  when:
+    - gitlab_runner_package_path | length == 0
+    - not gitlab_runner_repository_source.stat.exists
+
+- name: Run gitlab-runner repository script
+  ansible.builtin.command: /tmp/gitlab_runner_install.sh
+  args:
+    creates: /etc/apt/sources.list.d/runner_gitlab-runner.list
+  when:
+    - gitlab_runner_package_path | length == 0
+    - not gitlab_runner_repository_source.stat.exists
+
+- name: Install gitlab-runner package
+  ansible.builtin.apt:
+    name: gitlab-runner
+    state: present
+    update_cache: true
+  register: gitlab_runner_package_install
+  until: gitlab_runner_package_install is succeeded
+  retries: 3
+  delay: 10
+  when: gitlab_runner_package_path | length == 0
+
+- name: Add gitlab-runner user to docker group
+  ansible.builtin.user:
+    name: gitlab-runner
+    groups: docker
+    append: true
+  when: gitlab_runner_install_docker | bool
+
+- name: Write GitLab Runner registration template
+  ansible.builtin.template:
+    src: runner-template.toml.j2
+    dest: "{{ gitlab_runner_template_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Set GitLab Runner global concurrency
+  ansible.builtin.lineinfile:
+    path: /etc/gitlab-runner/config.toml
+    regexp: "^concurrent\\s*="
+    line: "concurrent = {{ gitlab_runner_concurrent }}"
+    create: true
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Check if runner is already registered
+  ansible.builtin.shell: |
+    if [ -f /etc/gitlab-runner/config.toml ] && grep -q 'name = "{{ gitlab_runner_name }}"' /etc/gitlab-runner/config.toml && grep -q 'url = "{{ gitlab_external_url }}/"' /etc/gitlab-runner/config.toml; then
+      echo "ALREADY_REGISTERED"
+    else
+      echo "NOT_REGISTERED"
+    fi
+  register: runner_check_status
+  changed_when: false
+
+- name: Register runner with GitLab Server
+  when: runner_check_status.stdout == "NOT_REGISTERED"
+  block:
+    - name: Wait for the GitLab API to become ready
+      ansible.builtin.uri:
+        url: "{{ gitlab_external_url }}/api/v4/version"
+        method: GET
+        # Accept 200 (authenticated) or 401 (unauthenticated but API reachable).
+        # /-/health is restricted to monitoring_whitelist IPs by default and
+        # returns 404 to external callers even when GitLab is fully up.
+        status_code: [200, 401]
+      register: gitlab_api_health
+      until: gitlab_api_health.status in [200, 401]
+      retries: 60
+      delay: 5
+      changed_when: false
+
+    - name: Create runner instance in GitLab via API
+      ansible.builtin.uri:
+        url: "{{ gitlab_external_url }}/api/v4/user/runners"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        body_format: json
+        body:
+          runner_type: "instance_type"
+          description: "{{ gitlab_runner_name }}"
+          tag_list: "{{ gitlab_runner_tags }}"
+          run_untagged: "{{ gitlab_runner_run_untagged | bool }}"
+          locked: "{{ gitlab_runner_locked | bool }}"
+          paused: "{{ gitlab_runner_paused | bool }}"
+          access_level: "{{ gitlab_runner_access_level }}"
+          maximum_timeout: "{{ gitlab_runner_maximum_timeout }}"
+        status_code: 201
+      register: created_runner_response
+      until: created_runner_response.status == 201
+      retries: 5
+      delay: 5
+      no_log: true
+
+    - name: Run gitlab-runner register command
+      ansible.builtin.command: >
+        gitlab-runner register
+        --non-interactive
+        --url "{{ gitlab_external_url }}/"
+        --token "{{ created_runner_response.json.token }}"
+        --template-config "{{ gitlab_runner_template_path }}"
+        --executor "{{ gitlab_runner_executor }}"
+        --docker-image "{{ gitlab_runner_docker_image }}"
+        --description "{{ gitlab_runner_name }}"
+      register: register_output
+      changed_when: true
+      no_log: true
+
+    - name: Restart gitlab-runner service
+      ansible.builtin.systemd:
+        name: gitlab-runner
+        state: restarted
+        enabled: true

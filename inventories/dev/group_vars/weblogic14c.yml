@@ -1,29 +1,86 @@
 # Host-group overrides for WebLogic 14c nodes in dev.
 # Keep domain-specific runtime configuration here instead of role defaults.
 
+# ==============================================================================
+# 1. Primary Domain Configuration (WLS14C_DOMAIN)
+# ==============================================================================
 domain_name: WLS14C_DOMAIN
 domain_home: "{{ domain_base }}/WLS14C_DOMAIN"
+weblogic_admin_user: weblogic
+admin_server_name: AdminServer
 admin_port: 7001
+
+# --- Service Enable / Disable Toggles ---
+# Set managed_server_enable to true/false to enable or disable the generation,
+# creation (in WLST), and startup of systemd services for all managed servers.
 managed_server_enable: true
 
+# --- Clustering Configuration ---
+# Toggle cluster_enabled to true/false to group managed servers into a WebLogic cluster.
+cluster_enabled: true
+cluster_name: WLS_Cluster1
+
+# --- Managed Server Definition ---
+# Add, remove, or modify items in this list to define the managed servers in the domain.
+# To remove a service, comment out its lines. To add a service, append a new server block.
+#
+# NOTE ON EMPTY LISTS:
+# If you want to declare NO managed servers for the primary domain, set this variable
+# to an empty list: 'managed_servers: []'.
+# - Do NOT leave it blank (e.g., 'managed_servers:') as it will evaluate to null and cause
+#   Ansible loops to crash.
+# - Do NOT comment out this key entirely, or Ansible will fall back to the default list
+#   defined in vars/weblogic_vars.yml (which creates ManagedServer1 and ManagedServer2).
+managed_servers:
+  - name: ManagedServer1
+    listen_port: 8001
+    cluster: "{{ cluster_name }}"
+  - name: ManagedServer2
+    listen_port: 8002
+    cluster: "{{ cluster_name }}"
+  # Example: Un-comment to add a third managed server
+  # - name: ManagedServer3
+  #   listen_port: 8003
+  #   cluster: "{{ cluster_name }}"
+
+# ==============================================================================
+# 2. Additional Domains Configuration (Optional)
+# ==============================================================================
+# Declare separate domains to be managed on the same host here.
+#
+# NOTE ON EMPTY LISTS:
+# If you want to declare NO additional domains, set: 'additional_weblogic_domains: []'.
+# - Do NOT leave it blank (e.g., 'additional_weblogic_domains:') as it will evaluate to null.
 additional_weblogic_domains:
   - domain_name: WLS14C_APP1
     domain_home: "{{ domain_base }}/WLS14C_APP1"
     admin_port: 7008
     admin_server_name: AdminServer
+    coherence_port: 7575
     extra_ports: []
+    # To add or remove managed servers for this additional domain, modify this list:
     managed_servers:
       - name: ManagedServerA1
         listen_port: 8101
       - name: ManagedServerA2
         listen_port: 8102
-  - domain_name: WLS14C_APP2
-    domain_home: "{{ domain_base }}/WLS14C_APP2"
-    admin_port: 8001
-    admin_server_name: AdminServer
-    extra_ports: []
-    managed_servers:
-      - name: ManagedServerB1
-        listen_port: 8201
-      - name: ManagedServerB2
-        listen_port: 8202
+      # To disable managed servers for this domain, set to [] or comment out the block above
+
+  # Example: Un-comment to add a second additional domain (WLS14C_APP2)
+  # - domain_name: WLS14C_APP2
+  #   domain_home: "{{ domain_base }}/WLS14C_APP2"
+  #   admin_port: 8008
+  #   admin_server_name: AdminServer
+  #   coherence_port: 7576
+  #   extra_ports: []
+  #   managed_servers:
+  #     - name: ManagedServerB1
+  #       listen_port: 8201
+  #     - name: ManagedServerB2
+  #       listen_port: 8202
+
+# ==============================================================================
+# 3. Security and OS Configuration
+# ==============================================================================
+allowed_unmanaged_accounts:
+  - wlogic

@@ -1,0 +1,64 @@
+---
+- name: Configure SMTP email media type
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: zabbix
+    ansible_host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    ansible_user: "{{ zabbix_api_user }}"
+    ansible_httpapi_pass: "{{ zabbix_api_password }}"
+  community.zabbix.zabbix_mediatype:
+    name: "{{ zabbix_email_media_type_name }}"
+    type: email
+    smtp_server: "{{ zabbix_email_smtp_server }}"
+    smtp_server_port: "{{ zabbix_email_smtp_port | int }}"
+    smtp_helo: "{{ zabbix_email_smtp_helo }}"
+    smtp_email: "{{ zabbix_email_from }}"
+    smtp_security: "{{ zabbix_email_security }}"
+    smtp_verify_peer: "{{ zabbix_email_verify_peer | bool }}"
+    smtp_verify_host: "{{ zabbix_email_verify_host | bool }}"
+    smtp_authentication: "{{ zabbix_email_smtp_authentication | bool }}"
+    username: "{{ zabbix_email_smtp_username if zabbix_email_smtp_authentication | bool else omit }}"
+    password: "{{ zabbix_email_smtp_password if zabbix_email_smtp_authentication | bool else omit }}"
+    message_format: html
+    status: enabled
+    state: present
+  run_once: true
+  no_log: true
+  tags: [alerts]
+
+- name: Configure trigger email action
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: zabbix
+    ansible_host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    ansible_user: "{{ zabbix_api_user }}"
+    ansible_httpapi_pass: "{{ zabbix_api_password }}"
+  community.zabbix.zabbix_action:
+    name: "{{ zabbix_email_action_name }}"
+    event_source: trigger
+    state: present
+    status: enabled
+    esc_period: 1h
+    conditions:
+      - type: trigger_severity
+        operator: ">="
+        value: "{{ zabbix_email_min_severity }}"
+    operations:
+      - type: send_message
+        media_type: "{{ zabbix_email_media_type_name }}"
+        send_to_users: "{{ zabbix_email_recipient_users }}"
+    recovery_operations:
+      - type: send_message
+        media_type: "{{ zabbix_email_media_type_name }}"
+        send_to_users: "{{ zabbix_email_recipient_users }}"
+  run_once: true
+  no_log: true
+  tags: [alerts]

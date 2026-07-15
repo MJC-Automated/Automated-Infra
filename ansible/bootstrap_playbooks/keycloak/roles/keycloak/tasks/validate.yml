@@ -1,0 +1,60 @@
+---
+- name: Validate supported OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "Debian"
+    fail_msg: "Keycloak role currently targets Ubuntu/Debian hosts."
+
+- name: Determine whether Keycloak DB endpoint is local to this host
+  ansible.builtin.set_fact:
+    keycloak_db_endpoint_is_local: >-
+      {{
+        (keycloak_db_host | lower) in (
+          [
+            '127.0.0.1',
+            'localhost',
+            '::1',
+            inventory_hostname | lower,
+            ansible_facts.hostname | lower,
+            ansible_facts.fqdn | lower
+          ]
+          +
+          (
+            [ansible_host | default('') | lower]
+            if (ansible_host | default('') | length > 0)
+            else []
+          )
+        )
+      }}
+  changed_when: false
+
+- name: Validate required secrets
+  ansible.builtin.assert:
+    that:
+      - keycloak_db_password | string | length >= keycloak_required_password_length
+      - keycloak_admin_password | string | length >= keycloak_required_password_length
+      - keycloak_db_password != keycloak_admin_password
+      - not (keycloak_db_password | string is match('^<.*>$'))
+      - not (keycloak_admin_password | string is match('^<.*>$'))
+      - keycloak_admin_user | string | trim | length > 0
+    fail_msg: >-
+      Keycloak passwords must be distinct, non-placeholder values with at least
+      {{ keycloak_required_password_length }} characters each.
+  no_log: true
+
+- name: Validate remote DB provisioning requirements
+  ansible.builtin.assert:
+    that:
+      - not keycloak_manage_database | bool or keycloak_db_endpoint_is_local or keycloak_db_admin_password | string | length > 0
+    fail_msg: >-
+      keycloak_manage_database=true with a remote keycloak_db_host requires
+      keycloak_db_admin_password so the role can provision the remote database.
+  no_log: true
+
+- name: Reject unsupported HTTPS-only mode
+  ansible.builtin.assert:
+    that:
+      - keycloak_http_enabled | bool
+    fail_msg: >-
+      keycloak_http_enabled=false is not yet supported by this role because it
+      does not provision HTTPS certificate/key material for Keycloak.

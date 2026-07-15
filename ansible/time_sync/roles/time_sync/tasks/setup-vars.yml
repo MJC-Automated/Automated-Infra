@@ -1,0 +1,81 @@
+---
+# Set variables and validate required vars for the role
+
+- name: "VARS | Set default chrony variables"
+  ansible.builtin.set_fact:
+    chrony_conf_path: "/etc/chrony.conf"
+    chrony_service_name: "{{ os_chrony_services[ansible_facts.os_family] | default('chronyd') }}"
+    chrony_package_name: "chrony"
+    chronyc_cmd: "chronyc"
+    ntp_service_name: "{{ os_ntp_services[ansible_facts.os_family] | default('ntpd') }}"
+    ntp_package_name: "ntp"
+
+- name: "VARS | Set OS-specific chrony config path (Debian)"
+  ansible.builtin.set_fact:
+    chrony_conf_path: "/etc/chrony/chrony.conf"
+  when: ansible_facts.os_family == 'Debian'
+
+- name: "VARS | Ensure chrony_conf_dir exists based on path"
+  ansible.builtin.set_fact:
+    chrony_conf_dir: "{{ chrony_conf_path | dirname }}"
+
+- name: "VARS | Set OS-specific chrony snippet directories"
+  ansible.builtin.set_fact:
+    chrony_snippet_dirs: "{{ (ansible_facts.os_family == 'Debian') | ternary(['/etc/chrony/sources.d', '/etc/chrony/conf.d'], ['/etc/chrony.d']) }}"
+
+- name: "VARS | Initialize client source variables"
+  ansible.builtin.set_fact:
+    time_sync_client_internal_servers: []
+    time_sync_client_effective_sources: []
+  when: not time_sync_is_server | bool
+
+- name: "VARS | Build client internal source list from ntp_servers group"
+  ansible.builtin.set_fact:
+    time_sync_client_internal_servers: "{{ (time_sync_client_internal_servers + [resolved_ntp_source]) | unique }}"
+  loop: "{{ groups['ntp_servers'] | default([]) }}"
+  vars:
+    resolved_ntp_source: >-
+      {{
+        [
+          hostvars[item].time_sync_server_advertise_ip | default(''),
+          hostvars[item].ansible_host | default(''),
+          hostvars[item].ansible_facts.default_ipv4.address | default(''),
+          item
+        ]
+        | reject('equalto', '')
+        | reject('equalto', '127.0.0.1')
+        | reject('equalto', '::1')
+        | reject('equalto', 'localhost')
+        | first
+        | default(item, true)
+      }}
+  when:
+    - not time_sync_is_server | bool
+    - time_sync_client_use_internal_servers | bool
+
+- name: "VARS | Build final client source list"
+  ansible.builtin.set_fact:
+    time_sync_client_effective_sources: >-
+      {{
+        (
+          (time_sync_client_ntp_servers | default([]))
+          if ((time_sync_client_ntp_servers | default([])) | length > 0)
+          else
+          (
+            (time_sync_client_internal_servers | default([]))
+            + (
+              (time_sync_public_servers | default([]))
+              if (time_sync_client_add_public_fallback | bool)
+              else []
+            )
+          )
+        ) | unique
+      }}
+  when: not time_sync_is_server | bool
+
+- name: "VARS | Validate client has at least one configured source"
+  ansible.builtin.assert:
+    that:
+      - time_sync_client_effective_sources | length > 0
+    fail_msg: "No client NTP sources resolved. Set time_sync_client_ntp_servers or define ntp_servers."
+  when: not time_sync_is_server | bool

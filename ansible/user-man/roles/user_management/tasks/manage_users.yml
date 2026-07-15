@@ -1,0 +1,371 @@
+# ===========================================
+# roles/user_management/tasks/manage_users.yml
+# ===========================================
+---
+- name: Determine OS family for sudo groups
+  ansible.builtin.set_fact:
+    sudo_group: "{{ 'sudo' if ansible_facts.os_family == 'Debian' else 'wheel' }}"
+  changed_when: false
+  tags:
+    - users
+    - groups
+
+- name: Assert managed usernames are unique
+  ansible.builtin.assert:
+    that:
+      - (users | map(attribute='name') | list | length) == (users | map(attribute='name') | list | unique | length)
+    fail_msg: "Duplicate usernames detected in users definition."
+  tags:
+    - users
+
+- name: Assert managed UIDs are unique when explicitly set
+  ansible.builtin.assert:
+    that:
+      - user_uids | length == (user_uids | unique | length)
+    fail_msg: "Duplicate UIDs detected in users definition."
+  vars:
+    user_uids: >-
+      {{
+        users
+        | selectattr('state', 'equalto', 'present')
+        | selectattr('uid', 'defined')
+        | map(attribute='uid')
+        | list
+      }}
+  tags:
+    - users
+
+- name: Assert password values are hashed (never plaintext)
+  ansible.builtin.assert:
+    that:
+      - item.password is match('^(\\$[^$]+\\$.*|!!|!|\\*)$')
+    fail_msg: "User {{ item.name }} has a non-hashed password value. Use a pre-hashed value in secret_vars.yml."
+  loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - enforce_hashed_passwords | bool
+    - item.password is defined
+    - item.password | string | length > 0
+  no_log: true
+  tags:
+    - users
+    - password_policy
+
+- name: Assert automation accounts are not provisioned with reusable passwords
+  ansible.builtin.assert:
+    that:
+      - item.password is not defined or item.password in ['!!', '!', '*', '']
+    fail_msg: >-
+      User {{ item.name }} is listed as an automation account and must not
+      have a reusable password hash. Keep automation accounts key-only.
+  loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - automation_account_hardening_enabled | bool
+    - item.name in (automation_account_usernames | default([]))
+  no_log: true
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Assert key-only managed users define SSH key material
+  ansible.builtin.assert:
+    that:
+      - has_ssh_keys or has_legacy_keys or generates_ssh_key
+    fail_msg: >-
+      User {{ item.name }} is key-only but has no SSH key material defined.
+      Provide ssh_keys/key entries or set generate_ssh_key: true.
+  vars:
+    has_ssh_keys: "{{ item.ssh_keys is defined and (item.ssh_keys | select('match', '^ssh-') | list | length > 0) }}"
+    has_legacy_keys: "{{ item.key is defined and (item.key | select('match', '^ssh-') | list | length > 0) }}"
+    generates_ssh_key: "{{ item.generate_ssh_key | default(default_user_settings.generate_ssh_key) | bool }}"
+  loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - managed_accounts_key_only | bool
+    - item.name not in (breakglass_accounts | default([]))
+  no_log: true
+  tags:
+    - users
+    - ssh_keys
+    - security
+
+- name: Assert managed passwords do not reuse declared history
+  ansible.builtin.assert:
+    that:
+      - item.password not in (item.password_history | default([]))
+    fail_msg: >-
+      User {{ item.name }} password hash matches an entry in password_history.
+      Use a new password hash that is not in the declared history list.
+  loop: "{{ users | selectattr('state', 'equalto', 'present') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - password_history_inventory_assert_enabled | bool
+    - password_history_enforcement_enabled | bool
+    - item.password is defined
+    - item.password | string | length > 0
+    - item.password_history is defined
+  no_log: true
+  tags:
+    - users
+    - password_policy
+    - security
+
+- name: Initialize processed users list
+  ansible.builtin.set_fact:
+    processed_users: []
+  changed_when: false
+  tags:
+    - users
+    - groups
+
+- name: Build processed users with OS-specific sudo group mapping
+  ansible.builtin.set_fact:
+    processed_users: "{{ processed_users + [{'state': default_user_settings.state} | combine(item) | combine({'groups': mapped_groups})] }}"
+  changed_when: false
+  no_log: true
+  vars:
+    mapped_groups: >-
+      {{
+        (item.groups | default([]) |
+         map('regex_replace', '^(sudo|wheel)$', sudo_group) |
+         list)
+      }}
+  loop: "{{ users }}"
+  tags:
+    - users
+    - groups
+
+- name: Build managed user lists
+  ansible.builtin.set_fact:
+    managed_present_user_records: "{{ processed_users | selectattr('state', 'equalto', 'present') | list }}"
+    managed_present_users: "{{ processed_users | selectattr('state', 'equalto', 'present') | map(attribute='name') | list }}"
+  changed_when: false
+  tags:
+    - users
+    - ssh_keys
+
+- name: Read passwd database once for existing-user detection
+  ansible.builtin.command: getent passwd
+  register: passwd_entries_raw
+  changed_when: false
+  failed_when: passwd_entries_raw.rc != 0
+  check_mode: false
+  tags:
+    - users
+    - ssh_keys
+
+- name: Build existing users list
+  ansible.builtin.set_fact:
+    existing_users: >-
+      {{
+        (passwd_entries_raw.stdout_lines | default([]))
+        | map('split', ':')
+        | map('first')
+        | select('in', managed_present_users | default([]))
+        | list
+      }}
+  changed_when: false
+  tags:
+    - users
+    - ssh_keys
+
+- name: Create/Update user accounts
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: "{{ item.state | default(default_user_settings.state) }}"
+    uid: "{{ item.uid | default(omit) }}"
+    group: "{{ item.group | default(default_user_settings.group) }}"
+    groups: "{{ item.groups | default([]) | join(',') if item.groups is defined and item.groups | length > 0 else omit }}"
+    append: "{{ item.append | default(default_user_settings.append) }}"
+    shell: "{{ item.shell | default(default_user_settings.shell) }}"
+    home: "{{ item.home | default('/home/' + item.name) }}"
+    create_home: "{{ item.create_home | default(default_user_settings.create_home) }}"
+    move_home: "{{ item.move_home | default(default_user_settings.move_home) }}"
+    system: "{{ item.system | default(default_user_settings.system) }}"
+    comment: "{{ item.comment | default(omit) }}"
+    password: "{{ item.password | default(omit) }}"
+    update_password: "{{ item.update_password | default(default_user_settings.update_password) }}"
+    expires: "{{ item.expires | default(omit) }}"
+    password_lock: "{{ item.password_lock | default(default_user_settings.password_lock) }}"
+  loop: "{{ managed_present_user_records | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  tags:
+    - users
+    - create_users
+
+- name: Generate SSH key pairs for users if requested
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    generate_ssh_key: "{{ item.generate_ssh_key | default(default_user_settings.generate_ssh_key) }}"
+    ssh_key_bits: "{{ item.ssh_key_bits | default(default_user_settings.ssh_key_bits) }}"
+    ssh_key_type: "{{ item.ssh_key_type | default(default_user_settings.ssh_key_type) }}"
+    ssh_key_file: "{{ item.ssh_key_file | default('.ssh/id_' + (item.ssh_key_type | default(default_user_settings.ssh_key_type))) }}"
+    ssh_key_comment: "{{ item.ssh_key_comment | default(item.name + '@' + ansible_facts.hostname) }}"
+    ssh_key_passphrase: "{{ item.ssh_key_passphrase | default(omit) }}"
+    force: "{{ item.ssh_key_force | default(default_user_settings.ssh_key_force) }}"
+  loop: "{{ managed_present_user_records | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.generate_ssh_key | default(default_user_settings.generate_ssh_key)
+  register: ssh_key_generation
+  no_log: true
+  tags:
+    - users
+    - ssh_keys
+
+- name: Display generated SSH public key paths
+  ansible.builtin.debug:
+    msg: |
+      User: {{ item.item.name }}
+      SSH Public Key Path: {{ item.ssh_public_key | default('Not generated') }}
+  loop: "{{ ssh_key_generation.results }}"
+  when:
+    - show_generated_ssh_public_keys | bool
+    - ssh_key_generation is defined
+    - item.ssh_public_key is defined
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - users
+    - ssh_keys
+
+- name: Ensure .ssh directory exists for users
+  ansible.builtin.file:
+    path: "{{ item.home | default('/home/' + item.name) }}/.ssh"
+    state: directory
+    owner: "{{ item.name }}"
+    group: "{{ item.group | default(default_user_settings.group) }}"
+    mode: "0700"
+  loop: "{{ managed_present_user_records | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.ssh_keys is defined
+    - item.ssh_keys | length > 0
+    - (not ansible_check_mode) or (item.name in (existing_users | default([])))
+  tags:
+    - users
+    - ssh_keys
+
+- name: Add authorized SSH keys for users (from ssh_keys list)
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    state: present
+    key: "{{ item.ssh_keys | join('\\n') }}"
+    manage_dir: true
+    exclusive: "{{ item.ssh_keys_exclusive | default(default_user_settings.ssh_keys_exclusive) }}"
+  loop: "{{ managed_present_user_records | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.ssh_keys is defined
+    - item.ssh_keys | length > 0
+    - item.ssh_keys | select('match', '^ssh-') | list | length > 0
+    - (not ansible_check_mode) or (item.name in (existing_users | default([])))
+  tags:
+    - users
+    - ssh_keys
+
+- name: Add authorized SSH keys for users (legacy key field support)
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    state: present
+    key: "{{ item.key | join('\\n') }}"
+    manage_dir: true
+    exclusive: "{{ item.ssh_keys_exclusive | default(default_user_settings.ssh_keys_exclusive) }}"
+  loop: "{{ managed_present_user_records | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.key is defined
+    - item.key | length > 0
+    - item.key | select('match', '^ssh-') | list | length > 0
+    - item.ssh_keys is not defined
+    - (not ansible_check_mode) or (item.name in (existing_users | default([])))
+  tags:
+    - users
+    - ssh_keys
+
+- name: Build password-policy target list
+  ansible.builtin.set_fact:
+    password_policy_users: >-
+      {{
+        managed_present_user_records
+        | default([])
+        | selectattr('password', 'defined')
+        | rejectattr('password', 'equalto', '!!')
+        | rejectattr('password', 'equalto', '')
+        | list
+      }}
+  changed_when: false
+  tags:
+    - users
+    - password_policy
+
+- name: Read shadow database once for password-policy checks
+  ansible.builtin.command: getent shadow
+  register: shadow_entries_raw
+  changed_when: false
+  failed_when: shadow_entries_raw.rc != 0
+  check_mode: false
+  when:
+    - (password_policy_users | default([])) | length > 0
+  no_log: true
+  tags:
+    - users
+    - password_policy
+
+- name: Assert shadow entry exists for password policy updates
+  ansible.builtin.assert:
+    that:
+      - shadow_line | length > 0
+    fail_msg: "Could not read shadow entry for user {{ item.name }}."
+  vars:
+    shadow_line: "{{ (shadow_entries_raw.stdout_lines | default([]) | select('match', '^' ~ (item.name | regex_escape) ~ ':') | list | first | default('')) }}"
+  loop: "{{ password_policy_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode
+  no_log: true
+  tags:
+    - users
+    - password_policy
+
+- name: Set password expiration policies when drift is detected
+  ansible.builtin.command: >-
+    chage
+    -M {{ target_max }}
+    -m {{ target_min }}
+    -W {{ target_warn }}
+    -I {{ target_inactive }}
+    {{ item.name }}
+  loop: "{{ password_policy_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    shadow_line: "{{ (shadow_entries_raw.stdout_lines | default([]) | select('match', '^' ~ (item.name | regex_escape) ~ ':') | list | first | default('')) }}"
+    shadow_fields: "{{ shadow_line.split(':') if shadow_line | length > 0 else [] }}"
+    target_min: "{{ item.password_expire_min | default(default_user_settings.password_expire_min) | string }}"
+    target_max: "{{ item.password_expire_max | default(default_user_settings.password_expire_max) | string }}"
+    target_warn: "{{ item.password_expire_warn | default(default_user_settings.password_expire_warn) | string }}"
+    target_inactive: "{{ item.password_expire_account_disable | default(default_user_settings.password_expire_account_disable) | string }}"
+    current_min: "{{ (shadow_fields | length > 3 and (shadow_fields[3] | default('') | length > 0)) | ternary(shadow_fields[3], '-1') }}"
+    current_max: "{{ (shadow_fields | length > 4 and (shadow_fields[4] | default('') | length > 0)) | ternary(shadow_fields[4], '-1') }}"
+    current_warn: "{{ (shadow_fields | length > 5 and (shadow_fields[5] | default('') | length > 0)) | ternary(shadow_fields[5], '-1') }}"
+    current_inactive: "{{ (shadow_fields | length > 6 and (shadow_fields[6] | default('') | length > 0)) | ternary(shadow_fields[6], '-1') }}"
+  when:
+    - shadow_line | length > 0
+    - current_min != target_min or current_max != target_max or current_warn != target_warn or current_inactive != target_inactive
+  changed_when: true
+  no_log: "{{ password_policy_no_log | bool }}"
+  tags:
+    - users
+    - password_policy

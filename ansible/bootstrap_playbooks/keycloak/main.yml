@@ -1,0 +1,136 @@
+---
+- name: Keycloak automation
+  hosts: keycloak_servers
+  become: true
+  gather_facts: false
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  pre_tasks:
+    - name: Bootstrap python3 on target host (if missing)
+      ansible.builtin.raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        if command -v dnf >/dev/null 2>&1; then
+          dnf install -y python3 python3-dnf
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update -y && apt-get install -y python3 python3-apt
+        else
+          echo "No supported package manager found. Install python3 manually." >&2
+          exit 1
+        fi
+      changed_when: false
+      tags: [always]
+
+    - name: Gather facts
+      ansible.builtin.setup:
+      tags: [always]
+
+    - name: Read .env file from playbook directory (optional)
+      ansible.builtin.set_fact:
+        keycloak_env_content_lines: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/.env', errors='ignore') | default('', true)).splitlines() }}"
+      changed_when: false
+      tags: [always]
+
+    - name: Parse KEYCLOAK_* values from .env
+      ansible.builtin.set_fact:
+        "{{ item.split('=', 1)[0] }}": "{{ item.split('=', 1)[1] | regex_replace('^[\"\\x27]|[\"\\x27]$', '') }}"
+      loop: "{{ keycloak_env_content_lines | default([]) }}"
+      when:
+        - (item | trim | length) > 0
+        - not (item | trim | regex_search('^#'))
+        - "'=' in item"
+      no_log: true
+      tags: [always]
+
+    - name: Apply KEYCLOAK non-secret overrides from .env
+      ansible.builtin.set_fact:
+        keycloak_version: "{{ KEYCLOAK_VERSION | default(keycloak_version, true) }}"
+        keycloak_hostname: "{{ KEYCLOAK_HOSTNAME | default(keycloak_hostname, true) }}"
+        keycloak_http_port: "{{ (KEYCLOAK_HTTP_PORT | default(keycloak_http_port | string, true)) | int }}"
+        keycloak_https_port: "{{ (KEYCLOAK_HTTPS_PORT | default(keycloak_https_port | string, true)) | int }}"
+        keycloak_health_port: "{{ (KEYCLOAK_HEALTH_PORT | default(keycloak_health_port | string, true)) | int }}"
+        keycloak_proxy_headers: "{{ KEYCLOAK_PROXY_HEADERS | default(keycloak_proxy_headers, true) }}"
+        keycloak_http_enabled: "{{ (KEYCLOAK_HTTP_ENABLED | default(keycloak_http_enabled | string)) | bool }}"
+        keycloak_manage_firewall: "{{ (KEYCLOAK_MANAGE_FIREWALL | default(keycloak_manage_firewall | string)) | bool }}"
+        keycloak_manage_database: "{{ (KEYCLOAK_MANAGE_DATABASE | default(keycloak_manage_database | string)) | bool }}"
+        keycloak_db_host: "{{ KEYCLOAK_DB_HOST | default(keycloak_db_host, true) }}"
+        keycloak_db_port: "{{ (KEYCLOAK_DB_PORT | default(keycloak_db_port | string, true)) | int }}"
+        keycloak_db_name: "{{ KEYCLOAK_DB_NAME | default(keycloak_db_name, true) }}"
+        keycloak_db_user: "{{ KEYCLOAK_DB_USER | default(keycloak_db_user, true) }}"
+        keycloak_db_admin_user: "{{ KEYCLOAK_DB_ADMIN_USER | default(keycloak_db_admin_user, true) }}"
+        keycloak_db_admin_database: "{{ KEYCLOAK_DB_ADMIN_DATABASE | default(keycloak_db_admin_database, true) }}"
+      tags: [always]
+
+    - name: Apply KEYCLOAK secret overrides from .env
+      ansible.builtin.set_fact:
+        keycloak_db_password: "{{ KEYCLOAK_DB_PASSWORD | default(keycloak_db_password | default(''), true) }}"
+        keycloak_db_admin_password: "{{ KEYCLOAK_DB_ADMIN_PASSWORD | default(keycloak_db_admin_password | default(''), true) }}"
+        keycloak_admin_user: "{{ KEYCLOAK_ADMIN_USER | default(keycloak_admin_user | default('admin'), true) }}"
+        keycloak_admin_password: "{{ KEYCLOAK_ADMIN_PASSWORD | default(keycloak_admin_password | default(''), true) }}"
+      no_log: true
+      tags: [always]
+
+    - name: Determine missing Keycloak local secrets
+      ansible.builtin.set_fact:
+        keycloak_generate_db_password: >-
+          {{ keycloak_generate_local_passwords | bool and keycloak_db_password | length == 0 }}
+        keycloak_generate_admin_password: >-
+          {{ keycloak_generate_local_passwords | bool and keycloak_admin_password | length == 0 }}
+      tags: [always]
+
+    - name: Ensure Keycloak local secret directory exists
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/files"
+        state: directory
+        owner: "{{ keycloak_local_secret_owner }}"
+        group: "{{ keycloak_local_secret_group }}"
+        mode: "0700"
+      when: keycloak_generate_db_password | bool or keycloak_generate_admin_password | bool
+      tags: [always]
+
+    - name: Resolve persistent Keycloak local secrets
+      ansible.builtin.set_fact:
+        keycloak_db_password: >-
+          {{
+            lookup('ansible.builtin.password', keycloak_db_password_path ~ ' length=64 chars=ascii_letters,digits')
+            if keycloak_generate_db_password | bool
+            else keycloak_db_password
+          }}
+        keycloak_admin_password: >-
+          {{
+            lookup('ansible.builtin.password', keycloak_admin_password_path ~ ' length=64 chars=ascii_letters,digits')
+            if keycloak_generate_admin_password | bool
+            else keycloak_admin_password
+          }}
+      no_log: true
+      tags: [always]
+
+    - name: Enforce Keycloak local secret ownership and permissions
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: file
+        owner: "{{ keycloak_local_secret_owner }}"
+        group: "{{ keycloak_local_secret_group }}"
+        mode: "0600"
+      loop:
+        - path: "{{ keycloak_db_password_path }}"
+          generated: "{{ keycloak_generate_db_password }}"
+        - path: "{{ keycloak_admin_password_path }}"
+          generated: "{{ keycloak_generate_admin_password }}"
+      when: item.generated | bool
+      no_log: true
+      tags: [always]
+
+  roles:
+    - role: keycloak

@@ -1,0 +1,9 @@
+# Account baseline exceptions for GitLab Server hosts.
+allowed_unmanaged_accounts:
+  - git
+  - gitlab-www
+  - gitlab-redis
+  - gitlab-psql
+  - registry
+  - gitlab-prometheus
+  - gitlab-consul

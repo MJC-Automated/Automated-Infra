@@ -26,59 +26,91 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 - `terraform-proxmox/`: VM provisioning, Vault integration, Packer image builds.
 - `inventories/`: centralized generated inventory plus alias group mappings.
-- `bootstrap_playbooks/`: app/db bootstrap playbooks (Oracle DB, WebLogic, Zabbix, and future services).
-- `user-man/`: Linux account CRUD plus hardening.
-- `time_sync/`: Chrony/NTP synchronization role.
+- `ansible/bootstrap_playbooks/`: app/db bootstrap playbooks (Oracle DB, WebLogic, Zabbix, and future services).
+- `ansible/user-man/`: Linux account CRUD plus hardening.
+- `ansible/time_sync/`: Chrony/NTP synchronization role.
 
 ## Tracked Environment Model
 
 - `terraform-proxmox/environments/dev.tfvars` is the only committed environment seed.
-- The tracked `dev` scaffold is the canonical 9-node bootstrap model:
+- The tracked `dev` scaffold is the canonical 18-node bootstrap model:
   - `public-weblogic14c-01`
   - `public-weblogic12c-01`
   - `public-database19c-01`
+  - `public-database19c-ol9-01`
   - `public-database21c-01`
   - `public-zabbix-01`
   - `public-freeipa-01`
   - `public-keycloak-01`
   - `public-observability-01`
   - `public-zimbra-01`
+  - `public-k8s-cp-01`
+  - `public-k8s-worker-01`
+  - `public-k8s-worker-02`
+  - `public-k8s-etcd-01`
+  - `public-jenkins-01`
+  - `public-gitlab-01`
+  - `public-jenkins-agent-01`
+  - `public-gitlab-runner-01`
 - Other environments should copy that service layout, then change only environment-specific values such as IPs, storage pools, and Vault CIDR bounds.
+- The committed `inventories/example/inventory.ini` is generated output and can lag `dev.tfvars`; validate and regenerate it through a reviewed Terraform apply before using newly added groups.
 
 ## Standard Entry Points
 
 - Terraform/Packer workflow: run from `terraform-proxmox/` via `make` targets.
 - Ansible project entrypoints:
-  - `bootstrap_playbooks/oracle819c/main.yml`
-  - `bootstrap_playbooks/oracle821c/main.yml`
-  - `bootstrap_playbooks/oracle_weblogic12c/main.yml`
-  - `bootstrap_playbooks/oracle_weblogic14c/main.yml`
-  - `bootstrap_playbooks/freeipa/main.yml`
-  - `bootstrap_playbooks/keycloak/main.yml`
-  - `bootstrap_playbooks/observability/main.yml`
-  - `bootstrap_playbooks/zimbra/main.yml`
-  - `user-man/main.yml`
-  - `time_sync/main.yml`
-  - `bootstrap_playbooks/zabbix_server/main.yml`
+  - `ansible/bootstrap_playbooks/oracle819c/main.yml`
+  - `ansible/bootstrap_playbooks/oracle919c/main.yml`
+  - `ansible/bootstrap_playbooks/oracle821c/main.yml`
+  - `ansible/bootstrap_playbooks/oracle_weblogic12c/main.yml`
+  - `ansible/bootstrap_playbooks/oracle_weblogic14c/main.yml`
+  - `ansible/bootstrap_playbooks/freeipa/main.yml`
+  - `ansible/bootstrap_playbooks/keycloak/main.yml`
+  - `ansible/bootstrap_playbooks/observability/main.yml`
+  - `ansible/bootstrap_playbooks/zimbra/main.yml`
+  - `ansible/bootstrap_playbooks/jenkins/main.yml`
+  - `ansible/bootstrap_playbooks/gitlab/main.yml`
+  - `ansible/user-man/main.yml`
+  - `ansible/time_sync/main.yml`
+  - `ansible/bootstrap_playbooks/zabbix_server/main.yml`
 
 ## Inventory Convention
 
 - Central inventory path pattern: `inventories/<env>/inventory.ini` plus `inventories/aliases.ini`.
-- Project-local `ansible.cfg` files may default to `dev`; for other environments pass explicit `-i` flags.
+- `dev` is the only tracked environment and is the template for new generated environments.
+- Project-local `ansible.cfg` files may be pointed at a generated local environment to keep commands short; for portable docs and automation, use explicit `-i inventories/<env>/inventory.ini -i inventories/aliases.ini`.
 - `inventories/aliases.ini` also carries repo-wide helper groups such as `ntp_clients`, which should include Kerberos-sensitive service hosts like FreeIPA, Keycloak, and observability nodes in addition to Oracle/WebLogic clients.
 - Validate inventory wiring with:
   - `ansible-inventory -i inventories/<env>/inventory.ini -i inventories/aliases.ini --graph`
 
+## Ansible Vault
+
+- Playbooks that consume encrypted variables require a vault password at runtime.
+- Project `ansible.cfg` files point at the ignored local `ansible/.vault_password` file. The password file itself is **not** committed; operators can provide it via one of:
+  - `export ANSIBLE_VAULT_PASSWORD_FILE=ansible/.vault_password` (a `.vault_password` file under the `ansible/` directory is gitignored for convenience).
+  - `--vault-password-file <path>` on the CLI.
+  - `--ask-vault-pass` for interactive entry.
+- Never commit vault passwords, tokens, or private keys to the repository.
+
 ## Python Environment Convention (pyenv)
 
-- Oracle DB projects (`oracle819c`, `oracle821c`): `v3.13.0-oracle`
-- Oracle WebLogic projects (`oracle_weblogic12c`, `oracle_weblogic14c`): `v3.9.21-weblogic`
-- FreeIPA project (`bootstrap_playbooks/freeipa`): `v3.10.19-freeipa`
-- Keycloak project (`bootstrap_playbooks/keycloak`): `v3.10.19-keycloak`
-- Observability project (`bootstrap_playbooks/observability`): `v3.10.19-observability`
-- Zimbra project (`bootstrap_playbooks/zimbra`): `v3.10.19-zimbra`
-- Zabbix project (`bootstrap_playbooks/zabbix_server`): `v3.10.19-zabbix`
-- User/time projects (`user-man`, `time_sync`): `v3.10.19-users`
+All Ansible automation uses the repository-wide pyenv virtualenv declared in `ansible/.python-version`:
+
+- Control-node pyenv virtualenv: `v3.13.14`
+- Python packages: `ansible/requirements.txt`
+- Ansible collections: `ansible/requirements.yml`
+
+Setup example:
+
+```bash
+cd ~/IaC-Homelab/ansible
+pyenv install -s 3.13.14
+pyenv virtualenv 3.13.14 v3.13.14
+pyenv local v3.13.14
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+ansible-galaxy collection install -r requirements.yml
+```
 
 ## 1. Ansible-Based Linux User Management Automation
 
@@ -203,86 +235,75 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 ## 6. Kubernetes Cluster Automation with Kubespray
 
-### Cluster Topology (example)
+### Tracked Cluster Topology (`dev`)
 
-| Role | VM Name | IP | Cores | RAM | Disk |
-| --- | --- | --- | --- | --- | --- |
-| Control Plane + etcd | `public-k8s-cp-01` | `198.51.100.10` | 4 | 4 GB | 50 GB |
-| Worker Node 1 | `public-k8s-worker-01` | `198.51.100.11` | 2 | 4 GB | 50 GB |
-| Worker Node 2 | `public-k8s-worker-02` | `198.51.100.12` | 2 | 4 GB | 50 GB |
+| Role | VM Name | Cores | RAM | Disk |
+| --- | --- | --- | --- | --- |
+| Control Plane | `public-k8s-cp-01` | 4 | 4 GB | 50 GB |
+| Worker Node 1 | `public-k8s-worker-01` | 2 | 4 GB | 50 GB |
+| Worker Node 2 | `public-k8s-worker-02` | 2 | 4 GB | 50 GB |
+| Dedicated etcd | `public-k8s-etcd-01` | 2 | 4 GB | 50 GB |
 
-- **Kubespray version**: v2.31.0 (cloned to `/home/example/kubespray`)
-- **Inventory**: `/home/example/kubespray/inventory/example-k8s/inventory.ini`
+- **Kubespray checkout**: external at `/home/example/kubespray` by default; the repository does not pin its version
+- **Inventory**: repository-generated `inventories/<env>/inventory.ini` plus `inventories/aliases.ini`
 - **OS**: Ubuntu 24.04 (cloud-init template `ubuntu2404`)
 - **Network plugin**: Calico (kubespray default)
 - **Container runtime**: containerd (kubespray default)
-- **etcd topology**: Stacked (runs on control-plane node)
+- **etcd topology**: Unstacked (dedicated etcd VM)
 
 ### Features
 
 - Automated Kubernetes deployment using Kubespray.
-- Stacked etcd topology for simplified single-master setups.
+- Dedicated etcd topology through the `k8s_etcd` Terraform group and inventory alias.
 - Cloud-init-based node bootstrap integration with Terraform-provisioned VMs.
 - Environment-specific inventory and group_vars configuration.
-- Support for scaling workers by adding entries to `example.tfvars` and the kubespray inventory.
+- Support for scaling workers by adding entries to `terraform-proxmox/environments/<env>.tfvars` and regenerating inventory.
 
-### Advanced Topologies (Unstacked etcd)
+### Topology Changes
 
-For larger production-like deployments, you may want to separate the Control Plane (CP) and etcd nodes (unstacked topology) to improve fault tolerance and resource isolation.
+The current topology already separates the control plane and etcd. Additional control-plane or etcd members require coordinated Terraform, inventory, and external Kubespray lifecycle changes.
 
 To achieve this:
 
-1. **Provision dedicated VMs**: Add a new `k8s_etcd` node group in your `tfvars` file alongside the control plane and workers.
-2. **Update Inventory**: Modify your kubespray `inventory.ini` to map the new nodes specifically to the `[etcd]` group, rather than having `[etcd:children]` point to `kube_control_plane`.
+1. **Provision VMs**: Add uniquely named/numbered nodes to the matching `k8s_control_plane`, `k8s_etcd`, or `k8s_workers` Terraform group.
+2. **Regenerate inventory**: Apply the reviewed Terraform plan and verify `inventories/aliases.ini` maps the primitive groups to Kubespray groups.
 
-Example inventory for unstacked etcd:
-
-```ini
-[kube_control_plane]
-k8s-cp-1 ansible_host=198.51.100.10
-k8s-cp-2 ansible_host=198.51.100.11
-
-[etcd]
-k8s-etcd-1 ansible_host=198.51.100.13
-k8s-etcd-2 ansible_host=198.51.100.14
-k8s-etcd-3 ansible_host=198.51.100.15
-
-[kube_node]
-k8s-worker-1 ansible_host=198.51.100.16
-```
+Do not hand-edit the generated Kubespray groups. `inventories/aliases.ini` maps the Terraform groups into `kube_control_plane`, `etcd`, and `kube_node`.
 
 ### Deployment Steps
 
-1. Provision VMs via Terraform (`make apply ENVIRONMENT=example` from `terraform-proxmox/`).
+1. Provision VMs via Terraform (`make apply ENVIRONMENT=<env>` from `terraform-proxmox/`).
 2. Boot the K8S VMs from Proxmox (they are created in `stopped` state).
-3. Install kubespray Python dependencies:
+3. Validate the generated inventory:
 
    ```bash
-   cd /home/example/kubespray
-   pip install -r requirements.txt
+   ansible-inventory -i inventories/<env>/inventory.ini -i inventories/aliases.ini --graph
    ```
 
 4. Verify SSH connectivity:
 
    ```bash
-   ansible -i inventory/example-k8s/inventory.ini -m ping all -u ansible
+   ansible -i inventories/<env>/inventory.ini -i inventories/aliases.ini -m ping k8s_cluster -u ansible
    ```
 
 5. Deploy the cluster:
 
    ```bash
-   ansible-playbook -i inventory/example-k8s/inventory.ini \
-     --become --become-user=root -u ansible cluster.yml
+   cd terraform-proxmox
+   make k8s-deploy ENVIRONMENT=<env> KUBESPRAY_DIR="$HOME/kubespray"
    ```
+
+   The target creates or reuses `KUBESPRAY_DIR/venv` and installs Kubespray's
+   requirements there. This keeps the repository's pinned Ansible environment
+   unchanged. Override `KUBESPRAY_PYTHON` or `KUBESPRAY_VENV` when the default
+   Python 3.13.14 path or external checkout layout differs.
 
 ### Lifecycle Commands
 
 | Operation | Command |
 | --- | --- |
-| Scale workers | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible scale.yml` |
-| Remove a node | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible remove-node.yml -e node=<name>` |
-| Upgrade cluster | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible upgrade-cluster.yml` |
-| Reset/teardown | `ansible-playbook -i inventory/example-k8s/inventory.ini --become -u ansible reset.yml` |
+| Initial/full convergence | `make k8s-deploy ENVIRONMENT=<env> KUBESPRAY_DIR="$HOME/kubespray"` from `terraform-proxmox/` |
+| Scale, remove, upgrade, reset | Use the procedure for the externally selected Kubespray release; no repository wrapper target is defined |
 
 ### Advantages
 
@@ -364,19 +385,19 @@ k8s-worker-1 ansible_host=198.51.100.16
 
 ## Project Documentation
 
-- `bootstrap_playbooks/README.md`
-- `bootstrap_playbooks/freeipa/README.md`
-- `bootstrap_playbooks/keycloak/README.md`
-- `bootstrap_playbooks/observability/README.md`
+- `ansible/bootstrap_playbooks/README.md`
+- `ansible/bootstrap_playbooks/freeipa/README.md`
+- `ansible/bootstrap_playbooks/keycloak/README.md`
+- `ansible/bootstrap_playbooks/observability/README.md`
 - `terraform-proxmox/README.md`
-- `bootstrap_playbooks/oracle819c/README.md`
-- `bootstrap_playbooks/oracle821c/README.md`
-- `bootstrap_playbooks/oracle_weblogic12c/README.md`
-- `bootstrap_playbooks/oracle_weblogic14c/README.md`
-- `bootstrap_playbooks/zabbix_server/README.md`
-- `bootstrap_playbooks/zimbra/README.md`
-- `user-man/README.md`
-- `time_sync/README.md`
+- `ansible/bootstrap_playbooks/oracle819c/README.md`
+- `ansible/bootstrap_playbooks/oracle821c/README.md`
+- `ansible/bootstrap_playbooks/oracle_weblogic12c/README.md`
+- `ansible/bootstrap_playbooks/oracle_weblogic14c/README.md`
+- `ansible/bootstrap_playbooks/zabbix_server/README.md`
+- `ansible/bootstrap_playbooks/zimbra/README.md`
+- `ansible/user-man/README.md`
+- `ansible/time_sync/README.md`
 - `inventories/README.md`
 - `docs/oracle-db-weblogic-crud-scenario.md`
 - `docs/public-mirror.md`

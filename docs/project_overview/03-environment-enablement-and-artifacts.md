@@ -10,8 +10,8 @@
 - [terraform-proxmox/Makefile](../../terraform-proxmox/Makefile)
 - [terraform-proxmox/scripts/upload-snippets.sh](../../terraform-proxmox/scripts/upload-snippets.sh)
 - [inventories/README.md](../../inventories/README.md)
-- [user-man/README.md](../../user-man/README.md)
-- [time_sync/README.md](../../time_sync/README.md)
+- [ansible/user-man/README.md](../../ansible/user-man/README.md)
+- [ansible/time_sync/README.md](../../ansible/time_sync/README.md)
 
 ## Why This Chapter Exists
 
@@ -26,20 +26,16 @@ The repo is opinionated about:
 
 ## Operator Runtime Prerequisites
 
-The root README defines dedicated pyenv environments by project family:
+The root README defines one repository-wide pyenv environment for Ansible automation:
 
-| Project family | pyenv virtualenv |
+| Scope | Path/value |
 | --- | --- |
-| Oracle DB | `v3.13.0-oracle` |
-| WebLogic | `v3.9.21-weblogic` |
-| FreeIPA | `v3.10.19-freeipa` |
-| Keycloak | `v3.10.19-keycloak` |
-| Observability | `v3.10.19-observability` |
-| Zimbra | `v3.10.19-zimbra` |
-| Zabbix | `v3.10.19-zabbix` |
-| User management and time sync | `v3.10.19-users` |
+| pyenv virtualenv | `v3.13.14` |
+| pyenv marker | `ansible/.python-version` |
+| Python packages | `ansible/requirements.txt` |
+| Ansible collections | `ansible/requirements.yml` |
 
-This is operational, not cosmetic. The repo expects each project to run from its own directory with the matching interpreter and dependencies.
+This is operational, not cosmetic. The repo expects Ansible work to use the same controller interpreter and dependency set across service, host-baseline, and database playbooks.
 
 ## Local Inputs vs. Generated Outputs
 
@@ -91,14 +87,14 @@ There is no single repo-wide `.env` loader for every playbook. Instead, several 
 
 Current examples include:
 
-- `time_sync/`
-- `bootstrap_playbooks/freeipa/`
-- `bootstrap_playbooks/keycloak/`
-- `bootstrap_playbooks/observability/`
-- `bootstrap_playbooks/oracle819c/`
-- `bootstrap_playbooks/oracle821c/`
-- `bootstrap_playbooks/oracle_weblogic12c/`
-- `bootstrap_playbooks/oracle_weblogic14c/`
+- `ansible/time_sync/`
+- `ansible/bootstrap_playbooks/freeipa/`
+- `ansible/bootstrap_playbooks/keycloak/`
+- `ansible/bootstrap_playbooks/observability/`
+- `ansible/bootstrap_playbooks/oracle819c/`
+- `ansible/bootstrap_playbooks/oracle821c/`
+- `ansible/bootstrap_playbooks/oracle_weblogic12c/`
+- `ansible/bootstrap_playbooks/oracle_weblogic14c/`
 
 That means precedence is partly repo-wide and partly project-local. When debugging a value, check the project entrypoint as well as the shared Terraform docs.
 

@@ -1,0 +1,3 @@
+# filename|reason
+p36582629_190000_Linux-x86-64.zip|Oracle 19c RU archive previously validated in integration; upstream checksum requires unavailable Oracle support access.
+p6880880_121010_Linux-x86-64.zip|Oracle OPatch archive previously validated in integration; upstream checksum requires unavailable Oracle support access.

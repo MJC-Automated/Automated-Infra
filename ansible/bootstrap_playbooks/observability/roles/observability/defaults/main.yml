@@ -1,0 +1,19 @@
+---
+observability_stack_dir: "/opt/observability"
+observability_manage_firewall: true
+observability_grafana_admin_user: "admin"
+observability_grafana_admin_password: ""
+observability_prometheus_retention: "15d"
+observability_required_password_length: 20
+observability_generate_local_password: true
+observability_grafana_admin_password_path: "{{ playbook_dir }}/files/grafana_admin_password"
+observability_local_secret_owner: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
+observability_local_secret_group: "{{ lookup('pipe', 'id -gn ' ~ observability_local_secret_owner) }}"
+
+observability_ports:
+  - 3000
+  - 9090
+  - 3100
+  - 4317
+  - 4318
+  - 10050

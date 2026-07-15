@@ -1,9 +1,0 @@
----
-- name: Build required package list
-  ansible.builtin.set_fact:
-    freeipa_packages: "{{ freeipa_required_packages_common + (freeipa_setup_dns | bool | ternary(freeipa_required_packages_dns, [])) }}"
-
-- name: Install FreeIPA packages
-  ansible.builtin.package:
-    name: "{{ freeipa_packages }}"
-    state: present

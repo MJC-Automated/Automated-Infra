@@ -1,0 +1,16 @@
+#!/bin/bash
+# Script to stop WebLogic Managed Server {{ managed_server_name }} for {{ wlst_domain_name | default(domain_name) }}
+
+TIME=`/usr/bin/date +%b-%d-%Y-%H%M%S`
+
+export JAVA_HOME="{{ java_home }}"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+echo "INFO: Stopping Managed Server {{ managed_server_name }} for {{ wlst_domain_name | default(domain_name) }}"
+echo "INFO: Admin URL: {{ wlst_admin_url | default(admin_url) }}"
+
+cd "{{ wlst_domain_home | default(domain_home) }}/bin" || { echo "ERROR: Could not change to domain bin directory."; exit 1; }
+
+./stopManagedWebLogic.sh "{{ managed_server_name }}" "{{ weblogic_admin_user_effective | default(weblogic_admin_user) }}" "{{ weblogic_password }}" "{{ wlst_admin_url | default(admin_url) }}" > "{{ managed_server_logs_dir }}/stopManaged_{{ managed_server_name }}_$TIME.log" 2>&1
+
+echo "INFO: Managed Server stop command issued."

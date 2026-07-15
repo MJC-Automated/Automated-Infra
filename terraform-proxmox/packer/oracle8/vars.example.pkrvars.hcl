@@ -7,8 +7,9 @@ proxmox_node         = "<proxmox-node>"
 proxmox_token_id     = "unused-when-vault-enabled"
 proxmox_token        = "unused-when-vault-enabled"
 proxmox_tls_insecure = true
+ssh_host             = "<base-vm-ip>"
 
-template_name = "oracle8-template"
+template_name = "oracle8"
 vm_id         = 999999994
 clone_vm_id   = 999999991
 cpu_cores     = 8

@@ -1,0 +1,23 @@
+---
+# tasks file for gitlab role
+
+- name: Install and Configure GitLab Server
+  when: "'gitlab' in group_names"
+  tags: [gitlab_server]
+  block:
+    - name: Install GitLab Server packages
+      ansible.builtin.import_tasks: install.yml
+      tags: [os_prereqs, install]
+
+    - name: Configure GitLab Server settings
+      ansible.builtin.import_tasks: configure.yml
+      tags: [configure, systemd_service]
+
+    - name: Verify GitLab Server health
+      ansible.builtin.import_tasks: verify.yml
+      tags: [verify]
+
+- name: Configure GitLab Runner Node
+  ansible.builtin.import_tasks: runner.yml
+  when: "'gitlab_runner' in group_names"
+  tags: [gitlab_runner, configure]

@@ -1,0 +1,29 @@
+# Check Remote Console status for {{ wlst_domain_name }}
+admin_url = 't3://localhost:{{ item.admin_port }}'
+admin_user = '{{ item.weblogic_admin_user | default(weblogic_admin_user) }}'
+admin_password = '{{ weblogic_password }}'
+app_name = 'weblogic-remote-console-app'
+plan_path = '{{ item.domain_home | default(domain_base + "/" + item.domain_name) }}/plan/plan.xml'
+
+connect(admin_user, admin_password, admin_url)
+domainConfig()
+cd('/')
+
+already_deployed_with_correct_plan = False
+deps = cmo.getAppDeployments()
+for dep in deps:
+    if dep.getName() == app_name:
+        cd('/AppDeployments/' + app_name)
+        active_plan = str(get('AbsolutePlanPath'))
+        if active_plan == plan_path:
+            already_deployed_with_correct_plan = True
+
+disconnect()
+
+f = open('/tmp/rconsole_status_{{ item.admin_port }}.txt', 'w')
+if already_deployed_with_correct_plan:
+    f.write('UNCHANGED')
+else:
+    f.write('CHANGED')
+f.close()
+exit()

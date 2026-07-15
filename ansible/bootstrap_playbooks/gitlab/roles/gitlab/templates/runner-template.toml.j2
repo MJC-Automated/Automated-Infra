@@ -1,0 +1,10 @@
+[[runners]]
+  limit = {{ gitlab_runner_limit }}
+{% if gitlab_runner_executor == 'docker' %}
+  [runners.docker]
+    image = "{{ gitlab_runner_docker_image }}"
+    privileged = {{ gitlab_runner_docker_privileged | bool | lower }}
+    pull_policy = "{{ gitlab_runner_docker_pull_policy }}"
+    volumes = [{% for volume in gitlab_runner_docker_volumes %}"{{ volume }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+    allowed_pull_policies = [{% for policy in gitlab_runner_docker_allowed_pull_policies %}"{{ policy }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{% endif %}

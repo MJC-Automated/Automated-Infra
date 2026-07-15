@@ -1,0 +1,10 @@
+---
+- name: Restart Zimbra MTA
+  ansible.builtin.command:
+    argv:
+      - su
+      - "-"
+      - zimbra
+      - -c
+      - zmmtactl restart
+  changed_when: true

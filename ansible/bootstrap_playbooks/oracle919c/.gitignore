@@ -1,0 +1,6 @@
+.env
+files/oracle_db_admin_password_seed
+*.retry
+*.log
+files/
+artifacts/

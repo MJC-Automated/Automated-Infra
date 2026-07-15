@@ -44,7 +44,7 @@ output "full_object" {
     boot_disk_device            = var.boot_disk_device
     ha_state                    = var.ha_state
     ha_group                    = var.ha_group
-    vm_state                    = var.vm_state
+    power_state                 = var.power_state
     start_at_node_boot          = var.start_at_node_boot
     protection                  = var.protection
     balloon                     = var.balloon
@@ -55,6 +55,7 @@ output "full_object" {
     bootdisk_storage            = var.bootdisk_storage
     bootdisk_size               = var.bootdisk_size
     additional_disks            = var.additional_disks
+    backup_enabled              = var.backup_enabled
     cicustom                    = var.cicustom
     cloudinit_first_access_user = var.cloudinit_first_access_user
   }

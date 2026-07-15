@@ -91,7 +91,7 @@ ver_to_int() {
   major="${major:-0}"
   minor="${minor:-0}"
   patch="${patch:-0}"
-  printf '%03d%03d%03d\n' "${major}" "${minor}" "${patch}"
+  echo $(( 10#${major} * 1000000 + 10#${minor} * 1000 + 10#${patch} ))
 }
 
 extract_semver() {
@@ -105,6 +105,24 @@ check_cmd() {
     log_ok "Found command: ${cmd} ($(command -v "${cmd}"))"
   else
     log_fail "Missing command: ${cmd}"
+  fi
+}
+
+check_versioned_cmd() {
+  local cmd="$1"
+  local output version
+
+  if ! command -v "${cmd}" >/dev/null 2>&1; then
+    log_fail "Missing command: ${cmd}"
+    return
+  fi
+
+  output="$("${cmd}" --version 2>&1 || true)"
+  version="$(printf '%s\n' "${output}" | extract_semver || true)"
+  if [[ -n "${version}" ]]; then
+    log_ok "Found ${cmd} ${version} ($(command -v "${cmd}"))"
+  else
+    log_fail "${cmd} did not report a semantic version; replace the executable at $(command -v "${cmd}")"
   fi
 }
 
@@ -128,8 +146,9 @@ check_cmd packer
 check_cmd vault
 check_cmd ssh
 check_cmd scp
-check_cmd tflint
-check_cmd tfsec
+check_versioned_cmd tflint
+check_versioned_cmd tfsec
+check_versioned_cmd terraform-docs
 
 # Optional command.
 if command -v jq >/dev/null 2>&1; then

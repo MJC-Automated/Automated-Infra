@@ -1,0 +1,117 @@
+---
+- name: Ensure gitlab configuration directory exists
+  ansible.builtin.file:
+    path: /etc/gitlab
+    state: directory
+    mode: "0775"
+
+- name: Write gitlab.rb configuration file
+  ansible.builtin.template:
+    src: gitlab.rb.j2
+    dest: /etc/gitlab/gitlab.rb
+    mode: "0600"
+  register: config_file
+
+- name: Trigger gitlab-ctl reconfigure if config changed
+  ansible.builtin.command: gitlab-ctl reconfigure
+  when: config_file.changed or gitlab_force_reconfigure | bool
+  register: reconfigure_out
+  changed_when: true
+
+- name: Start GitLab service if not running
+  ansible.builtin.command: gitlab-ctl start
+  register: start_out
+  changed_when: false
+  failed_when: false
+
+- name: Wait for GitLab instance to be responsive
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/-/readiness"
+    status_code: 200
+  register: gitlab_responsive
+  until: gitlab_responsive.status == 200
+  retries: 30
+  delay: 10
+
+- name: Provision root Personal Access Token (PAT) for API automation
+  ansible.builtin.command: >
+    gitlab-rails runner "
+    pat_name = '{{ gitlab_api_token_name }}';
+    user = User.find_by_username('root');
+    existing = user.personal_access_tokens.where(name: pat_name, revoked: false).order(id: :desc).first;
+    min_expiry = {{ ((gitlab_api_token_expires_in_days | int) // 2) }}.days.from_now.to_date;
+    if existing && existing.expires_at && existing.expires_at >= min_expiry;
+      puts 'OK';
+    else
+      user.personal_access_tokens.where(name: pat_name).destroy_all;
+      token = user.personal_access_tokens.create!(name: pat_name, scopes: [:api], expires_at: {{ gitlab_api_token_expires_in_days }}.days.from_now);
+      token.set_token('{{ gitlab_api_token }}');
+      token.save!;
+      puts 'CHANGED';
+    end;
+    "
+  register: pat_provision
+  changed_when: "'CHANGED' in pat_provision.stdout"
+  no_log: true
+
+- name: Configure GitLab application settings
+  ansible.builtin.uri:
+    url: "{{ gitlab_external_url }}/api/v4/application/settings"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      signup_enabled: "{{ gitlab_signup_enabled | bool | lower }}"
+      default_project_visibility: "{{ gitlab_default_project_visibility }}"
+      default_group_visibility: "{{ gitlab_default_group_visibility }}"
+      default_snippet_visibility: "{{ gitlab_default_snippet_visibility }}"
+      default_projects_limit: "{{ gitlab_default_projects_limit }}"
+      default_syntax_highlighting_theme: "{{ gitlab_default_syntax_highlighting_theme }}"
+      default_dark_syntax_highlighting_theme: "{{ gitlab_default_dark_syntax_highlighting_theme }}"
+    status_code: 200
+  when: gitlab_configure_application_settings | bool
+  no_log: true
+  changed_when: false
+
+- name: Configure GitLab appearance
+  ansible.builtin.uri:
+    url: "{{ gitlab_external_url }}/api/v4/application/appearance"
+    method: PUT
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+    body_format: form-urlencoded
+    body:
+      title: "{{ gitlab_site_title }}"
+      description: "{{ gitlab_site_description }}"
+      header_message: "{{ gitlab_header_message }}"
+      footer_message: "{{ gitlab_footer_message }}"
+      message_font_color: "{{ gitlab_message_font_color }}"
+      message_background_color: "{{ gitlab_message_background_color }}"
+      pwa_name: "{{ gitlab_pwa_name }}"
+      pwa_short_name: "{{ gitlab_pwa_short_name }}"
+    status_code: 200
+  when: gitlab_configure_appearance | bool
+  no_log: true
+  changed_when: false
+
+- name: Configure root user GitLab UI preferences
+  ansible.builtin.command: >
+    gitlab-rails runner "
+    user = User.find_by_username('root');
+    pref = user.user_preference || user.build_user_preference;
+    changed = false;
+    if pref.respond_to?(:color_mode_id) && pref.color_mode_id != {{ gitlab_root_color_mode_id }};
+      pref.color_mode_id = {{ gitlab_root_color_mode_id }};
+      changed = true;
+    end;
+    if pref.respond_to?(:theme_id) && pref.theme_id != {{ gitlab_root_theme_id }};
+      pref.theme_id = {{ gitlab_root_theme_id }};
+      changed = true;
+    end;
+    pref.save! if changed;
+    puts(changed ? 'CHANGED' : 'OK');
+    "
+  register: gitlab_root_preferences
+  changed_when: "'CHANGED' in gitlab_root_preferences.stdout"
+  when: gitlab_configure_root_preferences | bool

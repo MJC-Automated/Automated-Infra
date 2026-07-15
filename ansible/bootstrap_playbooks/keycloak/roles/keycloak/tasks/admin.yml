@@ -1,0 +1,244 @@
+---
+- name: Check whether desired Keycloak admin credentials are active
+  ansible.builtin.shell: |
+    set -euo pipefail
+    "{{ keycloak_install_dir }}/bin/kcadm.sh" \
+      get users \
+      -r master \
+      --limit 1 \
+      --no-config \
+      --server "http://127.0.0.1:{{ keycloak_http_port }}" \
+      --realm master \
+      --user "$KEYCLOAK_ADMIN_USER" \
+      --password "$KEYCLOAK_ADMIN_PASSWORD" \
+      >/dev/null
+  args:
+    executable: /bin/bash
+  environment:
+    KEYCLOAK_ADMIN_USER: "{{ keycloak_admin_user }}"
+    KEYCLOAK_ADMIN_PASSWORD: "{{ keycloak_admin_password }}"
+  become: true
+  become_user: "{{ keycloak_user }}"
+  register: keycloak_desired_admin_auth
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Generate temporary Keycloak recovery service account credentials
+  ansible.builtin.set_fact:
+    keycloak_recovery_client_id: "ansible-recovery-{{ lookup('password', '/dev/null length=12 chars=ascii_lowercase,digits') }}"
+    keycloak_recovery_client_secret: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+  when: keycloak_desired_admin_auth.rc != 0
+  no_log: true
+
+- name: Stop Keycloak before recovery bootstrap
+  ansible.builtin.systemd:
+    name: keycloak
+    state: stopped
+  when: keycloak_desired_admin_auth.rc != 0
+
+- name: Bootstrap temporary Keycloak recovery service account
+  ansible.builtin.shell: |
+    set -euo pipefail
+    "{{ keycloak_install_dir }}/bin/kc.sh" bootstrap-admin service \
+      --no-prompt \
+      --optimized \
+      --client-id:env KEYCLOAK_RECOVERY_CLIENT_ID \
+      --client-secret:env KEYCLOAK_RECOVERY_CLIENT_SECRET
+  args:
+    executable: /bin/bash
+  environment:
+    KC_DB: postgres
+    KC_DB_URL: "jdbc:postgresql://{{ keycloak_db_host }}:{{ keycloak_db_port }}/{{ keycloak_db_name }}"
+    KC_DB_USERNAME: "{{ keycloak_db_user }}"
+    KC_DB_PASSWORD: "{{ keycloak_db_password }}"
+    KEYCLOAK_RECOVERY_CLIENT_ID: "{{ keycloak_recovery_client_id }}"
+    KEYCLOAK_RECOVERY_CLIENT_SECRET: "{{ keycloak_recovery_client_secret }}"
+  become: true
+  become_user: "{{ keycloak_user }}"
+  when: keycloak_desired_admin_auth.rc != 0
+  changed_when: true
+  no_log: true
+
+- name: Start Keycloak after recovery bootstrap
+  ansible.builtin.systemd:
+    name: keycloak
+    state: started
+  when: keycloak_desired_admin_auth.rc != 0
+
+- name: Wait for Keycloak readiness after recovery bootstrap
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ keycloak_health_port }}/health/ready"
+    method: GET
+    status_code: 200
+  register: keycloak_recovery_ready
+  retries: 20
+  delay: 6
+  until: keycloak_recovery_ready.status == 200
+  when: keycloak_desired_admin_auth.rc != 0
+
+- name: Reconcile managed Keycloak admin credentials
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    state_file="/var/lib/keycloak/.managed-admin-user"
+    kcadm_bin="{{ keycloak_install_dir }}/bin/kcadm.sh"
+    server_url="http://127.0.0.1:{{ keycloak_http_port }}"
+    target_realm="master"
+    changed=0
+
+    desired_args=(
+      --no-config
+      --server "$server_url"
+      --realm "$target_realm"
+      --user "$KEYCLOAK_ADMIN_USER"
+      --password "$KEYCLOAK_ADMIN_PASSWORD"
+    )
+
+    active_args=("${desired_args[@]}")
+    if [[ "$KEYCLOAK_USE_RECOVERY_AUTH" == "true" ]]; then
+      active_args=(
+        --no-config
+        --server "$server_url"
+        --realm "$target_realm"
+        --client "$KEYCLOAK_RECOVERY_CLIENT_ID"
+        --secret "$KEYCLOAK_RECOVERY_CLIENT_SECRET"
+      )
+    fi
+
+    kcadm_active() {
+      "$kcadm_bin" "$@" "${active_args[@]}"
+    }
+
+    kcadm_desired() {
+      "$kcadm_bin" "$@" "${desired_args[@]}"
+    }
+
+    can_auth_with_desired() {
+      kcadm_desired get users -r "$target_realm" --limit 1 >/dev/null 2>&1
+    }
+
+    find_user_id() {
+      local username="$1"
+      kcadm_active get users -r "$target_realm" -q username="$username" | python3 -c 'import json,sys; target=sys.argv[1]; users=json.load(sys.stdin); print(next((user.get("id", "") for user in users if user.get("username") == target), ""))' "$username"
+    }
+
+    get_user_enabled() {
+      local user_id="$1"
+      kcadm_active get "users/$user_id" -r "$target_realm" --fields enabled | python3 -c 'import json,sys; data=json.load(sys.stdin); print(str(data.get("enabled", False)).lower())'
+    }
+
+    user_has_admin_role() {
+      local username="$1"
+      kcadm_active get-roles -r "$target_realm" --uusername "$username" --effective | python3 -c 'import json,sys; roles=json.load(sys.stdin); print("yes" if any(role.get("name") == "admin" and not role.get("clientRole", False) for role in roles) else "no")'
+    }
+
+    list_temporary_admin_users() {
+      kcadm_active get users -r "$target_realm" | python3 -c 'import json,sys; users=json.load(sys.stdin); [print(user.get("username", "")) for user in users if any(str(value).lower() == "true" for value in (user.get("attributes") or {}).get("is_temporary_admin", []))]'
+    }
+
+    list_temporary_admin_client_uuids() {
+      kcadm_active get clients -r "$target_realm" | python3 -c 'import json,sys; clients=json.load(sys.stdin); [print(client.get("id", "")) for client in clients if str((client.get("attributes") or {}).get("is_temporary_admin", "")).lower() == "true"]'
+    }
+
+    previous_managed_user=""
+    if [[ -f "$state_file" ]]; then
+      previous_managed_user="$(tr -d '\n' < "$state_file")"
+    fi
+
+    desired_user_id="$(find_user_id "$KEYCLOAK_ADMIN_USER")"
+    if [[ -z "$desired_user_id" ]]; then
+      kcadm_active create users -r "$target_realm" -s username="$KEYCLOAK_ADMIN_USER" -s enabled=true >/dev/null
+      desired_user_id="$(find_user_id "$KEYCLOAK_ADMIN_USER")"
+      changed=1
+    fi
+
+    if [[ -z "$desired_user_id" ]]; then
+      echo "Unable to locate managed Keycloak admin user after reconciliation." >&2
+      exit 1
+    fi
+
+    if [[ "$(get_user_enabled "$desired_user_id")" != "true" ]]; then
+      kcadm_active update "users/$desired_user_id" -r "$target_realm" -s enabled=true >/dev/null
+      changed=1
+    fi
+
+    if [[ "$(user_has_admin_role "$KEYCLOAK_ADMIN_USER")" != "yes" ]]; then
+      kcadm_active add-roles \
+        -r "$target_realm" \
+        --uusername "$KEYCLOAK_ADMIN_USER" \
+        --rolename admin \
+        >/dev/null
+      changed=1
+    fi
+
+    if ! can_auth_with_desired; then
+      kcadm_active set-password \
+        -r "$target_realm" \
+        --username "$KEYCLOAK_ADMIN_USER" \
+        --new-password "$KEYCLOAK_ADMIN_PASSWORD" \
+        >/dev/null
+      changed=1
+    fi
+
+    if ! can_auth_with_desired; then
+      echo "Unable to activate desired Keycloak admin credentials." >&2
+      exit 1
+    fi
+
+    active_args=("${desired_args[@]}")
+
+    while IFS= read -r temporary_admin_user; do
+      if [[ -z "$temporary_admin_user" || "$temporary_admin_user" == "$KEYCLOAK_ADMIN_USER" ]]; then
+        continue
+      fi
+      temporary_admin_user_id="$(find_user_id "$temporary_admin_user")"
+      if [[ -n "$temporary_admin_user_id" && "$(get_user_enabled "$temporary_admin_user_id")" == "true" ]]; then
+        kcadm_active update "users/$temporary_admin_user_id" -r "$target_realm" -s enabled=false >/dev/null
+        changed=1
+      fi
+    done < <(list_temporary_admin_users)
+
+    if [[ -n "$previous_managed_user" && "$previous_managed_user" != "$KEYCLOAK_ADMIN_USER" ]]; then
+      previous_user_id="$(find_user_id "$previous_managed_user")"
+      if [[ -n "$previous_user_id" && "$(get_user_enabled "$previous_user_id")" == "true" ]]; then
+        kcadm_active update "users/$previous_user_id" -r "$target_realm" -s enabled=false >/dev/null
+        changed=1
+      fi
+    fi
+
+    current_managed_user=""
+    if [[ -f "$state_file" ]]; then
+      current_managed_user="$(tr -d '\n' < "$state_file")"
+    fi
+    if [[ "$current_managed_user" != "$KEYCLOAK_ADMIN_USER" ]]; then
+      printf '%s\n' "$KEYCLOAK_ADMIN_USER" > "$state_file"
+      changed=1
+    fi
+
+    if [[ "$KEYCLOAK_USE_RECOVERY_AUTH" == "true" ]]; then
+      while IFS= read -r temporary_admin_client_uuid; do
+        if [[ -z "$temporary_admin_client_uuid" ]]; then
+          continue
+        fi
+        kcadm_active delete "clients/$temporary_admin_client_uuid" -r "$target_realm" >/dev/null
+        changed=1
+      done < <(list_temporary_admin_client_uuids)
+    fi
+
+    if [[ "$changed" -eq 1 ]]; then
+      echo CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  environment:
+    KEYCLOAK_ADMIN_USER: "{{ keycloak_admin_user }}"
+    KEYCLOAK_ADMIN_PASSWORD: "{{ keycloak_admin_password }}"
+    KEYCLOAK_USE_RECOVERY_AUTH: "{{ (keycloak_desired_admin_auth.rc != 0) | ternary('true', 'false') }}"
+    KEYCLOAK_RECOVERY_CLIENT_ID: "{{ keycloak_recovery_client_id | default('') }}"
+    KEYCLOAK_RECOVERY_CLIENT_SECRET: "{{ keycloak_recovery_client_secret | default('') }}"
+  become: true
+  become_user: "{{ keycloak_user }}"
+  register: keycloak_admin_reconcile
+  changed_when: "'CHANGED' in keycloak_admin_reconcile.stdout"
+  no_log: true

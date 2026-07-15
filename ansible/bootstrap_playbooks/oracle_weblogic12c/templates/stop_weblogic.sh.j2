@@ -1,0 +1,21 @@
+# templates/stop_weblogic.sh.j2
+#!/bin/bash
+# Script to stop the WebLogic Admin Server for {{ domain_name }}
+
+TIME=`date +%h-%d-%Y-%s`
+
+# Ensure JAVA_HOME is set for the script context
+export JAVA_HOME="{{ java_home }}"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+echo "INFO: Stopping WebLogic Admin Server for {{ wlst_domain_name | default(domain_name) }} on port {{ wlst_admin_port | default(admin_port) }}..."
+echo "INFO: Logs will be redirected to {{ wlst_domain_logs_dir | default(domain_logs_dir) }}/stopWeblogic_{{ (wlst_domain_name | default(domain_name)) | upper }}_$TIME.log"
+
+# Navigate to domain bin directory and start the server
+cd "{{ wlst_domain_home | default(domain_home) }}/bin" || { echo "ERROR: Could not change to domain bin directory."; exit 1; }
+
+# Stop the WebLogic server using the stopWebLogic.sh script
+# This script usually prompts for username/password, so we'll pass them in.
+./stopWebLogic.sh {{ wlst_admin_user_effective | default(weblogic_admin_user_effective | default(weblogic_admin_user | default('weblogic'))) }} "{{ weblogic_password }}" > "{{ wlst_domain_logs_dir | default(domain_logs_dir) }}/stopWeblogic_{{ (wlst_domain_name | default(domain_name)) | upper }}_$TIME.log" 2>&1
+
+echo "INFO: WebLogic Admin Server stop command issued."

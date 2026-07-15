@@ -104,6 +104,9 @@ variable "group_os_profile" {
     weblogic14c     = "oracle9"
     cicd            = "ubuntu2404"
     jenkins         = "ubuntu2404"
+    jenkins_agent   = "ubuntu2404"
+    gitlab          = "ubuntu2404"
+    gitlab_runner   = "ubuntu2404"
     zimbra          = "oracle9"
   }
   validation {
@@ -128,6 +131,77 @@ variable "data_disk_defaults" {
   }
 }
 
+variable "backup_defaults" {
+  description = "Default Proxmox VM backup policy. Per-VM backup and backup_storage values override these settings."
+  type = object({
+    enabled              = optional(bool, false)
+    storage              = optional(string, "")
+    schedule             = optional(string, "03:30")
+    mode                 = optional(string, "snapshot")
+    compress             = optional(string, "zstd")
+    bandwidth_limit_kib  = optional(number, 51200)
+    ionice               = optional(number, 8)
+    repeat_missed        = optional(bool, false)
+    notification_mode    = optional(string, "notification-system")
+    max_backup_age_hours = optional(number, 36)
+    retention = optional(object({
+      keep_last    = optional(number, 2)
+      keep_daily   = optional(number, 7)
+      keep_weekly  = optional(number, 4)
+      keep_monthly = optional(number, 3)
+      keep_yearly  = optional(number, 0)
+    }), {})
+  })
+  default = {}
+  validation {
+    condition = (
+      trimspace(var.backup_defaults.storage) == "" ||
+      can(regex("^[A-Za-z0-9._-]+$", trimspace(var.backup_defaults.storage)))
+    )
+    error_message = "backup_defaults.storage must be empty or a valid Proxmox storage name."
+  }
+  validation {
+    condition     = !var.backup_defaults.enabled || trimspace(var.backup_defaults.storage) != ""
+    error_message = "backup_defaults.storage is required when backups are enabled by default."
+  }
+  validation {
+    condition     = contains(["snapshot", "stop", "suspend"], var.backup_defaults.mode)
+    error_message = "backup_defaults.mode must be snapshot, stop, or suspend."
+  }
+  validation {
+    condition     = contains(["zstd", "gzip", "lzo", "0"], var.backup_defaults.compress)
+    error_message = "backup_defaults.compress must be zstd, gzip, lzo, or 0."
+  }
+  validation {
+    condition     = var.backup_defaults.bandwidth_limit_kib >= 0 && var.backup_defaults.ionice >= 0 && var.backup_defaults.ionice <= 8
+    error_message = "backup bandwidth_limit_kib must be non-negative and ionice must be between 0 and 8."
+  }
+  validation {
+    condition     = contains(["auto", "legacy-sendmail", "notification-system"], var.backup_defaults.notification_mode)
+    error_message = "backup_defaults.notification_mode is invalid."
+  }
+  validation {
+    condition = (
+      var.backup_defaults.max_backup_age_hours > 0 &&
+      alltrue([
+        var.backup_defaults.retention.keep_last >= 0,
+        var.backup_defaults.retention.keep_daily >= 0,
+        var.backup_defaults.retention.keep_weekly >= 0,
+        var.backup_defaults.retention.keep_monthly >= 0,
+        var.backup_defaults.retention.keep_yearly >= 0
+      ]) &&
+      sum([
+        var.backup_defaults.retention.keep_last,
+        var.backup_defaults.retention.keep_daily,
+        var.backup_defaults.retention.keep_weekly,
+        var.backup_defaults.retention.keep_monthly,
+        var.backup_defaults.retention.keep_yearly
+      ]) > 0
+    )
+    error_message = "Backup age must be positive, retention counts must be non-negative, and at least one retained backup is required."
+  }
+}
+
 // Logging Configuration
 variable "log_file_prefix" {
   description = "Prefix for log file naming."
@@ -145,31 +219,88 @@ variable "log_level" {
   }
 }
 
+variable "proxmox_log_enable" {
+  description = "Whether to enable Telmate Proxmox provider logging."
+  type        = bool
+  default     = true
+}
+
+variable "proxmox_parallel" {
+  description = "Allowed simultaneous Proxmox provider operations."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.proxmox_parallel >= 1
+    error_message = "proxmox_parallel must be at least 1."
+  }
+}
+
+variable "proxmox_debug" {
+  description = "Whether to enable verbose proxmox-api-go debug output."
+  type        = bool
+  default     = false
+}
+
+variable "proxmox_minimum_permission_check" {
+  description = "Whether the Proxmox provider should check minimum API token permissions."
+  type        = bool
+  default     = true
+}
+
+variable "proxmox_minimum_permission_list" {
+  description = "Optional override for the Proxmox provider minimum permission check list."
+  type        = list(string)
+  default     = []
+}
+
 
 // VM Default Configuration
 variable "vm_defaults" {
   description = "Default configuration values for VMs across all node types."
   type = object({
-    agent_enabled      = optional(number, 1)
-    os_type            = optional(string, "cloud-init")
-    cpu_type           = optional(string, "host")
-    network_model      = optional(string, "virtio")
-    scsihw             = optional(string, "virtio-scsi-single")
-    boot_order         = optional(string, "order=scsi0;net0")
-    boot_disk_device   = optional(string, "scsi0")
-    bios               = optional(string, "ovmf")
-    machine            = optional(string, "q35")
-    ha_state           = optional(string, "")
-    ha_group           = optional(string, "")
-    vm_state           = optional(string, "running")
-    start_at_node_boot = optional(bool, false)
-    protection         = optional(bool, false)
-    balloon            = optional(number, 0)
+    agent_enabled         = optional(number, 1)
+    os_type               = optional(string, "cloud-init")
+    cpu_type              = optional(string, "host")
+    network_model         = optional(string, "virtio")
+    scsihw                = optional(string, "virtio-scsi-single")
+    boot_order            = optional(string, "order=scsi0;net0")
+    boot_disk_device      = optional(string, "scsi0")
+    bios                  = optional(string, "ovmf")
+    machine               = optional(string, "q35")
+    efi_disk_enabled      = optional(bool, true)
+    efi_disk_storage      = optional(string, "")
+    efi_disk_type         = optional(string, "4m")
+    efi_disk_format       = optional(string, "raw")
+    efi_pre_enrolled_keys = optional(bool, false)
+    ha_state              = optional(string, "")
+    ha_group              = optional(string, "")
+    power_state           = optional(string, "running")
+    start_at_node_boot    = optional(bool, false)
+    protection            = optional(bool, false)
+    balloon               = optional(number, 0)
+    nameserver            = optional(string, "")
+    searchdomain          = optional(string, "")
+    skip_ipv6             = optional(bool, false)
   })
   default = {}
   validation {
-    condition     = contains(["running", "stopped"], trimspace(var.vm_defaults.vm_state))
-    error_message = "vm_defaults.vm_state must be one of: running, stopped."
+    condition     = contains(["running", "stopped"], trimspace(var.vm_defaults.power_state))
+    error_message = "vm_defaults.power_state must be one of: running, stopped."
+  }
+  validation {
+    condition     = contains(["2m", "4m"], lower(trimspace(var.vm_defaults.efi_disk_type)))
+    error_message = "vm_defaults.efi_disk_type must be one of: 2m, 4m."
+  }
+  validation {
+    condition     = contains(["raw", "qcow2"], lower(trimspace(var.vm_defaults.efi_disk_format)))
+    error_message = "vm_defaults.efi_disk_format must be one of: raw, qcow2."
+  }
+  validation {
+    condition = (
+      trimspace(var.vm_defaults.efi_disk_storage) == "" ||
+      can(regex("^[A-Za-z0-9._-]+$", trimspace(var.vm_defaults.efi_disk_storage)))
+    )
+    error_message = "vm_defaults.efi_disk_storage must be empty or a valid Proxmox storage name (letters, numbers, dot, underscore, hyphen)."
   }
 }
 
@@ -199,26 +330,43 @@ variable "cloudinit_first_access_ssh_public_key" {
   }
 }
 
+variable "force_recreate_on_partitioning_change" {
+  description = "Whether generated partitioning cloud-init snippet content changes should force VM recreation."
+  type        = bool
+  default     = false
+}
+
 // Node Groups Configuration
 variable "node_groups" {
   description = "A map of node groups to provision (e.g., 'oracledb', 'weblogic', 'cicd', 'k8s'), value is a map of VM configurations."
   type = map(map(object({
-    vmid               = number
-    name               = string
-    ipconfig0          = string
-    cores              = number
-    memory             = number // in MB
-    disk_size          = string // e.g., "50G"
-    vm_disk_storage    = optional(string, "")
-    tags               = optional(string, "")
-    clone_template     = optional(string, "")
-    os_profile         = optional(string, "")
-    ha_state           = optional(string, "")
-    ha_group           = optional(string, "")
-    vm_state           = optional(string, "")
-    start_at_node_boot = optional(bool)
-    protection         = optional(bool)
-    balloon            = optional(number)
+    vmid                        = number
+    name                        = string
+    ipconfig0                   = string
+    cores                       = number
+    memory                      = number // in MB
+    disk_size                   = string // e.g., "50G"
+    vm_disk_storage             = optional(string, "")
+    tags                        = optional(string, "")
+    clone_template              = optional(string, "")
+    os_profile                  = optional(string, "")
+    ha_state                    = optional(string, "")
+    ha_group                    = optional(string, "")
+    efi_disk_enabled            = optional(bool)
+    efi_disk_storage            = optional(string, "")
+    efi_disk_type               = optional(string, "")
+    efi_disk_format             = optional(string, "")
+    efi_pre_enrolled_keys       = optional(bool)
+    power_state                 = optional(string, "")
+    start_at_node_boot          = optional(bool)
+    protection                  = optional(bool)
+    backup                      = optional(bool)
+    backup_storage              = optional(string, "")
+    balloon                     = optional(number)
+    nameserver                  = optional(string, "")
+    searchdomain                = optional(string, "")
+    skip_ipv6                   = optional(bool)
+    force_recreate_on_change_of = optional(string, "")
     data_disk = optional(object({
       size    = string
       storage = optional(string, "")
@@ -290,6 +438,17 @@ variable "node_groups" {
     condition = alltrue(flatten([
       for _, group in var.node_groups : [
         for _, vm in group : (
+          trimspace(try(vm.efi_disk_storage, "")) == "" ||
+          can(regex("^[A-Za-z0-9._-]+$", trimspace(vm.efi_disk_storage)))
+        )
+      ]
+    ]))
+    error_message = "node_groups.*.*.efi_disk_storage must be empty or a valid Proxmox storage name (letters, numbers, dot, underscore, hyphen)."
+  }
+  validation {
+    condition = alltrue(flatten([
+      for _, group in var.node_groups : [
+        for _, vm in group : (
           try(vm.partitioning.enabled, false) ? trimspace(try(vm.cicustom, "")) == "" : true
         )
       ]
@@ -300,12 +459,35 @@ variable "node_groups" {
     condition = alltrue(flatten([
       for _, group in var.node_groups : [
         for _, vm in group : (
-          trimspace(try(vm.vm_state, "")) == "" ||
-          contains(["running", "stopped"], trimspace(vm.vm_state))
+          trimspace(try(vm.power_state, "")) == "" ||
+          contains(["running", "stopped"], trimspace(vm.power_state))
         )
       ]
     ]))
-    error_message = "node_groups.*.*.vm_state must be empty, running, or stopped."
+    error_message = "node_groups.*.*.power_state must be empty, running, or stopped."
+  }
+  validation {
+    condition = alltrue(flatten([
+      for _, group in var.node_groups : [
+        for _, vm in group : (
+          trimspace(try(vm.backup_storage, "")) == "" ||
+          can(regex("^[A-Za-z0-9._-]+$", trimspace(vm.backup_storage)))
+        )
+      ]
+    ]))
+    error_message = "node_groups.*.*.backup_storage must be empty or a valid Proxmox storage name."
+  }
+  validation {
+    condition = alltrue(flatten([
+      for _, group in var.node_groups : [
+        for _, vm in group : (
+          !coalesce(try(vm.backup, null), var.backup_defaults.enabled) ||
+          trimspace(try(vm.backup_storage, "")) != "" ||
+          trimspace(var.backup_defaults.storage) != ""
+        )
+      ]
+    ]))
+    error_message = "Every backup-enabled VM requires backup_storage or backup_defaults.storage."
   }
   validation {
     condition = alltrue(flatten([

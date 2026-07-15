@@ -1,0 +1,34 @@
+# templates/start_weblogic.sh.j2
+#!/bin/bash
+# Script to start the WebLogic Admin Server for {{ domain_name }}
+
+unset DISPLAY # Prevents GUI errors in nohup
+
+# Use full path for 'date' command to ensure it's found
+# Changed timestamp format to include Year, Hour, Minute, and Second for uniqueness and readability.
+TIME=`/usr/bin/date +%b-%d-%Y-%H%M%S`
+
+# Ensure JAVA_HOME is set for the script context
+export JAVA_HOME="{{ java_home }}"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+export USER_MEM_ARGS="{{ wlst_user_mem_args_effective | default(weblogic_user_mem_args_effective | default(weblogic_user_mem_args)) }}"
+export JAVA_OPTIONS="-Djava.net.preferIPv4Stack=true -Dcoherence.clusterport={{ wlst_coherence_port | default(7574) }} -Dcoherence.cluster={{ wlst_domain_name | default(domain_name) }}_Coherence -Dcoherence.localhost={{ wlst_coherence_localhost | default(ansible_host | default('127.0.0.1')) }} -Dcoherence.localport=0 -Dcoherence.localport.adjust=true -Dcoherence.wka={{ wlst_coherence_wka | default(wlst_coherence_localhost | default(ansible_host | default('127.0.0.1'))) }} $JAVA_OPTIONS"
+
+# Ensure GC log target exists before JVM startup so rotation does not fail on missing paths.
+GC_LOG_FILE="{{ wlst_gc_log_file | default(weblogic_gc_log_file | default('')) }}"
+if [ -n "$GC_LOG_FILE" ]; then
+  /usr/bin/mkdir -p "$(dirname "$GC_LOG_FILE")"
+  /usr/bin/touch "$GC_LOG_FILE"
+fi
+
+echo "INFO: Starting WebLogic Admin Server for {{ wlst_domain_name | default(domain_name) }} on port {{ wlst_admin_port | default(admin_port) }}..."
+echo "INFO: Logs will be redirected to {{ wlst_domain_logs_dir | default(domain_logs_dir) }}/startWeblogic_{{ (wlst_domain_name | default(domain_name)) | upper }}_$TIME.log"
+
+# Navigate to domain bin directory and start the server
+cd "{{ wlst_domain_home | default(domain_home) }}/bin" || { echo "ERROR: Could not change to domain bin directory."; exit 1; }
+
+# Start the WebLogic server in the foreground, redirecting output to a log file
+exec ./startWebLogic.sh > "{{ wlst_domain_logs_dir | default(domain_logs_dir) }}/startWeblogic_{{ (wlst_domain_name | default(domain_name)) | upper }}_$TIME.log" 2>&1
+
+echo "INFO: WebLogic Admin Server start command issued."

@@ -4,16 +4,16 @@
 
 - [terraform-proxmox/Makefile](../../terraform-proxmox/Makefile)
 - [README.md](../../README.md)
-- [user-man/main.yml](../../user-man/main.yml)
-- [time_sync/main.yml](../../time_sync/main.yml)
-- [bootstrap_playbooks/freeipa/main.yml](../../bootstrap_playbooks/freeipa/main.yml)
-- [bootstrap_playbooks/keycloak/roles/keycloak/tasks/main.yml](../../bootstrap_playbooks/keycloak/roles/keycloak/tasks/main.yml)
-- [bootstrap_playbooks/observability/roles/observability/tasks/main.yml](../../bootstrap_playbooks/observability/roles/observability/tasks/main.yml)
-- [bootstrap_playbooks/zabbix_server/roles/zabbix_server/tasks/main.yml](../../bootstrap_playbooks/zabbix_server/roles/zabbix_server/tasks/main.yml)
-- [bootstrap_playbooks/zimbra/roles/zimbra/tasks/main.yml](../../bootstrap_playbooks/zimbra/roles/zimbra/tasks/main.yml)
-- [bootstrap_playbooks/oracle819c/main.yml](../../bootstrap_playbooks/oracle819c/main.yml)
-- [bootstrap_playbooks/oracle_weblogic12c/main.yml](../../bootstrap_playbooks/oracle_weblogic12c/main.yml)
-- [bootstrap_playbooks/oracle_weblogic14c/main.yml](../../bootstrap_playbooks/oracle_weblogic14c/main.yml)
+- [ansible/user-man/main.yml](../../ansible/user-man/main.yml)
+- [ansible/time_sync/main.yml](../../ansible/time_sync/main.yml)
+- [ansible/bootstrap_playbooks/freeipa/main.yml](../../ansible/bootstrap_playbooks/freeipa/main.yml)
+- [ansible/bootstrap_playbooks/keycloak/roles/keycloak/tasks/main.yml](../../ansible/bootstrap_playbooks/keycloak/roles/keycloak/tasks/main.yml)
+- [ansible/bootstrap_playbooks/observability/roles/observability/tasks/main.yml](../../ansible/bootstrap_playbooks/observability/roles/observability/tasks/main.yml)
+- [ansible/bootstrap_playbooks/zabbix_server/roles/zabbix_server/tasks/main.yml](../../ansible/bootstrap_playbooks/zabbix_server/roles/zabbix_server/tasks/main.yml)
+- [ansible/bootstrap_playbooks/zimbra/roles/zimbra/tasks/main.yml](../../ansible/bootstrap_playbooks/zimbra/roles/zimbra/tasks/main.yml)
+- [ansible/bootstrap_playbooks/oracle819c/main.yml](../../ansible/bootstrap_playbooks/oracle819c/main.yml)
+- [ansible/bootstrap_playbooks/oracle_weblogic12c/main.yml](../../ansible/bootstrap_playbooks/oracle_weblogic12c/main.yml)
+- [ansible/bootstrap_playbooks/oracle_weblogic14c/main.yml](../../ansible/bootstrap_playbooks/oracle_weblogic14c/main.yml)
 
 ## Why This Chapter Exists
 
@@ -65,8 +65,8 @@ Common `pre_tasks` patterns in the current codebase include:
 
 Examples:
 
-- `user-man/main.yml` asserts supported `ansible-core` and Python 3.9+ on managed hosts
-- `time_sync/main.yml` bootstraps Python, gathers facts, and applies `TIME_SYNC_*` overrides from a local `.env`
+- `ansible/user-man/main.yml` asserts supported `ansible-core` and Python 3.9+ on managed hosts
+- `ansible/time_sync/main.yml` bootstraps Python, gathers facts, and applies `TIME_SYNC_*` overrides from a local `.env`
 - `freeipa/main.yml` reads `FREEIPA_*` values from `.env` and sets install-time facts
 - WebLogic `main.yml` files assert control-node installer archives and password requirements before service work starts
 

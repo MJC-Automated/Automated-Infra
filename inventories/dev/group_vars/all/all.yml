@@ -93,7 +93,7 @@ users:
 # Example users to remove (uncomment and modify as needed)
 # Users marked for removal - these will be deleted along with their home directories
 remove_users:
-  - name: cloud-user  # Template for user removal (Defaulc cloud-init users). 
+  - name: cloud-user  # Template for user removal (Defaulc cloud-init users).
     state: absent
     remove_home: true
     force: true

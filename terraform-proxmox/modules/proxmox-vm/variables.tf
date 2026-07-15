@@ -116,6 +116,36 @@ variable "machine" {
   default     = ""
 }
 
+variable "efi_disk_enabled" {
+  description = "Create a persistent EFI variables disk when using OVMF."
+  type        = bool
+  default     = true
+}
+
+variable "efi_disk_storage" {
+  description = "Storage pool for the EFI variables disk. Defaults to the boot disk storage when empty."
+  type        = string
+  default     = ""
+}
+
+variable "efi_disk_type" {
+  description = "EFI variables disk type supported by Proxmox, usually 4m for modern guests."
+  type        = string
+  default     = "4m"
+}
+
+variable "efi_disk_format" {
+  description = "EFI variables disk format."
+  type        = string
+  default     = "raw"
+}
+
+variable "efi_pre_enrolled_keys" {
+  description = "Whether to pre-enroll Secure Boot keys on the EFI disk."
+  type        = bool
+  default     = false
+}
+
 variable "scsihw" {
   description = "SCSI controller to emulate (e.g., 'virtio-scsi-single')."
   type        = string
@@ -163,13 +193,13 @@ variable "ha_group" {
   }
 }
 
-variable "vm_state" {
+variable "power_state" {
   description = "Desired VM power state."
   type        = string
   default     = "running"
   validation {
-    condition     = contains(["running", "stopped"], trimspace(var.vm_state))
-    error_message = "vm_state must be one of: running, stopped."
+    condition     = contains(["running", "stopped"], trimspace(var.power_state))
+    error_message = "power_state must be one of: running, stopped."
   }
 }
 
@@ -195,6 +225,12 @@ variable "agent_timeout" {
   description = "Timeout in seconds for Proxmox agent operations."
   type        = number
   default     = 200
+}
+
+variable "skip_ipv6" {
+  description = "Tell the provider not to wait for an IPv6 address from the QEMU guest agent."
+  type        = bool
+  default     = false
 }
 
 // Network Settings
@@ -225,6 +261,12 @@ variable "bootdisk_size" {
   type        = string
 }
 
+variable "backup_enabled" {
+  description = "Include VM data disks in Proxmox backups. Cloud-init media is always excluded."
+  type        = bool
+  default     = false
+}
+
 variable "additional_disks" {
   description = "List of additional disks to attach to the VM."
   type = list(object({
@@ -236,12 +278,30 @@ variable "additional_disks" {
 }
 
 variable "ipconfig0" {
-  description = "IP configuration string for the first network interface (e.g., 'ip=198.51.100.0/24,gw=198.51.100.27')."
+  description = "IP configuration string for the first network interface (e.g., 'ip=203.0.113.0/24,gw=198.51.100.20')."
   type        = string
+}
+
+variable "nameserver" {
+  description = "DNS nameserver value to pass through cloud-init."
+  type        = string
+  default     = ""
+}
+
+variable "searchdomain" {
+  description = "DNS search domain value to pass through cloud-init."
+  type        = string
+  default     = ""
 }
 
 variable "cicustom" {
   description = "Custom cloud-init configuration (e.g., 'vendor=local:snippets/my-config.yaml')."
+  type        = string
+  default     = ""
+}
+
+variable "force_recreate_on_change_of" {
+  description = "Arbitrary change trigger string that forces VM recreation when changed."
   type        = string
   default     = ""
 }

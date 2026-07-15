@@ -1,0 +1,114 @@
+---
+- name: Unified observability automation
+  hosts: observability_servers
+  become: true
+  gather_facts: false
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  pre_tasks:
+    - name: Bootstrap python3 on target host (if missing)
+      ansible.builtin.raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        if command -v dnf >/dev/null 2>&1; then
+          dnf install -y python3 python3-dnf
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update -y && apt-get install -y python3 python3-apt
+        else
+          echo "No supported package manager found. Install python3 manually." >&2
+          exit 1
+        fi
+      changed_when: false
+      tags: [always]
+
+    - name: Gather facts
+      ansible.builtin.setup:
+      tags: [always]
+
+    - name: Read .env file from playbook directory (optional)
+      ansible.builtin.set_fact:
+        obs_env_content_lines: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/.env', errors='ignore') | default('', true)).splitlines() }}"
+      changed_when: false
+      tags: [always]
+
+    - name: Parse OBS_* values from .env
+      ansible.builtin.set_fact:
+        "{{ item.split('=', 1)[0] }}": "{{ item.split('=', 1)[1] | regex_replace('^[\"\\x27]|[\"\\x27]$', '') }}"
+      loop: "{{ obs_env_content_lines | default([]) }}"
+      when:
+        - (item | trim | length) > 0
+        - not (item | trim | regex_search('^#'))
+        - "'=' in item"
+      no_log: true
+      tags: [always]
+
+    - name: Apply OBS non-secret overrides from .env
+      ansible.builtin.set_fact:
+        observability_grafana_admin_user: "{{ OBS_GRAFANA_ADMIN_USER | default(observability_grafana_admin_user, true) }}"
+        observability_prometheus_retention: "{{ OBS_PROMETHEUS_RETENTION | default(observability_prometheus_retention, true) }}"
+        observability_manage_firewall: "{{ (OBS_MANAGE_FIREWALL | default(observability_manage_firewall | string)) | bool }}"
+      tags: [always]
+
+    - name: Apply OBS secret overrides from .env
+      ansible.builtin.set_fact:
+        observability_grafana_admin_password: "{{ OBS_GRAFANA_ADMIN_PASSWORD | default(observability_grafana_admin_password | default(''), true) }}"
+      no_log: true
+      tags: [always]
+
+    - name: Determine whether a Grafana admin password must be generated
+      ansible.builtin.set_fact:
+        observability_generate_grafana_password: >-
+          {{
+            observability_generate_local_password | bool
+            and observability_grafana_admin_password | length == 0
+          }}
+      tags: [always]
+
+    - name: Ensure observability local secret directory exists
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/files"
+        state: directory
+        owner: "{{ observability_local_secret_owner }}"
+        group: "{{ observability_local_secret_group }}"
+        mode: "0700"
+      when: observability_generate_grafana_password | bool
+      tags: [always]
+
+    - name: Resolve persistent Grafana admin password
+      ansible.builtin.set_fact:
+        observability_grafana_admin_password: >-
+          {{
+            lookup(
+              'ansible.builtin.password',
+              observability_grafana_admin_password_path ~ ' length=64 chars=ascii_letters,digits'
+            )
+            if observability_generate_grafana_password | bool
+            else observability_grafana_admin_password
+          }}
+      no_log: true
+      tags: [always]
+
+    - name: Enforce Grafana local secret ownership and permissions
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ observability_grafana_admin_password_path }}"
+        state: file
+        owner: "{{ observability_local_secret_owner }}"
+        group: "{{ observability_local_secret_group }}"
+        mode: "0600"
+      when: observability_generate_grafana_password | bool
+      no_log: true
+      tags: [always]
+
+  roles:
+    - role: observability

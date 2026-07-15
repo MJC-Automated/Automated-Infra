@@ -1,0 +1,20 @@
+---
+- name: Wait for GitLab external URL port to be open
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ 443 if gitlab_external_url | regex_search('^https') else 80 }}"
+    timeout: 600
+    state: started
+
+- name: Verify GitLab health status
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/-/readiness"
+    status_code: 200
+  register: gitlab_health
+  until: gitlab_health.status == 200
+  retries: 30
+  delay: 10
+
+- name: Log GitLab validation success
+  ansible.builtin.debug:
+    msg: "GitLab Server is successfully configured and reachable at {{ gitlab_external_url }}/"

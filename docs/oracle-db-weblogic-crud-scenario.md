@@ -4,7 +4,7 @@ This scenario validates Oracle 19c desired-state CRUD and application bootstrap 
 
 ## Scope
 
-- Add/modify CDB and PDB topology using `bootstrap_playbooks/oracle819c/group_vars/oracle_servers.yml`
+- Add/modify CDB and PDB topology using `ansible/bootstrap_playbooks/oracle819c/group_vars/oracle_servers.yml`
 - Apply Oracle 19c playbook
 - Verify CDB/PDB/listener state
 - Verify app SQL users/tablespaces bootstrap
@@ -73,7 +73,7 @@ oracle_servers:
 
 ## 2) Apply Oracle 19c
 
-Run from `bootstrap_playbooks/oracle819c`:
+Run from `ansible/bootstrap_playbooks/oracle819c`:
 
 ```bash
 ansible-playbook -i ../../inventories/example/inventory.ini -i ../../inventories/aliases.ini main.yml -l database19c --skip-tags artifacts

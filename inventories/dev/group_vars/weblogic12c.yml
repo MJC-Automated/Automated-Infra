@@ -1,11 +1,67 @@
 # Host-group overrides for WebLogic 12c nodes in dev.
 # Tuned to match the multi-domain service naming/ports pattern.
 
+# ==============================================================================
+# 1. Primary Domain Configuration (LifeCo_domain)
+# ==============================================================================
 domain_name: LifeCo_domain
 domain_home: "{{ oracle_middleware_home }}/user_projects/domains/{{ domain_name }}"
 admin_port: 8006
-domain_logs_dir: "/Logs/{{domain_name}}_logs"
+domain_logs_dir: "/Logs/{{ domain_name }}_logs"
 
+# --- Service Enable / Disable Toggles ---
+# Set managed_server_enable to true/false to enable or disable the generation,
+# creation (in WLST), and startup of systemd services for all managed servers.
+managed_server_enable: true
+
+# --- Managed Server Definition ---
+# Add, remove, or modify items in this list to define the managed servers in the domain.
+# To remove a service, comment out its lines. To add a service, append a new server block.
+#
+# NOTE ON EMPTY LISTS:
+# If you want to declare NO managed servers for the primary domain, set this variable
+# to an empty list: 'managed_servers: []'.
+# - Do NOT leave it blank (e.g., 'managed_servers:') as it will evaluate to null and cause
+#   Ansible loops to crash.
+# - Do NOT comment out this key entirely, or Ansible will fall back to the default list
+#   defined in vars/weblogic_vars.yml.
+#
+# In this environment, managed_servers is commented out to fall back to the default
+# configuration (creates ManagedServer1 and ManagedServer2 on 8001 and 8002):
+# managed_servers:
+#   - name: ManagedServer1
+#     listen_port: 8001
+#   - name: ManagedServer2
+#     listen_port: 8002
+
+# ==============================================================================
+# 2. Additional Domains Configuration (Optional)
+# ==============================================================================
+# Declare separate domains to be managed on the same host here.
+#
+# NOTE ON EMPTY LISTS:
+# If you want to declare NO additional domains, set: 'additional_weblogic_domains: []'.
+# - Do NOT leave it blank (e.g., 'additional_weblogic_domains:') as it will evaluate to null.
+additional_weblogic_domains:
+  - domain_name: FMSCRM
+    domain_home: "{{ oracle_middleware_home }}/user_projects/domains/FMSCRM"
+    admin_port: 7008
+    coherence_port: 7575
+    domain_logs_dir: "/Logs/weblogic_7008_logs"
+    cron_stop_minute: "54"
+    cron_start_minute: "01"
+    extra_ports: []
+    # To add or remove managed servers for this additional domain, modify this list:
+    managed_servers:
+      - name: ManagedServer1
+        listen_port: 7101
+      - name: ManagedServer2
+        listen_port: 7102
+      # To disable managed servers for this domain, set to [] or comment out the block above
+
+# ==============================================================================
+# 3. Crontab and Lifecycle Management
+# ==============================================================================
 crontab_enabled: true
 dangerous_pkill_enabled: true
 crontab_pkill_hour: "23"
@@ -14,18 +70,9 @@ crontab_stop_hour: "23"
 crontab_stop_minute: "55"
 crontab_start_hour: "00"
 crontab_start_minute: "02"
-managed_server_enable: true
 
-additional_weblogic_domains:
-  - domain_name: FMSCRM
-    domain_home: "{{ oracle_middleware_home }}/user_projects/domains/FMSCRM"
-    admin_port: 7008
-    domain_logs_dir: "/Logs/weblogic_7008_logs"
-    cron_stop_minute: "54"
-    cron_start_minute: "01"
-    extra_ports: []
-    managed_servers:
-      - name: ManagedServer1
-        listen_port: 7101
-      - name: ManagedServer2
-        listen_port: 7102
+# ==============================================================================
+# 4. Security and OS Configuration
+# ==============================================================================
+allowed_unmanaged_accounts:
+  - wlogic

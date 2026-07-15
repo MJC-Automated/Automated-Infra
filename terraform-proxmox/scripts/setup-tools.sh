@@ -53,8 +53,15 @@ done
 tools_already_present() {
   local missing=0
 
-  for cmd in vault terraform packer tflint tfsec; do
+  for cmd in vault terraform packer; do
     if ! command -v "${cmd}" >/dev/null 2>&1; then
+      missing=1
+    fi
+  done
+
+  for cmd in tflint tfsec terraform-docs; do
+    if ! command -v "${cmd}" >/dev/null 2>&1 || \
+      ! "${cmd}" --version 2>&1 | grep -Eq '[0-9]+\.[0-9]+\.[0-9]+'; then
       missing=1
     fi
   done
@@ -65,8 +72,8 @@ tools_already_present() {
   return 1
 }
 
-install_tflint_tfsec() {
-  local arch tfsec_tag tflint_tag tmpdir
+install_terraform_helpers() {
+  local arch terraform_docs_tag tfsec_tag tflint_tag tmpdir
 
   case "$(uname -m)" in
     x86_64|amd64)
@@ -76,7 +83,7 @@ install_tflint_tfsec() {
       arch="arm64"
       ;;
     *)
-      echo "Unsupported architecture for tfsec/tflint auto-install: $(uname -m)" >&2
+      echo "Unsupported architecture for Terraform helper auto-install: $(uname -m)" >&2
       exit 1
       ;;
   esac
@@ -104,7 +111,17 @@ install_tflint_tfsec() {
   unzip -q "${tmpdir}/tflint.zip" -d "${tmpdir}"
   sudo install -m 0755 "${tmpdir}/tflint" /usr/local/bin/tflint
 
-  echo "Installed tfsec ${tfsec_tag} and tflint ${tflint_tag}"
+  terraform_docs_tag="$(curl -fsSL https://api.github.com/repos/terraform-docs/terraform-docs/releases/latest | jq -r '.tag_name')"
+  if [[ -z "${terraform_docs_tag}" || "${terraform_docs_tag}" == "null" ]]; then
+    echo "Error: unable to determine latest terraform-docs release." >&2
+    exit 1
+  fi
+  curl -fsSL -o "${tmpdir}/terraform-docs.tar.gz" \
+    "https://github.com/terraform-docs/terraform-docs/releases/download/${terraform_docs_tag}/terraform-docs-${terraform_docs_tag}-linux-${arch}.tar.gz"
+  tar -xzf "${tmpdir}/terraform-docs.tar.gz" -C "${tmpdir}"
+  sudo install -m 0755 "${tmpdir}/terraform-docs" /usr/local/bin/terraform-docs
+
+  echo "Installed tfsec ${tfsec_tag}, tflint ${tflint_tag}, and terraform-docs ${terraform_docs_tag}"
 }
 
 install_tools_ubuntu_debian() {
@@ -138,12 +155,12 @@ install_tools_ubuntu_debian() {
 
   sudo apt-get update
   sudo apt-get install "${apt_yes[@]}" vault terraform packer
-  install_tflint_tfsec
+  install_terraform_helpers
 }
 
 if [[ "${CHECK_ONLY}" == false ]]; then
   if [[ "${FORCE_INSTALL}" == false ]] && tools_already_present; then
-    echo "Required tools already present (vault/terraform/packer/tflint/tfsec). Skipping installation."
+    echo "Required tools already present (vault/terraform/packer/tflint/tfsec/terraform-docs). Skipping installation."
   else
     if [[ ! -r /etc/os-release ]]; then
       echo "Error: Cannot detect OS (/etc/os-release missing)." >&2

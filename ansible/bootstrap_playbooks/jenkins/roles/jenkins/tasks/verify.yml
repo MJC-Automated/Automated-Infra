@@ -1,0 +1,21 @@
+---
+- name: Wait for Jenkins to start listening
+  ansible.builtin.wait_for:
+    host: "{{ jenkins_listen_address if jenkins_listen_address != '0.0.0.0' else '127.0.0.1' }}"
+    port: "{{ jenkins_http_port }}"
+    timeout: 300
+    state: started
+
+- name: Verify Jenkins health endpoint via curl
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ jenkins_http_port }}/login"
+    status_code: 200
+    follow_redirects: all
+  register: jenkins_http_check
+  until: jenkins_http_check.status == 200
+  retries: 24
+  delay: 5
+
+- name: Log Jenkins validation success
+  ansible.builtin.debug:
+    msg: "Jenkins Controller is successfully configured and reachable at http://{{ ansible_host }}:{{ jenkins_http_port }}/"

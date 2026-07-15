@@ -1,6 +1,32 @@
 // backend.tf
 // Backend configuration for state management
-// Uncomment and configure based on your preferred backend
+// Configure the terraform-proxmox root module to store Terraform state in Cloudflare R2.
+// Replace the placeholder bucket and endpoint values with your own.
+// If you are switching from local state, run `terraform init -reconfigure`.
+
+terraform {
+  backend "s3" {
+    bucket               = "terraform-bucket"
+    key                  = "terraform.tfstate"
+    workspace_key_prefix = "terraform-proxmox"
+    region               = "us-east-1"
+    endpoints = {
+      s3 = "https://2c7479a73e537ded1f6087e1089f737d.r2.cloudflarestorage.com"
+    }
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
+    use_path_style              = false
+
+    # Native S3-backend state locking (Terraform >= 1.10).
+    # Writes a <key>.tflock object to R2 alongside the state file.
+    # No DynamoDB or external infrastructure required.
+    # Lock is acquired before plan/apply and released on completion or forced
+    # with: terraform force-unlock <lock-id>
+    use_lockfile = true
+  }
+}
 
 // Example: S3 Backend
 // terraform {

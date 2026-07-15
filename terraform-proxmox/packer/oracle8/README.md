@@ -2,6 +2,6 @@
 
 Place the Oracle Linux 8 Packer template here (e.g., `oracle8.pkr.hcl`) and update the vars file.
 
-Suggested template name:
+Default template name:
 
-- `oracle8-template`
+- `oracle8`

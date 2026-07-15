@@ -1,0 +1,64 @@
+jenkins:
+  systemMessage: "{{ jenkins_system_message }}"
+  numExecutors: {{ jenkins_controller_executors }}
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "{{ jenkins_admin_user }}"
+          password: "{{ jenkins_admin_password }}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  crumbIssuer:
+    standard: {}
+  remotingSecurity:
+    enabled: true
+{% if jenkins_agents | length > 0 %}
+  nodes:
+{% for agent in jenkins_agents %}
+    - permanent:
+        name: "{{ agent.name }}"
+        remoteFS: "{{ agent.remote_fs }}"
+        labelString: "{{ agent.labels if agent.labels is string else (agent.labels | default([]) | join(' ')) }}"
+        mode: {{ agent.mode | default('EXCLUSIVE') }}
+        numExecutors: {{ agent.executors | int }}
+        retentionStrategy: "always"
+        launcher:
+          ssh:
+            host: "{{ agent.host }}"
+            port: {{ agent.port | default(22) | int }}
+            credentialsId: "jenkins-agent-ssh-key-{{ agent.name }}"
+            jvmOptions: "{{ agent.jvm_options | default(jenkins_agent_jvm_options) }}"
+            sshHostKeyVerificationStrategy:
+{% if jenkins_agent_ssh_host_key_verification == 'manuallyTrusted' %}
+              manuallyTrustedKeyVerificationStrategy:
+                requireInitialManualTrust: false
+{% else %}
+              nonVerifyingKeyVerificationStrategy: {}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if jenkins_agents | length > 0 %}
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+{% for agent in jenkins_agents %}
+          - basicSSHUserPrivateKey:
+              scope: SYSTEM
+              id: "jenkins-agent-ssh-key-{{ agent.name }}"
+              username: "{{ agent.user | default(jenkins_agent_user) }}"
+              privateKeySource:
+                directEntry:
+                  privateKey: |
+                    {{ jenkins_agent_private_key | indent(20, false) }}
+{% endfor %}
+{% endif %}
+unclassified:
+  location:
+    url: "{{ jenkins_url }}/"
+appearance:
+  themeManager:
+    disableUserThemes: {{ jenkins_disable_user_themes | bool | lower }}
+    theme: "{{ jenkins_theme }}"

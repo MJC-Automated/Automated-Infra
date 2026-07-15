@@ -2,70 +2,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-################################################################################
-#                                                                              #
-#  Proxmox VM Provisioning Script - UNIVERSAL VERSION (HARDENED)               #
-#                                                                              #
-#  Supported OS versions (use with --os flag):                                 #
-#    oracle-linux-8   oracle-linux-9                                            #
-#    ubuntu-22        ubuntu-24                                                 #
-#    debian-12        rocky-linux-9                                             #
-#    alma-linux-9     fedora-43                                                 #
-#                                                                              #
-#  USAGE:                                                                      #
-#    ./create-cloudinit-vm_stable.sh [OPTIONS]                                  #
-#                                                                              #
-#    --os <type>       OS type (see list above; default: debian-12)            #
-#    --vmid <id>       VM ID (default from config)                             #
-#    --name <name>     VM name (auto-derived from --os + --ip if omitted)      #
-#    --ip <cidr>       IP/CIDR e.g. 192.0.2.0/24 (default from config)     #
-#    --gateway <gw>    Gateway IP (default from config)                        #
-#    --dry-run         Validate config only; do not create or modify VMs       #
-#    --force/--no-force Destroy or preserve an existing VM with same VMID      #
-#    -h / --help       Show full usage and examples                            #
-#                                                                              #
-#  Examples:                                                                   #
-#    ./create-cloudinit-vm_stable.sh --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 203.0.113.0/24
-#    ./create-cloudinit-vm_stable.sh --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 192.0.2.0/24
-#    ./create-cloudinit-vm_stable.sh --os debian-12 --dry-run                         #
-#                                                                              #
-#  Key Features:                                                               #
-#  - Versioned multi-OS via CLI (oracle-linux-8 vs 9, ubuntu-22 vs 24, etc.)  #
-#  - VM name auto-derived: oracle-linux-9 + .91 → oracle9-packer-base-91      #
-#  - Dynamic partition configuration using PARTITION_DEFS array                #
-#  - Optional data disk toggle (DATA_DISK_ENABLED)                             #
-#  - OS-specific optimizations (filesystem, groups, packages)                  #
-#  - Robust /etc/fstab managed block (idempotent reruns)                       #
-#  - Btrfs support for Fedora root disk detection                              #
-#                                                                              #
-#  Hardening:                                                                   #
-#  - Secrets/config from .env (CIUSER, PASSWORD, SSH_KEYS_FILE, Zabbix targets) #
-#  - TIMEZONE promoted to top-level config variable                            #
-#  - GUEST_DEBUG gates set -x in guest scripts (no log leakage)               #
-#  - SUDO_NOPASSWD flag makes sudoers policy configurable                      #
-#  - SSH_IDENTITY_FILE for explicit key-based host-to-guest auth               #
-#  - EXIT trap guarantees tmp_dir cleanup on all exit paths                    #
-#  - wait_for_vm uses $SECONDS builtin for accurate elapsed tracking           #
-#  - find_data_disk validates against DATA_DISK_SIZE (no wrong-device risk)   #
-#  - Swap formula: (RAM/2) + 2GB (e.g. 8GB RAM → 6GB swap)                   #
-#                                                                              #
-#  SECRETS - Create .env in the same directory (chmod 600, never commit):      #
-#    CIUSER="ansible"                                                           #
-#    PASSWORD="<set-strong-cloud-init-password>"                                #
-#    SSH_KEYS_FILE="/root/.ssh/authorized_keys"                                 #
-#    # Backward-compatible single target (sets both Server and ServerActive)    #
-#    ZABBIX_SERVER="198.51.100.17"                                                #
-#    # Optional explicit split targets                                            #
-#    ZABBIX_SERVER_PASSIVE="198.51.100.17"                                        #
-#    ZABBIX_SERVER_ACTIVE="198.51.100.17:10051"                                   #
-#                                                                              #
-################################################################################
-
-################################################################################
-# .ENV SECRETS LOADING
-# Must happen before any readonly declarations that reference these vars.
-################################################################################
-
+# Provision a Proxmox VM from a cloud image and custom cloud-init userdata.
+# Secrets and site-local values live in .env next to this script.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 
@@ -82,16 +20,16 @@ Required content:
   CIUSER="ansible"
   PASSWORD="<set-strong-cloud-init-password>"
   SSH_KEYS_FILE="/root/.ssh/authorized_keys"
-  ZABBIX_SERVER="198.51.100.17"
+  ZABBIX_SERVER="198.51.100.25"
   # Optional explicit split targets:
-  # ZABBIX_SERVER_PASSIVE="198.51.100.17"
-  # ZABBIX_SERVER_ACTIVE="198.51.100.17:10051"
+  # ZABBIX_SERVER_PASSIVE="198.51.100.25"
+  # ZABBIX_SERVER_ACTIVE="198.51.100.25:10051"
 
 EOF
   exit 1
 fi
 
-# Validate .env permissions — warn if world-readable
+# Warn if the secrets file is readable by other users.
 env_perms="$(stat -c '%a' "$ENV_FILE" 2>/dev/null || stat -f '%Lp' "$ENV_FILE" 2>/dev/null || echo '???')"
 if [[ "$env_perms" != "600" && "$env_perms" != "400" ]]; then
   echo "WARNING: ${ENV_FILE} has permissions ${env_perms}. Recommended: chmod 600 ${ENV_FILE}" >&2
@@ -100,7 +38,6 @@ fi
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
-# Validate required .env values are now defined and non-empty
 for _secret_var in CIUSER PASSWORD SSH_KEYS_FILE; do
   if [[ -z "${!_secret_var:-}" ]]; then
     echo "ERROR: '${_secret_var}' is not set or is empty in ${ENV_FILE}" >&2
@@ -108,14 +45,12 @@ for _secret_var in CIUSER PASSWORD SSH_KEYS_FILE; do
   fi
 done
 
-# Zabbix agent targets:
-# - Prefer explicit split vars when provided.
-# - Fall back to legacy ZABBIX_SERVER for both settings.
+# Prefer split Zabbix targets, falling back to legacy ZABBIX_SERVER.
 ZABBIX_SERVER_PASSIVE="${ZABBIX_SERVER_PASSIVE:-${ZABBIX_SERVER:-}}"
 ZABBIX_SERVER_ACTIVE="${ZABBIX_SERVER_ACTIVE:-${ZABBIX_SERVER:-}}"
 ZABBIX_AGENT_PORT="${ZABBIX_AGENT_PORT:-10050}"
 
-# If only one split var is provided, mirror it for the other one.
+# A single split target is enough; mirror it to the other mode.
 if [[ -z "${ZABBIX_SERVER_PASSIVE}" && -n "${ZABBIX_SERVER_ACTIVE}" ]]; then
   ZABBIX_SERVER_PASSIVE="${ZABBIX_SERVER_ACTIVE}"
 fi
@@ -128,40 +63,30 @@ if [[ -z "${ZABBIX_SERVER_PASSIVE}" || -z "${ZABBIX_SERVER_ACTIVE}" ]]; then
 ERROR: Zabbix target is not configured in ${ENV_FILE}
 
 Set either:
-  ZABBIX_SERVER="198.51.100.17"
+  ZABBIX_SERVER="198.51.100.25"
 or explicit split values:
-  ZABBIX_SERVER_PASSIVE="198.51.100.17"
-  ZABBIX_SERVER_ACTIVE="198.51.100.17:10051"
+  ZABBIX_SERVER_PASSIVE="198.51.100.25"
+  ZABBIX_SERVER_ACTIVE="198.51.100.25:10051"
 EOF
   exit 1
 fi
 
 unset _secret_var
 
-################################################################################
-# CONFIGURATION
-################################################################################
-
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ VM Configuration                                                        │
-# │ VMID, NAME, OS_TYPE, IPCIDR, GATEWAY, FORCE and DRY_RUN can all be     │
-# │ overridden at runtime via CLI flags (see --help). The values here are   │
-# │ the defaults used when no CLI flag is provided.                         │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Configuration defaults. These values can also be set with CLI flags; the CLI
+# wins.
 VMID="${VMID:-999999991}"
 NAME="${NAME:-}"          # Leave empty → auto-derived from OS_TYPE + IP last octet
 OS_TYPE="${OS_TYPE:-oracle-linux-8}"  # See detect_os_config() for supported values
-IPCIDR="${IPCIDR:-198.51.100.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
-GATEWAY="${GATEWAY:-198.51.100.27}"
+IPCIDR="${IPCIDR:-203.0.113.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
+GATEWAY="${GATEWAY:-198.51.100.20}"
 FORCE="${FORCE:-1}"       # 1 = destroy existing VM, 0 = abort if exists
 DRY_RUN="${DRY_RUN:-0}"   # 1 = show what would happen without executing
+SANITIZE_TEMPLATE_BASE="${SANITIZE_TEMPLATE_BASE:-0}" # 1 = clean per-instance state before final shutdown
 
 readonly DOMAIN="example.internal"     # Domain suffix (FQDN = ${NAME}.${DOMAIN})
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Source Images - One path per OS version                                 │
-# │ Add new versions here; select via --os flag or OS_TYPE default above.   │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Source images. Select with --os or OS_TYPE.
 readonly ORACLE_LINUX_8_IMAGE="/var/lib/vz/template/iso/OL8U10_x86_64-kvm-b287.qcow2"
 readonly ORACLE_LINUX_9_IMAGE="/var/lib/vz/template/iso/OL9U7_x86_64-kvm-b289.qcow2"
 readonly UBUNTU_22_IMAGE="/var/lib/vz/template/iso/jammy-server-cloudimg-amd64.img"
@@ -171,96 +96,59 @@ readonly ALMA_LINUX_9_IMAGE="/var/lib/vz/template/iso/AlmaLinux-9-GenericCloud-l
 readonly DEBIAN_12_IMAGE="/var/lib/vz/template/iso/debian-12-genericcloud-amd64.qcow2"
 readonly FEDORA_43_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Network Configuration                                                   │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Network.
 readonly BRIDGE="${BRIDGE:-vmbr0}"
-readonly DNS="${DNS:-198.51.100.43}"
+readonly DNS="${DNS:-198.51.100.26}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Resource Allocation                                                     │
-# └─────────────────────────────────────────────────────────────────────────┘
+# CPU, memory, and display.
 readonly CORES="${CORES:-6}"
 readonly MEM="${MEM:-8192}"               # MB
 readonly CPU_TYPE="${CPU_TYPE:-host}"
 readonly VGA_TYPE="${VGA_TYPE:-std}"
 
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Proxmox Storage Backends                                                │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Proxmox storage backends.
 readonly OS_STORAGE="${OS_STORAGE:-harddisk}"
 readonly DATA_STORAGE="${DATA_STORAGE:-harddisk}"
 readonly EFI_STORAGE="${EFI_STORAGE:-harddisk}"
 readonly CI_STORAGE="${CI_STORAGE:-local-lvm}"
 readonly SNIPPET_STORAGE="${SNIPPET_STORAGE:-local}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Disk Sizes (GiB)                                                        │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Disk sizes in GiB.
 readonly OS_DISK_SIZE="${OS_DISK_SIZE:-50}"
-
-# ============================================================================
-# DATA DISK TOGGLE - Set to 0 to disable data disk and storage provisioning
-# ============================================================================
 readonly DATA_DISK_ENABLED="${DATA_DISK_ENABLED:-0}"    # 1 = create data disk, 0 = root disk only
 readonly DATA_DISK_SIZE="${DATA_DISK_SIZE:-400}"     # Only used if DATA_DISK_ENABLED=1
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ PARTITION CONFIGURATION - EASY TO CUSTOMIZE!                            │
-# │                                                                         │
-# │ Format: "mountpoint:size:user:group"                                    │
-# │   - mountpoint: Where to mount (e.g., /u01, /data, /backup)             │
-# │   - size: Size in GB, "AUTO" for remaining space, or "0" to skip        │
-# │   - user/group: ownership (optional; defaults to CIUSER:CIUSER)         │
-# │                                                                         │
-# │ Only ONE partition can be "AUTO"                                        │
-# │ NOTE: Only used if DATA_DISK_ENABLED=1                                  │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Data disk layout, used only when DATA_DISK_ENABLED=1.
+# Format: mountpoint:size[:user[:group]], comma-separated. Size is GiB, AUTO,
+# or 0 to skip. Only one partition can use AUTO.
 readonly PARTITION_LAYOUT="${PARTITION_LAYOUT:-/u01:100,/u02:AUTO}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Optional OS Update                                                      │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Optional OS update during cloud-init.
 readonly DO_OS_UPDATE="${DO_OS_UPDATE:-0}"   # 1 = enable background update; 0 = skip (safer for templates)
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Verification Timeouts (cloud-init wait is used for swap too)            │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Verification timeouts.
 readonly STORAGE_PROVISION_WAIT="900"
 readonly STORAGE_PROVISION_POLL="10"
 readonly CLOUDINIT_VERIFY_WAIT="1800"
 readonly CLOUDINIT_VERIFY_POLL="15"
 readonly CLOUDINIT_STATUS_VERBOSE="0"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Remaining Space Handling (only used if DATA_DISK_ENABLED=1)             │
-# │ Options: IGNORE | WARN | ERROR | AUTO_ASSIGN                            │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Data-disk remainder handling: IGNORE, WARN, ERROR, or AUTO_ASSIGN.
 readonly REMAINING_SPACE_MODE="${REMAINING_SPACE_MODE:-WARN}"
 readonly MIN_REMAINING_WARN="${MIN_REMAINING_WARN:-10}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Swap Configuration                                                      │
-# │ Options: AUTO | 0 | <number in GB>                                      │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Swap size: AUTO, 0, or a GiB value.
 readonly SWAP_SIZE="${SWAP_SIZE:-AUTO}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Filesystem Configuration (only used if DATA_DISK_ENABLED=1)             │
-# │ Set to "auto" to use OS-recommended (xfs for RHEL, ext4 for Ubuntu)     │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Filesystem for data-disk LVs: auto, ext4, or xfs.
 readonly FS_TYPE="${FS_TYPE:-auto}"           # auto | ext4 | xfs
 readonly XFS_LOGBSIZE_VALUE="${XFS_LOGBSIZE_VALUE:-256k}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ LVM Volume Group Name                                                   │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Data-disk volume group.
 readonly VG_NAME="${VG_NAME:-vg_data}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Behavior Flags                                                          │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Behavior flags.
 readonly BACKUP_CONFIG="1"
 readonly WAIT_FOR_VM="1"
 readonly WAIT_TIMEOUT="300"
@@ -270,44 +158,25 @@ readonly VERIFY_RETRY_INTERVAL="15"
 readonly RESET_VGA_TO_DEFAULT="${RESET_VGA_TO_DEFAULT:-1}"  # 1 = reset VGA/display to default at the end of provisioning
 readonly SHUTDOWN_FINAL_VM="${SHUTDOWN_FINAL_VM:-1}"       # 1 = shut down/stop the VM at the end of provisioning
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Timezone (IANA format)                                                  │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Guest timezone, in IANA format.
 readonly TIMEZONE="${TIMEZONE:-Africa/Nairobi}"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Security / Sudo Policy                                                  │
-# │ SUDO_NOPASSWD=1 grants passwordless sudo (convenient for automation).   │
-# │ Set to 0 to require password for privileged operations.                 │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Sudo policy for the cloud-init user.
 readonly SUDO_NOPASSWD="${SUDO_NOPASSWD:-1}"        # 1 = NOPASSWD, 0 = require password
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ SSH Identity File (used by THIS host to connect to the new VM)          │
-# │ Must correspond to a public key in SSH_KEYS_FILE.                       │
-# │ Leave empty to rely on ssh-agent or default ~/.ssh/id_*                 │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Optional host-side SSH identity for verification. Must match SSH_KEYS_FILE.
 readonly SSH_IDENTITY_FILE="${SSH_IDENTITY_FILE:-}"     # e.g. "/root/.ssh/id_ed25519"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Guest Debug Logging                                                     │
-# │ GUEST_DEBUG=1 enables set -x in the guest provisioning script.         │
-# │ Warning: set -x echoes all commands to the log, which may include       │
-# │ environment variable values. Keep at 0 unless actively debugging.       │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Enables set -x inside guest scripts. Keep disabled unless debugging.
 readonly GUEST_DEBUG="${GUEST_DEBUG:-0}"          # 0 = off, 1 = verbose trace in guest log
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Logging Configuration                                                   │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Host-side provisioning log.
 readonly LOG_DIR="/var/log/proxmox-vm-provisioning"
 # LOG_FILE is computed in setup_logging() after CLI args are parsed (VMID may
 # differ from the default above if --vmid was passed on the command line).
 declare LOG_FILE=""
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ Color Definitions                                                       │
-# └─────────────────────────────────────────────────────────────────────────┘
+# Terminal colors.
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
@@ -316,18 +185,12 @@ readonly CYAN='\033[0;36m'
 readonly MAGENTA='\033[0;35m'
 readonly NC='\033[0m'
 
-################################################################################
-# AUTO-DERIVED VARIABLES
-# These are computed in finalize_config() after CLI args are applied so that
-# --vmid / --name / --ip overrides are reflected correctly.
-################################################################################
+# Auto-derived values are computed after CLI parsing so overrides are reflected.
 
 declare HOSTNAME_FQDN=""
 declare HOSTNAME_SHORT=""
 
-################################################################################
-# GLOBAL VARIABLES
-################################################################################
+# Runtime state.
 
 declare QCOW2=""
 declare PKG_MANAGER=""
@@ -349,12 +212,10 @@ declare AUTO_PARTITION=""
 declare REMAINING_SPACE_GB=0
 declare VERIFICATION_FAILED=0
 
-# Global tmp dir — registered for cleanup on EXIT
+# Registered for cleanup on EXIT.
 declare TMP_DIR=""
 
-################################################################################
-# CLEANUP ON EXIT
-################################################################################
+# Cleanup.
 
 _cleanup() {
   if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
@@ -363,9 +224,7 @@ _cleanup() {
 }
 trap '_cleanup' EXIT
 
-################################################################################
-# LOGGING FUNCTIONS
-################################################################################
+# Logging.
 
 setup_logging() {
   LOG_FILE="${LOG_DIR}/vm-${VMID}-$(date +%Y%m%d-%H%M%S).log"
@@ -393,9 +252,7 @@ die() {
   exit 1
 }
 
-################################################################################
-# STORAGE HELPERS (USABILITY)
-################################################################################
+# Storage diagnostics.
 
 print_storage_config() {
   echo ""
@@ -474,9 +331,7 @@ userdata_path() {
   return 0
 }
 
-################################################################################
-# ERROR HANDLING
-################################################################################
+# Error handling.
 
 on_err() {
   local line="$1"
@@ -492,9 +347,7 @@ on_err() {
 
 trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
 
-################################################################################
-# OS DETECTION AND CONFIGURATION
-################################################################################
+# OS detection and defaults.
 
 # Canonical short label and version number for a given OS_TYPE string.
 # Used by derive_vm_name() and detect_os_config().
@@ -517,7 +370,7 @@ detect_os_config() {
 
   case "${OS_TYPE,,}" in
 
-    # ── Oracle Linux ────────────────────────────────────────────────────────
+    # Oracle Linux.
     oracle-linux-8|oracle8|ol8)
       QCOW2="$ORACLE_LINUX_8_IMAGE"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
@@ -533,7 +386,7 @@ detect_os_config() {
       log_info "OS Type: Oracle Linux 9"
       ;;
 
-    # ── Ubuntu ──────────────────────────────────────────────────────────────
+    # Ubuntu.
     ubuntu-22|ubuntu22)
       QCOW2="$UBUNTU_22_IMAGE"
       PKG_MANAGER="apt"
@@ -553,7 +406,7 @@ detect_os_config() {
       log_info "OS Type: Ubuntu 24.04 LTS (Noble)"
       ;;
 
-    # ── Debian ──────────────────────────────────────────────────────────────
+    # Debian.
     debian-12|debian12|debian)
       QCOW2="$DEBIAN_12_IMAGE"
       PKG_MANAGER="apt"
@@ -566,7 +419,7 @@ detect_os_config() {
       log_info "OS Type: Debian 12 Bookworm (Cloud-Init on scsi10)"
       ;;
 
-    # ── Rocky Linux ─────────────────────────────────────────────────────────
+    # Rocky Linux.
     rocky-linux-9|rocky9|rocky-linux|rocky|rl)
       QCOW2="$ROCKY_LINUX_9_IMAGE"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
@@ -575,7 +428,7 @@ detect_os_config() {
       log_info "OS Type: Rocky Linux 9"
       ;;
 
-    # ── AlmaLinux ───────────────────────────────────────────────────────────
+    # AlmaLinux.
     alma-linux-9|alma9|alma-linux|alma|al)
       QCOW2="$ALMA_LINUX_9_IMAGE"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
@@ -584,7 +437,7 @@ detect_os_config() {
       log_info "OS Type: AlmaLinux 9"
       ;;
 
-    # ── Fedora ──────────────────────────────────────────────────────────────
+    # Fedora.
     fedora-43|fedora43|fedora)
       QCOW2="$FEDORA_43_IMAGE"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
@@ -611,9 +464,7 @@ detect_os_config() {
   log_info "Hostname:         $HOSTNAME_FQDN"
 }
 
-################################################################################
-# UTILITY FUNCTIONS
-################################################################################
+# Utility functions.
 
 need() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
@@ -689,9 +540,7 @@ inject_block() {
   ' "$target_file" > "${target_file}.tmp" && mv "${target_file}.tmp" "$target_file"
 }
 
-################################################################################
-# COMMAND WRAPPERS (better failure hints)
-################################################################################
+# Command wrappers with storage failure hints.
 
 run_or_die() {
   local desc="$1"; shift
@@ -740,12 +589,8 @@ run_capture_or_die() {
   return 0
 }
 
-################################################################################
-# SSH HELPER FUNCTIONS
-#
-# SECURITY NOTE: StrictHostKeyChecking=accept-new provides trust-on-first-use
-# behavior for freshly provisioned hosts while still rejecting changed keys.
-################################################################################
+# SSH helpers. StrictHostKeyChecking=accept-new uses trust-on-first-use for new
+# VMs while still rejecting changed keys.
 
 _build_ssh_opts() {
   local -n _opts_ref="$1"   # nameref to caller's array
@@ -783,9 +628,7 @@ test_ssh() {
     "exit 0" 2>/dev/null
 }
 
-################################################################################
-# PARTITION VALIDATION FUNCTIONS
-################################################################################
+# Partition validation.
 
 parse_partitions() {
   if [[ "$DATA_DISK_ENABLED" != "1" ]]; then
@@ -1001,9 +844,7 @@ validate_disk_space() {
   log_info "Disk space validation passed"
 }
 
-################################################################################
-# PREFLIGHT CHECKS
-################################################################################
+# Preflight checks.
 
 preflight_checks() {
   log_section "Running Preflight Checks"
@@ -1078,9 +919,7 @@ preflight_checks() {
   log_info "All preflight checks passed"
 }
 
-################################################################################
-# CLOUD-INIT GENERATION
-################################################################################
+# Cloud-init generation.
 
 generate_lvm_sections() {
   local lvm_create_file="$1"
@@ -1306,9 +1145,10 @@ write_files:
 
       existing_kib="$(awk 'NR>1{s+=$3} END{print s+0}' /proc/swaps 2>/dev/null || echo 0)"
       existing_mb=$(( existing_kib / 1024 ))
+      tolerance_mb=32
 
-      # If the image already has enough swap (e.g., Fedora zram), do nothing.
-      if [[ "${existing_mb}" -ge "${desired_mb}" ]]; then
+      # /proc/swaps reports KiB and can truncate a correctly sized file by 1 MiB.
+      if (( existing_mb + tolerance_mb >= desired_mb )); then
         echo "Sufficient swap already active (${existing_mb}MB); skipping."
         exit 0
       fi
@@ -1876,9 +1716,7 @@ EOF
   TMP_DIR=""
 }
 
-################################################################################
-# VM CREATION AND CONFIGURATION
-################################################################################
+# VM creation and configuration.
 
 create_vm() {
   log_section "Creating Virtual Machine"
@@ -2018,9 +1856,7 @@ start_vm() {
   log_info "Virtual machine $VMID started successfully"
 }
 
-################################################################################
-# WAIT AND VERIFICATION FUNCTIONS
-################################################################################
+# Wait and verification.
 
 wait_for_vm() {
   [[ "$WAIT_FOR_VM" == "1" ]] || return 0
@@ -2301,9 +2137,7 @@ run_verification() {
   fi
 }
 
-################################################################################
-# FINAL SUMMARY
-################################################################################
+# Final summary.
 
 print_summary() {
   log_section "Provisioning Complete"
@@ -2370,58 +2204,51 @@ SUMMARY
   echo ""
 }
 
-################################################################################
-# MAIN EXECUTION
-################################################################################
+# Main execution.
 
 print_usage() {
   cat <<EOF
 
-USAGE:
-  $(basename "$0") [OPTIONS]
+Usage:
+  $(basename "$0") [options]
 
-  CLI flags override their corresponding defaults from the config section.
+Creates a Proxmox VM from a local cloud image and attaches generated
+cloud-init userdata. CLI flags override the defaults near the top of the file.
 
-OPTIONS:
-  --os <type>       OS type (see below; default: ${OS_TYPE})
-  --vmid <id>       VM ID                (default: ${VMID})
-  --name <name>     VM name              (default: auto-derived)
-  --ip <cidr>       IP/CIDR              (default: ${IPCIDR})
-  --gateway <gw>    Gateway IP           (default: ${GATEWAY})
-  --dry-run         Validate only; make no changes to Proxmox
-  --force           Destroy any existing VM with the same VMID
-  --no-force        Abort if a VM with that VMID already exists
+Required .env values:
+  CIUSER, PASSWORD, SSH_KEYS_FILE, and either ZABBIX_SERVER or both
+  ZABBIX_SERVER_PASSIVE and ZABBIX_SERVER_ACTIVE.
+
+Options:
+  --os <type>       OS image type (default: ${OS_TYPE})
+  --vmid <id>       VM ID (default: ${VMID})
+  --name <name>     VM name (default: auto-derived)
+  --ip <cidr|dhcp>  Static IP/CIDR or dhcp (default: ${IPCIDR})
+  --gateway <ip>    Static gateway (default: ${GATEWAY})
+  --dry-run         Validate inputs without changing Proxmox
+  --force           Destroy an existing VM with the same VMID
+  --no-force        Abort if the VMID already exists
+  --template-base   Clean per-instance state and remove bootstrap-only userdata
+  --no-template-base
+                    Keep per-instance state (default: ${SANITIZE_TEMPLATE_BASE})
   -h, --help        Show this help
 
-SUPPORTED OS TYPES:
-  oracle-linux-8    oracle-linux-9
-  ubuntu-22         ubuntu-24
-  debian-12         rocky-linux-9
-  alma-linux-9      fedora-43
+Supported OS types:
+  oracle-linux-8, oracle-linux-9, ubuntu-22, ubuntu-24, debian-12,
+  rocky-linux-9, alma-linux-9, fedora-43
 
-  Short aliases also work: ol8, ol9, ubuntu22, ubuntu24, debian12,
-  rocky9, alma9, fedora43
+Aliases:
+  ol8, ol9, ubuntu22, ubuntu24, debian12, rocky9, alma9, fedora43
 
-AUTO-DERIVED VM NAME:
-  If --name is omitted the name is built as:
+Auto-derived names:
+  When --name is omitted, the script uses:
     <os-short-label>-packer-base-<last-ip-octet>
-  Examples:
-    oracle-linux-9 + 203.0.113.0/24  →  oracle9-packer-base-90
-    oracle-linux-8 + 192.0.2.0/24  →  oracle8-packer-base-91
-    debian-12      + 192.0.2.0/24  →  debian12-packer-base-80
 
-EXAMPLES:
-  # Oracle Linux 9 base/source VM (reserved ID/name)
-  $(basename "$0") --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 203.0.113.0/24
-
-  # Oracle Linux 8 base/source VM (reserved ID/name)
-  $(basename "$0") --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 192.0.2.0/24
-
-  # Debian 12 dry-run (no changes made)
+Examples:
+  $(basename "$0") --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 192.0.2.0/24 --template-base
+  $(basename "$0") --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 198.51.100.0/24 --template-base
   $(basename "$0") --os debian-12 --dry-run
-
-  # Ubuntu 24 base/source VM (reserved ID/name)
-  $(basename "$0") --os ubuntu-24 --vmid 999999992 --name ubuntu2404-packer-base --ip 198.51.100.0/24
+  $(basename "$0") --os ubuntu-24 --vmid 999999992 --name ubuntu2404-packer-base --ip 203.0.113.0/24 --template-base
 
 EOF
 }
@@ -2447,6 +2274,8 @@ parse_args() {
       --dry-run)   DRY_RUN="1";    shift   ;;
       --force)     FORCE="1";      shift   ;;
       --no-force)  FORCE="0";      shift   ;;
+      --template-base) SANITIZE_TEMPLATE_BASE="1"; shift ;;
+      --no-template-base) SANITIZE_TEMPLATE_BASE="0"; shift ;;
       -h|--help)   print_usage; exit 0     ;;
       *)           die "Unknown argument: '$1'  — run with --help for usage." ;;
     esac
@@ -2460,8 +2289,8 @@ finalize_config() {
     NAME="$(derive_vm_name "$OS_TYPE" "$IPCIDR")"
   fi
 
-  # Lock the five CLI-overridable vars so nothing downstream can mutate them.
-  readonly VMID NAME OS_TYPE IPCIDR GATEWAY FORCE DRY_RUN
+  # Lock CLI-overridable vars so nothing downstream can mutate them.
+  readonly VMID NAME OS_TYPE IPCIDR GATEWAY FORCE DRY_RUN SANITIZE_TEMPLATE_BASE
 
   # Derived vars can now be computed with their final values.
   readonly HOSTNAME_FQDN="${NAME}.${DOMAIN}"
@@ -2483,7 +2312,7 @@ print_banner() {
   echo -e "${C} ╚═╝     ╚═╝  ╚═╝  ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝${N}"
   echo ""
   echo -e "${Y}  ════════════════════════════════════════════════════════════════${N}"
-  echo -e "${Y}       VM Provisioner  ·  Universal  ·  Hardened  ·  v2.0${N}"
+  echo -e "${Y}       VM Provisioner  ·  Universal  ·  Hardened                  ${N}"
   echo -e "${Y}  ════════════════════════════════════════════════════════════════${N}"
   echo ""
   echo -e "  ${G}OS:${N}      ${OS_TYPE}"
@@ -2497,6 +2326,41 @@ print_banner() {
     echo -e "  ${YELLOW}⚠  DRY-RUN MODE — no changes will be made to Proxmox${NC}"
     echo ""
   fi
+}
+
+sanitize_template_base() {
+  [[ "$SANITIZE_TEMPLATE_BASE" == "1" ]] || return 0
+
+  if [[ "$SHUTDOWN_FINAL_VM" != "1" ]]; then
+    die "SANITIZE_TEMPLATE_BASE=1 requires SHUTDOWN_FINAL_VM=1"
+  fi
+
+  log_section "Sanitizing Packer Base VM"
+  log_info "Clearing cloud-init instance state and machine identity..."
+  ssh_execute "sudo -n cloud-init clean --logs --machine-id"
+  ssh_execute 'machine_id="$(tr -d "[:space:]" </etc/machine-id 2>/dev/null || true)"; [[ -z "$machine_id" || "$machine_id" == "uninitialized" ]]'
+  log_info "Template base sanitation verified."
+}
+
+finalize_template_base() {
+  [[ "$SANITIZE_TEMPLATE_BASE" == "1" ]] || return 0
+
+  local userdata_file
+  userdata_file="$(userdata_path)"
+
+  log_section "Finalizing Packer Base VM"
+  run_or_die "Detach bootstrap-only cloud-init userdata" qm set "$VMID" --delete cicustom
+  run_or_die "Delete generated bootstrap userdata" rm -f "$userdata_file"
+  run_or_die "Regenerate standard cloud-init drive" qm cloudinit update "$VMID"
+
+  if qm config "$VMID" | grep -q '^cicustom:'; then
+    die "Template base still has a cicustom override after finalization"
+  fi
+  if [[ -e "$userdata_file" ]]; then
+    die "Bootstrap userdata still exists after finalization: $userdata_file"
+  fi
+
+  log_info "Template base cloud-init configuration is reusable."
 }
 
 main() {
@@ -2531,7 +2395,7 @@ main() {
   if [[ "$DO_OS_UPDATE" == "1" ]] && [[ "$DRY_RUN" != "1" ]]; then
     log_section "Rebooting VM after OS Upgrades"
     log_info "Initiating reboot for VM $VMID to verify upgrades..."
-    
+
     log_info "Attempting graceful reboot via guest OS SSH..."
     if ! ssh_execute "sudo -n reboot" >/dev/null 2>&1; then
       log_warn "SSH reboot command failed or timed out, trying qm reboot..."
@@ -2555,6 +2419,8 @@ main() {
     qm set "$VMID" --delete vga || true
   fi
 
+  sanitize_template_base
+
   if [[ "$SHUTDOWN_FINAL_VM" == "1" ]] && [[ "$DRY_RUN" != "1" ]]; then
     log_section "Shutting Down VM"
     log_info "Shutting down VM $VMID..."
@@ -2570,6 +2436,8 @@ main() {
     log_info "VM $VMID stopped successfully."
   fi
 
+  finalize_template_base
+
   print_summary
 
   [[ "$VERIFY_VM" == "1" && $VERIFICATION_FAILED -gt 0 ]] && exit 1
@@ -2577,7 +2445,3 @@ main() {
 }
 
 main "$@"
-
-################################################################################
-# END OF SCRIPT
-################################################################################

@@ -146,6 +146,11 @@ json_exitstatus() {
   sed -n 's/.*"exitstatus":"\([^"]*\)".*/\1/p' | head -1
 }
 
+is_vm_absent_response() {
+  [[ "${REQ_CODE}" == "404" ]] ||
+    [[ "${REQ_CODE}" == "500" && "${REQ_BODY}" == *"does not exist"* ]]
+}
+
 wait_for_stopped() {
   local api_url="$1"
   local node="$2"
@@ -158,7 +163,7 @@ wait_for_stopped() {
   local status_url="${api_url}/nodes/${node}/qemu/${vm_id}/status/current"
   for _ in $(seq 1 30); do
     api_request GET "${status_url}" "${token_id}" "${token_secret}" "${tls_insecure}" || true
-    if [[ "${REQ_CODE}" == "404" ]]; then
+    if is_vm_absent_response; then
       printf 'absent\n'
       return 0
     fi
@@ -224,7 +229,7 @@ wait_for_absent() {
   local status_url="${api_url}/nodes/${node}/qemu/${vm_id}/status/current"
   for _ in $(seq 1 120); do
     api_request GET "${status_url}" "${token_id}" "${token_secret}" "${tls_insecure}" || true
-    if [[ "${REQ_CODE}" == "404" ]]; then
+    if is_vm_absent_response; then
       return 0
     fi
     sleep 2
@@ -319,7 +324,7 @@ for target in "${targets[@]}"; do
     continue
   fi
 
-  if [[ "${REQ_CODE}" == "404" ]]; then
+  if is_vm_absent_response; then
     echo "  VM not found, skipping."
     skipped=$((skipped + 1))
     continue
@@ -368,7 +373,7 @@ for target in "${targets[@]}"; do
     continue
   fi
 
-  if [[ "${REQ_CODE}" == "404" ]]; then
+  if is_vm_absent_response; then
     echo "  VM already absent."
     skipped=$((skipped + 1))
     continue

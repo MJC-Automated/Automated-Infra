@@ -23,6 +23,8 @@ locals {
     for tag in local.proxmox_tag_key_values : tag
     if tag != ""
   ]))
+
+  efi_disk_storage = trimspace(var.efi_disk_storage) != "" ? trimspace(var.efi_disk_storage) : var.bootdisk_storage
 }
 
 resource "proxmox_vm_qemu" "this" {
@@ -30,8 +32,8 @@ resource "proxmox_vm_qemu" "this" {
   vmid = var.vmid
 
   // Force creation if VM already exists with this ID
-  force_create = var.force_create
-
+  force_create     = var.force_create
+  automatic_reboot = true
   // VM name, also a required input.
   name = var.name
 
@@ -42,6 +44,11 @@ resource "proxmox_vm_qemu" "this" {
   clone       = var.clone_template
   agent       = var.agent_enabled
   os_type     = var.os_type
+  force_recreate_on_change_of = (
+    trimspace(var.force_recreate_on_change_of) != "" ?
+    var.force_recreate_on_change_of :
+    null
+  )
   // Use a lifecycle block to ignore changes to the 'name' attribute after creation
   // if Proxmox automatically appends something (e.g., "-clone") to the name.
   // This helps prevent unnecessary Terraform plans.
@@ -72,11 +79,21 @@ resource "proxmox_vm_qemu" "this" {
   bootdisk           = var.boot_disk_device
   hastate            = trimspace(var.ha_state) != "" ? trimspace(var.ha_state) : null
   hagroup            = trimspace(var.ha_group) != "" ? trimspace(var.ha_group) : null
-  vm_state           = var.vm_state
+  power_state        = var.power_state
   start_at_node_boot = var.start_at_node_boot
   protection         = var.protection
   balloon            = var.balloon
   agent_timeout      = var.agent_timeout
+
+  dynamic "efidisk" {
+    for_each = lower(trimspace(var.bios)) == "ovmf" && var.efi_disk_enabled ? [1] : []
+    content {
+      storage           = local.efi_disk_storage
+      efitype           = var.efi_disk_type
+      format            = var.efi_disk_format
+      pre_enrolled_keys = var.efi_pre_enrolled_keys
+    }
+  }
 
   // Convert map of tags to a semicolon-separated key-value tag string.
   tags = local.proxmox_tags
@@ -96,7 +113,10 @@ resource "proxmox_vm_qemu" "this" {
   }
 
   // IP configuration for the first network interface.
-  ipconfig0 = var.ipconfig0
+  ipconfig0    = var.ipconfig0
+  nameserver   = trimspace(var.nameserver) != "" ? trimspace(var.nameserver) : null
+  searchdomain = trimspace(var.searchdomain) != "" ? trimspace(var.searchdomain) : null
+  skip_ipv6    = var.skip_ipv6
 
   // Custom Cloud-Init Configuration
   cicustom = var.cicustom
@@ -108,7 +128,7 @@ resource "proxmox_vm_qemu" "this" {
     type    = "disk"
     storage = var.bootdisk_storage
     size    = var.bootdisk_size
-    backup  = true
+    backup  = var.backup_enabled
     slot    = var.boot_disk_device
     // Add 'discard=on' for better performance.
     discard = "true"
@@ -135,7 +155,7 @@ resource "proxmox_vm_qemu" "this" {
       storage = disk.value.storage
       size    = disk.value.size
       slot    = disk.value.slot
-      backup  = true
+      backup  = var.backup_enabled
       discard = "true"
       format  = "raw"
     }

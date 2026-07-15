@@ -44,9 +44,9 @@ If a statement is not grounded in those sources, it belongs in the ideas appendi
 - [terraform-proxmox/main.tf](../../terraform-proxmox/main.tf)
 - [inventories/README.md](../../inventories/README.md)
 - [inventories/aliases.ini](../../inventories/aliases.ini)
-- [bootstrap_playbooks/README.md](../../bootstrap_playbooks/README.md)
-- [user-man/README.md](../../user-man/README.md)
-- [time_sync/README.md](../../time_sync/README.md)
+- [ansible/bootstrap_playbooks/README.md](../../ansible/bootstrap_playbooks/README.md)
+- [ansible/user-man/README.md](../../ansible/user-man/README.md)
+- [ansible/time_sync/README.md](../../ansible/time_sync/README.md)
 
 ## Platform-at-a-Glance
 

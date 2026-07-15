@@ -1,0 +1,27 @@
+---
+keycloak_version: "26.2.0"
+keycloak_user: "keycloak"
+keycloak_group: "keycloak"
+keycloak_install_base_dir: "/opt"
+keycloak_install_dir: "/opt/keycloak"
+keycloak_download_base_url: "https://github.com/keycloak/keycloak/releases/download"
+keycloak_archive: "keycloak-{{ keycloak_version }}.tar.gz"
+keycloak_extract_dir: "{{ keycloak_install_base_dir }}/keycloak-{{ keycloak_version }}"
+
+keycloak_hostname: "keycloak.example.internal"
+keycloak_http_port: 8080
+keycloak_https_port: 8443
+keycloak_health_port: 9000
+keycloak_http_enabled: true
+keycloak_proxy_headers: "xforwarded"
+keycloak_manage_firewall: true
+
+keycloak_manage_database: true
+keycloak_db_host: "127.0.0.1"
+keycloak_db_port: 5432
+keycloak_db_name: "keycloak"
+keycloak_db_user: "keycloak"
+keycloak_db_admin_user: "postgres"
+keycloak_db_admin_database: "postgres"
+
+keycloak_required_password_length: 20

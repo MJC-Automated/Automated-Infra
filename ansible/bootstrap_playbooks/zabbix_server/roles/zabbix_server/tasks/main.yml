@@ -1,0 +1,37 @@
+---
+- name: Validate input and platform
+  ansible.builtin.include_tasks: validate.yml
+
+- name: Configure package repository
+  ansible.builtin.include_tasks: repo.yml
+
+- name: Install required packages
+  ansible.builtin.include_tasks: packages.yml
+
+- name: Configure PostgreSQL database
+  ansible.builtin.include_tasks: database.yml
+
+- name: Configure Zabbix server settings
+  ansible.builtin.include_tasks: config.yml
+
+- name: Configure backups
+  ansible.builtin.include_tasks: backups.yml
+
+- name: Configure firewall (optional)
+  ansible.builtin.include_tasks: firewall.yml
+  when: zabbix_manage_firewall | bool
+
+- name: Ensure service state
+  ansible.builtin.include_tasks: service.yml
+
+- name: Reconcile Zabbix API administrator credential
+  ansible.builtin.include_tasks: api-credentials.yml
+
+- name: Configure auto-discovery rules
+  ansible.builtin.include_tasks: discovery.yml
+  tags: [discovery]
+
+- name: Configure email alerts
+  ansible.builtin.include_tasks: alerts.yml
+  when: zabbix_email_alerts_enabled | bool
+  tags: [alerts]

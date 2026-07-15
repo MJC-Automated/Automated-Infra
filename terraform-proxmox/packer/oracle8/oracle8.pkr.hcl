@@ -34,9 +34,14 @@ variable "proxmox_tls_insecure" {
   default     = true
 }
 
-variable "template_name" {
+variable "ssh_host" {
   type        = string
-  default     = "oracle8"
+  description = "Static address assigned to the Packer build guest"
+}
+
+variable "template_name" {
+  type    = string
+  default = "oracle8"
 }
 
 variable "vm_id" {
@@ -64,7 +69,7 @@ variable "memory_mb" {
 }
 
 source "proxmox-clone" "oracle8" {
-  proxmox_url              = var.proxmox_api_url
+  proxmox_url = var.proxmox_api_url
   // For token auth, username must be in the form user@realm!tokenid
   username                 = var.proxmox_token_id
   token                    = var.proxmox_token
@@ -75,18 +80,20 @@ source "proxmox-clone" "oracle8" {
   vm_id        = var.vm_id
   clone_vm_id  = var.clone_vm_id
   full_clone   = true
-  communicator = "none"
+  ssh_username = "ansible"
+  ssh_host     = var.ssh_host
+  ssh_timeout  = "10m"
   task_timeout = "15m"
 
   // Match the base VM hardware defaults
-  os               = "l26"
-  cpu_type         = "host"
-  cores            = var.cpu_cores
-  sockets          = 1
-  memory           = var.memory_mb
-  qemu_agent       = true
-  scsi_controller  = "virtio-scsi-single"
-  boot             = "order=scsi0"
+  os              = "l26"
+  cpu_type        = "host"
+  cores           = var.cpu_cores
+  sockets         = 1
+  memory          = var.memory_mb
+  qemu_agent      = true
+  scsi_controller = "virtio-scsi-single"
+  boot            = "order=scsi0"
 
   network_adapters {
     bridge = "vmbr0"
@@ -98,4 +105,9 @@ source "proxmox-clone" "oracle8" {
 
 build {
   sources = ["source.proxmox-clone.oracle8"]
+
+  provisioner "shell" {
+    script          = "../scripts/sanitize-template.sh"
+    execute_command = "chmod +x {{ .Path }}; sudo {{ .Vars }} {{ .Path }}"
+  }
 }

@@ -1,0 +1,82 @@
+---
+- name: Install Jenkins agent packages
+  ansible.builtin.apt:
+    name: "{{ jenkins_agent_packages }}"
+    state: present
+    update_cache: true
+  register: jenkins_agent_package_install
+  until: jenkins_agent_package_install is succeeded
+  retries: 3
+  delay: 10
+
+- name: Install Jenkins agent Docker packages
+  ansible.builtin.apt:
+    name: "{{ jenkins_agent_docker_packages }}"
+    state: present
+    update_cache: true
+  register: jenkins_agent_docker_install
+  until: jenkins_agent_docker_install is succeeded
+  retries: 3
+  delay: 10
+  when: jenkins_agent_install_docker | bool
+
+- name: Ensure Docker is started on Jenkins agent
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  when: jenkins_agent_install_docker | bool
+
+- name: Create jenkins group on Agent
+  ansible.builtin.group:
+    name: "{{ jenkins_agent_user }}"
+    state: present
+
+- name: Create jenkins user on Agent
+  ansible.builtin.user:
+    name: "{{ jenkins_agent_user }}"
+    group: "{{ jenkins_agent_user }}"
+    home: "{{ jenkins_agent_work_dir }}"
+    shell: /bin/bash
+    state: present
+
+- name: Ensure SSH directory exists for jenkins user
+  ansible.builtin.file:
+    path: "{{ jenkins_agent_work_dir }}/.ssh"
+    state: directory
+    owner: "{{ jenkins_agent_user }}"
+    group: "{{ jenkins_agent_user }}"
+    mode: "0700"
+
+- name: Add Jenkins public key to authorized_keys
+  ansible.posix.authorized_key:
+    user: "{{ jenkins_agent_user }}"
+    state: present
+    key: "{{ jenkins_agent_public_key }}"
+
+- name: Permit the Jenkins agent account through the SSH allowlist
+  ansible.builtin.copy:
+    dest: "{{ jenkins_agent_sshd_allow_user_path }}"
+    content: |
+      # Managed by the Jenkins agent role.
+      AllowUsers {{ jenkins_agent_user }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload SSH service
+  when: jenkins_agent_manage_sshd_allow_user | bool
+
+- name: Allow Jenkins user to use Docker
+  ansible.builtin.user:
+    name: "{{ jenkins_agent_user }}"
+    groups: docker
+    append: true
+  when: jenkins_agent_install_docker | bool
+
+- name: Ensure agent workspace directory permissions
+  ansible.builtin.file:
+    path: "{{ jenkins_agent_work_dir }}"
+    state: directory
+    owner: "{{ jenkins_agent_user }}"
+    group: "{{ jenkins_agent_user }}"
+    mode: "0755"

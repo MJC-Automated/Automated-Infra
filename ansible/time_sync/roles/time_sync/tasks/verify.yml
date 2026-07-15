@@ -1,0 +1,42 @@
+---
+# Verification tasks to check time sync status.
+
+- name: VERIFY | Mark chrony sources online
+  ansible.builtin.command: "{{ chronyc_cmd }} -a online"
+  changed_when: false
+  failed_when: false
+  when: time_sync_verify_sync | bool
+
+- name: VERIFY | Request chrony source burst
+  ansible.builtin.command: "{{ chronyc_cmd }} -a 'burst 4/4'"
+  changed_when: false
+  failed_when: false
+  when: time_sync_verify_sync | bool
+
+- name: VERIFY | Wait for chrony to sync
+  ansible.builtin.command: "{{ chronyc_cmd }} -n sources"
+  register: chrony_sources_output
+  until: "'^*' in chrony_sources_output.stdout"
+  retries: "{{ time_sync_verify_max_retries }}"
+  delay: "{{ time_sync_verify_delay }}"
+  changed_when: false
+  when: time_sync_verify_sync | bool
+
+- name: VERIFY | Check chrony tracking
+  ansible.builtin.command: "{{ chronyc_cmd }} -n tracking"
+  register: chrony_tracking
+  changed_when: false
+  failed_when: false
+
+- name: VERIFY | Display chrony tracking
+  ansible.builtin.debug:
+    var: chrony_tracking.stdout_lines
+
+- name: VERIFY | Check system time
+  ansible.builtin.command: date
+  register: system_date
+  changed_when: false
+
+- name: VERIFY | Display system time
+  ansible.builtin.debug:
+    msg: "System time on {{ inventory_hostname }}: {{ system_date.stdout }}"

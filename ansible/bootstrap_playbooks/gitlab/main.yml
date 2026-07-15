@@ -1,0 +1,189 @@
+---
+- name: GitLab automation (Server and Runner)
+  hosts: gitlab_servers:gitlab_runners
+  become: true
+  gather_facts: false
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  pre_tasks:
+    - name: Bootstrap python3 on target host (if missing)
+      ansible.builtin.raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        if command -v dnf >/dev/null 2>&1; then
+          dnf install -y python3 python3-dnf
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update -y && apt-get install -y python3 python3-apt
+        else
+          echo "No supported package manager found. Install python3 manually." >&2
+          exit 1
+        fi
+      changed_when: false
+      tags: [always]
+
+    - name: Gather facts
+      ansible.builtin.setup:
+      tags: [always]
+
+    - name: Read .env file from playbook directory (optional)
+      ansible.builtin.set_fact:
+        gitlab_env_content_lines: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/.env', errors='ignore') | default('', true)).splitlines() }}"
+      changed_when: false
+      tags: [always]
+
+    - name: Parse GITLAB_* values from .env
+      ansible.builtin.set_fact:
+        "{{ item.split('=', 1)[0] }}": "{{ item.split('=', 1)[1] | regex_replace('^[\"\\x27]|[\"\\x27]$', '') }}"
+      loop: "{{ gitlab_env_content_lines | default([]) }}"
+      when:
+        - (item | trim | length) > 0
+        - not (item | trim | regex_search('^#'))
+        - "'=' in item"
+      no_log: true
+      tags: [always]
+
+    - name: Apply GITLAB non-secret overrides from .env
+      ansible.builtin.set_fact:
+        gitlab_edition: "{{ GITLAB_EDITION | default(gitlab_edition, true) }}"
+        gitlab_version: "{{ GITLAB_VERSION | default(gitlab_version, true) }}"
+        gitlab_package_path: "{{ GITLAB_PACKAGE_PATH | default(gitlab_package_path, true) }}"
+        gitlab_external_url: "{{ GITLAB_EXTERNAL_URL | default(gitlab_external_url, true) }}"
+        gitlab_time_zone: "{{ GITLAB_TIME_ZONE | default(gitlab_time_zone, true) }}"
+        gitlab_signup_enabled: "{{ (GITLAB_SIGNUP_ENABLED | default(gitlab_signup_enabled | string, true)) | bool }}"
+        gitlab_default_project_visibility: "{{ GITLAB_DEFAULT_PROJECT_VISIBILITY | default(gitlab_default_project_visibility, true) }}"
+        gitlab_default_group_visibility: "{{ GITLAB_DEFAULT_GROUP_VISIBILITY | default(gitlab_default_group_visibility, true) }}"
+        gitlab_default_snippet_visibility: "{{ GITLAB_DEFAULT_SNIPPET_VISIBILITY | default(gitlab_default_snippet_visibility, true) }}"
+        gitlab_default_projects_limit: "{{ (GITLAB_DEFAULT_PROJECTS_LIMIT | default(gitlab_default_projects_limit | string, true)) | int }}"
+        gitlab_site_title: "{{ GITLAB_SITE_TITLE | default(gitlab_site_title, true) }}"
+        gitlab_site_description: "{{ GITLAB_SITE_DESCRIPTION | default(gitlab_site_description, true) }}"
+        gitlab_header_message: "{{ GITLAB_HEADER_MESSAGE | default(gitlab_header_message, true) }}"
+        gitlab_message_font_color: "{{ GITLAB_MESSAGE_FONT_COLOR | default(gitlab_message_font_color, true) }}"
+        gitlab_message_background_color: "{{ GITLAB_MESSAGE_BACKGROUND_COLOR | default(gitlab_message_background_color, true) }}"
+        gitlab_footer_message: "{{ GITLAB_FOOTER_MESSAGE | default(gitlab_footer_message, true) }}"
+        gitlab_configure_application_settings: "{{ (GITLAB_CONFIGURE_APPLICATION_SETTINGS | default(gitlab_configure_application_settings | string, true)) | bool
+          }}"
+        gitlab_configure_appearance: "{{ (GITLAB_CONFIGURE_APPEARANCE | default(gitlab_configure_appearance | string, true)) | bool }}"
+        gitlab_configure_root_preferences: "{{ (GITLAB_CONFIGURE_ROOT_PREFERENCES | default(gitlab_configure_root_preferences | string, true)) | bool }}"
+        gitlab_runner_name: "{{ GITLAB_RUNNER_NAME | default(gitlab_runner_name, true) }}"
+        gitlab_runner_executor: "{{ GITLAB_RUNNER_EXECUTOR | default(gitlab_runner_executor, true) }}"
+        gitlab_runner_docker_image: "{{ GITLAB_RUNNER_DOCKER_IMAGE | default(gitlab_runner_docker_image, true) }}"
+        gitlab_runner_tags: "{{ (GITLAB_RUNNER_TAGS | default(gitlab_runner_tags | join(','), true)).split(',') | map('trim') | reject('equalto', '') | list }}"
+        gitlab_runner_run_untagged: "{{ (GITLAB_RUNNER_RUN_UNTAGGED | default(gitlab_runner_run_untagged | string, true)) | bool }}"
+        gitlab_runner_locked: "{{ (GITLAB_RUNNER_LOCKED | default(gitlab_runner_locked | string, true)) | bool }}"
+        gitlab_runner_paused: "{{ (GITLAB_RUNNER_PAUSED | default(gitlab_runner_paused | string, true)) | bool }}"
+        gitlab_runner_access_level: "{{ GITLAB_RUNNER_ACCESS_LEVEL | default(gitlab_runner_access_level, true) }}"
+        gitlab_runner_maximum_timeout: "{{ (GITLAB_RUNNER_MAXIMUM_TIMEOUT | default(gitlab_runner_maximum_timeout | string, true)) | int }}"
+        gitlab_runner_concurrent: "{{ (GITLAB_RUNNER_CONCURRENT | default(gitlab_runner_concurrent | string, true)) | int }}"
+        gitlab_runner_limit: "{{ (GITLAB_RUNNER_LIMIT | default(gitlab_runner_limit | string, true)) | int }}"
+        gitlab_runner_docker_privileged: "{{ (GITLAB_RUNNER_DOCKER_PRIVILEGED | default(gitlab_runner_docker_privileged | string, true)) | bool }}"
+        gitlab_runner_docker_pull_policy: "{{ GITLAB_RUNNER_DOCKER_PULL_POLICY | default(gitlab_runner_docker_pull_policy, true) }}"
+        gitlab_runner_docker_volumes: "{{ (GITLAB_RUNNER_DOCKER_VOLUMES | default(gitlab_runner_docker_volumes | join(','), true)).split(',') | map('trim') | reject('equalto',
+          '') | list }}"
+        gitlab_runner_docker_allowed_pull_policies: "{{ (GITLAB_RUNNER_DOCKER_ALLOWED_PULL_POLICIES | default(gitlab_runner_docker_allowed_pull_policies | join(','),
+          true)).split(',') | map('trim') | reject('equalto', '') | list }}"
+        gitlab_runner_install_docker: "{{ (GITLAB_RUNNER_INSTALL_DOCKER | default(gitlab_runner_install_docker | string, true)) | bool }}"
+        gitlab_runner_docker_package_source: "{{ GITLAB_RUNNER_DOCKER_PACKAGE_SOURCE | default(gitlab_runner_docker_package_source, true) }}"
+        gitlab_runner_package_path: "{{ GITLAB_RUNNER_PACKAGE_PATH | default(gitlab_runner_package_path, true) }}"
+      tags: [always]
+
+    - name: Apply GITLAB secret overrides from .env
+      ansible.builtin.set_fact:
+        gitlab_root_password: "{{ GITLAB_ROOT_PASSWORD | default(gitlab_root_password | default(''), true) }}"
+        gitlab_api_token: "{{ GITLAB_API_TOKEN | default(gitlab_api_token | default(''), true) }}"
+      no_log: true
+      tags: [always]
+
+    - name: Ensure GitLab local files directory exists
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/files"
+        state: directory
+        mode: "0700"
+      tags: [always]
+
+    - name: Generate GitLab root password when not supplied
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.shell: |
+        set -eu
+        if [ ! -s "{{ gitlab_root_password_path }}" ]; then
+          umask 077
+          openssl rand -base64 30 > "{{ gitlab_root_password_path }}"
+        fi
+      args:
+        creates: "{{ gitlab_root_password_path }}"
+      when: gitlab_root_password | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Read generated GitLab root password
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.slurp:
+        src: "{{ gitlab_root_password_path }}"
+      register: gitlab_generated_root_password_b64
+      when: gitlab_root_password | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Use generated GitLab root password
+      ansible.builtin.set_fact:
+        gitlab_root_password: "{{ gitlab_generated_root_password_b64.content | b64decode | trim }}"
+      when: gitlab_root_password | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Generate GitLab API token when not supplied
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.shell: |
+        set -eu
+        if [ ! -s "{{ gitlab_api_token_path }}" ]; then
+          umask 077
+          openssl rand -hex 32 > "{{ gitlab_api_token_path }}"
+        fi
+      args:
+        creates: "{{ gitlab_api_token_path }}"
+      when: gitlab_api_token | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Read generated GitLab API token
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.slurp:
+        src: "{{ gitlab_api_token_path }}"
+      register: gitlab_generated_api_token_b64
+      when: gitlab_api_token | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Use generated GitLab API token
+      ansible.builtin.set_fact:
+        gitlab_api_token: "{{ gitlab_generated_api_token_b64.content | b64decode | trim }}"
+      when: gitlab_api_token | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Assert GitLab secrets are strong enough
+      ansible.builtin.assert:
+        that:
+          - gitlab_root_password | length >= gitlab_required_password_length
+          - gitlab_api_token | length >= gitlab_required_password_length
+        fail_msg: "Set strong GITLAB_ROOT_PASSWORD/GITLAB_API_TOKEN values or allow the playbook to generate them under ansible/bootstrap_playbooks/gitlab/files/."
+      no_log: true
+      tags: [always]
+
+  roles:
+    - role: gitlab

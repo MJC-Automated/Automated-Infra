@@ -1,0 +1,93 @@
+---
+- name: Build excluded discovery host list from inventory groups
+  ansible.builtin.set_fact:
+    zabbix_discovery_excluded_hosts: >-
+      {{
+        zabbix_discovery_excluded_groups
+        | map('extract', groups)
+        | select('defined')
+        | flatten
+        | unique
+        | list
+      }}
+  delegate_to: localhost
+  run_once: true
+  tags: [always]
+
+- name: Build IP range for discovery from generated inventory
+  ansible.builtin.set_fact:
+    zabbix_discovery_ip_range: >-
+      {{
+        groups['all_nodes']
+        | reject('in', zabbix_discovery_excluded_hosts | default([]))
+        | map('extract', hostvars, 'ansible_host')
+        | select('defined')
+        | list
+        | join(',')
+      }}
+  delegate_to: localhost
+  run_once: true
+  tags: [always]
+
+- name: Create Zabbix VM Auto-Discovery Rule
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: "zabbix"
+    ansible_host: "{{ hostvars[inventory_hostname]['ansible_host'] }}"
+    ansible_user: "{{ zabbix_api_user }}"
+    ansible_httpapi_pass: "{{ zabbix_api_password }}"
+  community.zabbix.zabbix_discovery_rule:
+    name: "{{ zabbix_discovery_rule_name }}"
+    state: present
+    status: enabled
+    delay: "{{ zabbix_discovery_rule_delay }}"
+    iprange: "{{ zabbix_discovery_ip_range }}"
+    dchecks:
+      - type: ICMP
+      - type: Zabbix
+        key: "system.hostname"
+        ports: "10050"
+        uniq: true
+        host_source: "discovery"
+        name_source: "discovery"
+  run_once: true
+  no_log: true
+  tags: [discovery]
+
+- name: Create Discovery Action for Auto-Discovered VMs
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: "zabbix"
+    ansible_host: "{{ hostvars[inventory_hostname]['ansible_host'] }}"
+    ansible_user: "{{ zabbix_api_user }}"
+    ansible_httpapi_pass: "{{ zabbix_api_password }}"
+  community.zabbix.zabbix_action:
+    name: "{{ zabbix_discovery_action_name }}"
+    event_source: "discovery"
+    state: present
+    status: enabled
+    esc_period: "{{ zabbix_discovery_action_esc_period }}"
+    conditions:
+      - type: "discovery_rule"
+        operator: "="
+        value: "{{ zabbix_discovery_rule_name }}"
+      - type: "discovery_status"
+        operator: "="
+        value: "up"
+    operations:
+      - type: add_host
+      - type: add_to_host_group
+        host_groups: "{{ zabbix_discovery_host_groups }}"
+      - type: link_to_template
+        templates: "{{ zabbix_discovery_templates }}"
+  run_once: true
+  no_log: true
+  tags: [discovery]

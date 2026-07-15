@@ -1,0 +1,21 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart jenkins
+  ansible.builtin.systemd:
+    name: jenkins
+    state: restarted
+    enabled: true
+
+- name: Validate SSH configuration
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+  listen: Reload SSH service
+
+- name: Reload SSH service
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
+  listen: Reload SSH service

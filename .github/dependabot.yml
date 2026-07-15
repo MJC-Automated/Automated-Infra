@@ -1,0 +1,40 @@
+---
+# .github/dependabot.yml
+# Enables Dependabot security and version updates for all dependency ecosystems
+# used in this repository.
+
+version: 2
+updates:
+  # Python pip — ansible toolchain (ansible/requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/ansible"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+
+  # GitHub Actions — workflow action versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # Terraform providers — locked in .terraform.lock.hcl (tracked in dev only)
+  # Dependabot can alert on provider advisories even when lock is gitignored
+  - package-ecosystem: "terraform"
+    directory: "/terraform-proxmox"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "terraform"

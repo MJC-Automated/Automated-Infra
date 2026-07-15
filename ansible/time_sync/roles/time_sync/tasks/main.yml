@@ -1,0 +1,33 @@
+---
+# Main entry point for the time_sync role
+
+- name: PRECHECK | Validate role variables
+  ansible.builtin.include_tasks: validate-vars.yml
+  tags: [always, precheck]
+
+- name: PRECHECK | Pre-flight checks and variable setup
+  ansible.builtin.include_tasks: setup-vars.yml
+  tags: [always, precheck]
+
+- name: SETUP | Disable conflicting time services
+  ansible.builtin.include_tasks: setup-cleanup.yml
+  tags: [cleanup]
+
+- name: SETUP | Install and configure Chrony
+  ansible.builtin.include_tasks: setup-chrony.yml
+  tags: [configuration, chrony]
+
+- name: SETUP | Apply pending Chrony restarts before verification
+  ansible.builtin.meta: flush_handlers
+  tags: [configuration, chrony, verification]
+
+- name: VERIFY | Run verification tasks
+  ansible.builtin.include_tasks: verify.yml
+  when: not ansible_check_mode
+  tags: [verification]
+
+- name: VERIFY | Report check-mode verification skip
+  ansible.builtin.debug:
+    msg: "Runtime Chrony verification is skipped in check mode."
+  when: ansible_check_mode
+  tags: [verification]

@@ -1,0 +1,79 @@
+---
+# defaults file for gitlab role
+gitlab_edition: "gitlab-ce"
+gitlab_version: "19.1.2-ce.0"
+gitlab_package_path: ""
+gitlab_server_inventory_host: "{{ groups['gitlab_servers'] | first }}"
+gitlab_external_url: >-
+  http://{{ hostvars[gitlab_server_inventory_host].ansible_host |
+  default(gitlab_server_inventory_host) }}
+gitlab_root_password: ""
+gitlab_root_password_path: "{{ playbook_dir }}/files/gitlab_root_password"
+gitlab_required_password_length: 16
+gitlab_force_reconfigure: false
+
+# Homelab-safe GitLab application defaults. No public IPv4, public DNS, or
+# Let's Encrypt assumptions are made.
+gitlab_time_zone: "Africa/Nairobi"
+gitlab_signup_enabled: false
+gitlab_default_project_visibility: "private"
+gitlab_default_group_visibility: "private"
+gitlab_default_snippet_visibility: "private"
+gitlab_default_projects_limit: 100
+gitlab_default_syntax_highlighting_theme: 1
+gitlab_default_dark_syntax_highlighting_theme: 2
+gitlab_root_color_mode_id: 2
+gitlab_root_theme_id: 3
+gitlab_site_title: "Homelab GitLab"
+gitlab_site_description: "Local GitLab instance managed by Ansible."
+gitlab_header_message: "Homelab GitLab - local network only"
+gitlab_message_font_color: "#ffffff"
+gitlab_message_background_color: "#1f2937"
+gitlab_footer_message: ""
+gitlab_pwa_name: "Homelab GitLab"
+gitlab_pwa_short_name: "GitLab"
+gitlab_configure_application_settings: true
+gitlab_configure_appearance: true
+gitlab_configure_root_preferences: true
+
+# Omnibus tuning for a small single-node lab instance.
+gitlab_puma_worker_processes: 2
+gitlab_sidekiq_max_concurrency: 10
+gitlab_postgresql_shared_buffers: "256MB"
+gitlab_prometheus_enable: false
+gitlab_registry_enable: false
+gitlab_letsencrypt_enable: false
+
+# GitLab Runner defaults
+gitlab_runner_name: "{{ inventory_hostname }}"
+gitlab_runner_executor: "docker"
+gitlab_runner_docker_image: "ubuntu:24.04"
+gitlab_runner_tags:
+  - docker
+  - local
+  - homelab
+gitlab_runner_run_untagged: true
+gitlab_runner_locked: false
+gitlab_runner_paused: false
+gitlab_runner_access_level: "not_protected"
+gitlab_runner_maximum_timeout: 7200
+gitlab_runner_concurrent: 4
+gitlab_runner_limit: 0
+gitlab_runner_docker_privileged: false
+gitlab_runner_docker_pull_policy: "if-not-present"
+gitlab_runner_docker_volumes:
+  - "/cache"
+  - "/var/run/docker.sock:/var/run/docker.sock"
+gitlab_runner_docker_allowed_pull_policies:
+  - "always"
+  - "if-not-present"
+gitlab_runner_install_docker: true
+gitlab_runner_docker_package_source: "ubuntu" # ubuntu or docker
+gitlab_runner_package_path: ""
+gitlab_runner_template_path: "/etc/gitlab-runner/runner-template.toml"
+
+# Admin API token. Leave unset to generate ansible/bootstrap_playbooks/gitlab/files/gitlab_api_token.
+gitlab_api_token: ""
+gitlab_api_token_path: "{{ playbook_dir }}/files/gitlab_api_token"
+gitlab_api_token_name: "ansible-bootstrap-token"
+gitlab_api_token_expires_in_days: 365

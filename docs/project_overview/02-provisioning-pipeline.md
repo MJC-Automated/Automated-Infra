@@ -164,7 +164,7 @@ The committed `environments/dev.tfvars` shows the intended modeling style:
 - Proxmox node, storage pool, bridge, snippet storage
 - Vault auth mode and governance toggles
 - default cloud-init access user
-- `node_groups` for `weblogic14c`, `weblogic12c`, `database19c`, `database21c`, `zabbix`, `freeipa`, `keycloak`, `observability`, and `zimbra`
+- `node_groups` for WebLogic, Oracle databases, Zabbix, FreeIPA, Keycloak, observability, Zimbra, Jenkins, GitLab, and Kubernetes control-plane/etcd/worker nodes
 - per-VM CPU, memory, root disk size, data disk size, and partition definitions
 
 ## Stage 5: Snippet Rendering and Upload

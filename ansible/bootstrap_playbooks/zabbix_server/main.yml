@@ -1,0 +1,200 @@
+---
+- name: Zabbix Server 7.0 automation
+  hosts: zabbix_servers
+  become: true
+  gather_facts: false
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  pre_tasks:
+    - name: Bootstrap python3 on target host (if missing)
+      ansible.builtin.raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        if command -v dnf >/dev/null 2>&1; then
+          dnf install -y python3 python3-dnf
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update -y && apt-get install -y python3 python3-apt
+        else
+          echo "No supported package manager found. Install python3 manually." >&2
+          exit 1
+        fi
+      changed_when: false
+      tags: [always]
+
+    - name: Gather facts
+      ansible.builtin.setup:
+      tags: [always]
+
+    - name: Resolve .env path for Zabbix playbook
+      ansible.builtin.set_fact:
+        zabbix_dotenv_file: >-
+          {{
+            lookup(
+              'ansible.builtin.first_found',
+              {
+                'files': ['.env', 'ansible/bootstrap_playbooks/zabbix_server/.env'],
+                'paths': [playbook_dir]
+              },
+              errors='ignore'
+            )
+            | default('', true)
+          }}
+      tags: [always]
+
+    - name: Initialize empty ZABBIX_* override map
+      ansible.builtin.set_fact:
+        zabbix_dotenv: {}
+      tags: [always]
+
+    - name: Read resolved .env file lines
+      ansible.builtin.set_fact:
+        zabbix_dotenv_lines: "{{ lookup('ansible.builtin.file', zabbix_dotenv_file).splitlines() }}"
+      when: zabbix_dotenv_file | string | length > 0
+      tags: [always]
+
+    - name: Parse .env lines into ZABBIX_* map
+      ansible.builtin.set_fact:
+        zabbix_dotenv: >-
+          {{
+            zabbix_dotenv
+            | combine(
+                {
+                  (item.split('=', 1)[0] | trim): (
+                    item.split('=', 1)[1]
+                    | trim
+                    | regex_replace('^[\"\']|[\"\']$', '')
+                  )
+                }
+              )
+          }}
+      loop: "{{ zabbix_dotenv_lines | default([]) }}"
+      when:
+        - (item | trim | length) > 0
+        - not (item | trim | regex_search('^#'))
+        - "'=' in item"
+      no_log: true
+      tags: [always]
+
+    - name: Apply ZABBIX non-secret overrides from .env
+      ansible.builtin.set_fact:
+        zabbix_version: "{{ zabbix_dotenv.ZABBIX_VERSION | default(zabbix_version, true) }}"
+        zabbix_db_mode: "{{ zabbix_dotenv.ZABBIX_DB_MODE | default(zabbix_db_mode, true) }}"
+        zabbix_db_host: "{{ zabbix_dotenv.ZABBIX_DB_HOST | default(zabbix_db_host, true) }}"
+        zabbix_db_port: "{{ (zabbix_dotenv.ZABBIX_DB_PORT | default(zabbix_db_port | string, true)) | int }}"
+        zabbix_db_name: "{{ zabbix_dotenv.ZABBIX_DB_NAME | default(zabbix_db_name, true) }}"
+        zabbix_db_user: "{{ zabbix_dotenv.ZABBIX_DB_USER | default(zabbix_db_user, true) }}"
+        zabbix_db_schema: "{{ zabbix_dotenv.ZABBIX_DB_SCHEMA | default(zabbix_db_schema, true) }}"
+        zabbix_db_credentials_store: "{{ zabbix_dotenv.ZABBIX_DB_CREDENTIALS_STORE | default(zabbix_db_credentials_store, true) }}"
+        zabbix_db_vault_url: "{{ zabbix_dotenv.ZABBIX_DB_VAULT_URL | default(zabbix_db_vault_url, true) }}"
+        zabbix_db_vault_prefix: "{{ zabbix_dotenv.ZABBIX_DB_VAULT_PREFIX | default(zabbix_db_vault_prefix, true) }}"
+        zabbix_db_vault_db_path: "{{ zabbix_dotenv.ZABBIX_DB_VAULT_DB_PATH | default(zabbix_db_vault_db_path, true) }}"
+        zabbix_db_vault_cache: "{{ (zabbix_dotenv.ZABBIX_DB_VAULT_CACHE | default((zabbix_db_vault_cache | string), true)) | bool }}"
+        zabbix_db_admin_user: "{{ zabbix_dotenv.ZABBIX_DB_ADMIN_USER | default(zabbix_db_admin_user, true) }}"
+        zabbix_db_manage_user_and_db: "{{ (zabbix_dotenv.ZABBIX_DB_MANAGE_USER_AND_DB | default((zabbix_db_manage_user_and_db | string), true)) | bool }}"
+        zabbix_db_import_schema: "{{ (zabbix_dotenv.ZABBIX_DB_IMPORT_SCHEMA | default((zabbix_db_import_schema | string), true)) | bool }}"
+        zabbix_manage_agent2_plugins: "{{ (zabbix_dotenv.ZABBIX_MANAGE_AGENT2_PLUGINS | default((zabbix_manage_agent2_plugins | string), true)) | bool }}"
+        zabbix_manage_firewall: "{{ (zabbix_dotenv.ZABBIX_MANAGE_FIREWALL | default((zabbix_manage_firewall | string), true)) | bool }}"
+        zabbix_oracle_exclude_epel_zabbix: "{{ (zabbix_dotenv.ZABBIX_ORACLE_EXCLUDE_EPEL_ZABBIX | default((zabbix_oracle_exclude_epel_zabbix | string), true)) | bool
+          }}"
+        zabbix_service_enable: "{{ (zabbix_dotenv.ZABBIX_SERVICE_ENABLE | default((zabbix_service_enable | string), true)) | bool }}"
+        zabbix_service_start: "{{ (zabbix_dotenv.ZABBIX_SERVICE_START | default((zabbix_service_start | string), true)) | bool }}"
+        zabbix_php_timezone: "{{ zabbix_dotenv.ZABBIX_PHP_TIMEZONE | default(zabbix_php_timezone, true) }}"
+        zabbix_frontend_server_name: "{{ zabbix_dotenv.ZABBIX_FRONTEND_SERVER_NAME | default(zabbix_frontend_server_name, true) }}"
+        zabbix_backup_enabled: "{{ (zabbix_dotenv.ZABBIX_BACKUP_ENABLED | default((zabbix_backup_enabled | string), true)) | bool }}"
+        zabbix_backup_mount_point: "{{ zabbix_dotenv.ZABBIX_BACKUP_MOUNT_POINT | default(zabbix_backup_mount_point, true) }}"
+        zabbix_backup_dir: "{{ zabbix_dotenv.ZABBIX_BACKUP_DIR | default(zabbix_backup_dir, true) }}"
+        zabbix_backup_keep_archived: "{{ (zabbix_dotenv.ZABBIX_BACKUP_KEEP_ARCHIVED | default(zabbix_backup_keep_archived | string, true)) | int }}"
+        zabbix_backup_keep_max: "{{ (zabbix_dotenv.ZABBIX_BACKUP_KEEP_MAX | default(zabbix_backup_keep_max | string, true)) | int }}"
+        zabbix_backup_schedule_hour: "{{ (zabbix_dotenv.ZABBIX_BACKUP_SCHEDULE_HOUR | default(zabbix_backup_schedule_hour | string, true)) | int }}"
+        zabbix_backup_schedule_minute: "{{ (zabbix_dotenv.ZABBIX_BACKUP_SCHEDULE_MINUTE | default(zabbix_backup_schedule_minute | string, true)) | int }}"
+        zabbix_backup_require_mount: "{{ (zabbix_dotenv.ZABBIX_BACKUP_REQUIRE_MOUNT | default((zabbix_backup_require_mount | string), true)) | bool }}"
+        zabbix_backup_script_path: "{{ zabbix_dotenv.ZABBIX_BACKUP_SCRIPT_PATH | default(zabbix_backup_script_path, true) }}"
+        zabbix_backup_log_path: "{{ zabbix_dotenv.ZABBIX_BACKUP_LOG_PATH | default(zabbix_backup_log_path, true) }}"
+        zabbix_email_alerts_enabled: "{{ (zabbix_dotenv.ZABBIX_EMAIL_ALERTS_ENABLED | default((zabbix_email_alerts_enabled | string), true)) | bool }}"
+        zabbix_email_media_type_name: "{{ zabbix_dotenv.ZABBIX_EMAIL_MEDIA_TYPE_NAME | default(zabbix_email_media_type_name, true) }}"
+        zabbix_email_smtp_server: "{{ zabbix_dotenv.ZABBIX_EMAIL_SMTP_SERVER | default(zabbix_email_smtp_server, true) }}"
+        zabbix_email_smtp_port: "{{ (zabbix_dotenv.ZABBIX_EMAIL_SMTP_PORT | default(zabbix_email_smtp_port | string, true)) | int }}"
+        zabbix_email_smtp_helo: "{{ zabbix_dotenv.ZABBIX_EMAIL_SMTP_HELO | default(zabbix_email_smtp_helo, true) }}"
+        zabbix_email_from: "{{ zabbix_dotenv.ZABBIX_EMAIL_FROM | default(zabbix_email_from, true) }}"
+        zabbix_email_security: "{{ zabbix_dotenv.ZABBIX_EMAIL_SECURITY | default(zabbix_email_security, true) }}"
+        zabbix_email_verify_peer: "{{ (zabbix_dotenv.ZABBIX_EMAIL_VERIFY_PEER | default((zabbix_email_verify_peer | string), true)) | bool }}"
+        zabbix_email_verify_host: "{{ (zabbix_dotenv.ZABBIX_EMAIL_VERIFY_HOST | default((zabbix_email_verify_host | string), true)) | bool }}"
+        zabbix_email_smtp_authentication: "{{ (zabbix_dotenv.ZABBIX_EMAIL_SMTP_AUTHENTICATION | default((zabbix_email_smtp_authentication | string), true)) | bool }}"
+        zabbix_email_smtp_username: "{{ zabbix_dotenv.ZABBIX_EMAIL_SMTP_USERNAME | default(zabbix_email_smtp_username, true) }}"
+        zabbix_email_recipient_users: "{{ (zabbix_dotenv.ZABBIX_EMAIL_RECIPIENT_USERS | default('', true)).split(',') | map('trim') | reject('equalto', '') | list if zabbix_dotenv.ZABBIX_EMAIL_RECIPIENT_USERS | default('', true) | length > 0 else zabbix_email_recipient_users }}"
+        zabbix_email_min_severity: "{{ zabbix_dotenv.ZABBIX_EMAIL_MIN_SEVERITY | default(zabbix_email_min_severity, true) }}"
+      tags: [always]
+
+    - name: Apply ZABBIX secret overrides from .env
+      ansible.builtin.set_fact:
+        zabbix_db_password: "{{ zabbix_dotenv.ZABBIX_DB_PASSWORD | default(zabbix_db_password, true) }}"
+        zabbix_db_admin_password: "{{ zabbix_dotenv.ZABBIX_DB_ADMIN_PASSWORD | default(zabbix_db_admin_password, true) }}"
+        zabbix_db_vault_token: "{{ zabbix_dotenv.ZABBIX_DB_VAULT_TOKEN | default(zabbix_db_vault_token, true) }}"
+        zabbix_email_smtp_password: "{{ zabbix_dotenv.ZABBIX_EMAIL_SMTP_PASSWORD | default(zabbix_email_smtp_password, true) }}"
+      no_log: true
+      tags: [always]
+
+    - name: Determine missing Zabbix local secrets
+      ansible.builtin.set_fact:
+        zabbix_generate_db_password: >-
+          {{ zabbix_generate_local_passwords | bool and zabbix_db_password | length == 0 }}
+        zabbix_generate_api_password: >-
+          {{ zabbix_generate_local_passwords | bool and zabbix_api_password | length == 0 }}
+      tags: [always]
+
+    - name: Ensure Zabbix local secret directory exists
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/files"
+        state: directory
+        owner: "{{ zabbix_local_secret_owner }}"
+        group: "{{ zabbix_local_secret_group }}"
+        mode: "0700"
+      when: zabbix_generate_db_password | bool or zabbix_generate_api_password | bool
+      tags: [always]
+
+    - name: Resolve persistent Zabbix local secrets
+      ansible.builtin.set_fact:
+        zabbix_db_password: >-
+          {{
+            lookup('ansible.builtin.password', zabbix_db_password_path ~ ' length=64 chars=ascii_letters,digits')
+            if zabbix_generate_db_password | bool
+            else zabbix_db_password
+          }}
+        zabbix_api_password: >-
+          {{
+            lookup('ansible.builtin.password', zabbix_api_password_path ~ ' length=64 chars=ascii_letters,digits')
+            if zabbix_generate_api_password | bool
+            else zabbix_api_password
+          }}
+      no_log: true
+      tags: [always]
+
+    - name: Enforce Zabbix local secret ownership and permissions
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: file
+        owner: "{{ zabbix_local_secret_owner }}"
+        group: "{{ zabbix_local_secret_group }}"
+        mode: "0600"
+      loop:
+        - path: "{{ zabbix_db_password_path }}"
+          generated: "{{ zabbix_generate_db_password }}"
+        - path: "{{ zabbix_api_password_path }}"
+          generated: "{{ zabbix_generate_api_password }}"
+      when: item.generated | bool
+      no_log: true
+      tags: [always]
+
+  roles:
+    - role: zabbix_server

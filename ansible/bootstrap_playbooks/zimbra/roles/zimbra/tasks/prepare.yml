@@ -1,0 +1,213 @@
+---
+- name: Enable Oracle EPEL repository package (OL9)
+  ansible.builtin.command: dnf install -y oracle-epel-release-el9
+  register: dnf_epel_install
+  changed_when: "'Nothing to do' not in dnf_epel_install.stdout"
+  when:
+    - zimbra_install_oracle_epel | bool
+    - ansible_facts.distribution == "OracleLinux"
+
+- name: Build base package list without p7zip plugin
+  ansible.builtin.set_fact:
+    zimbra_base_packages: "{{ zimbra_required_packages | reject('equalto', 'p7zip-plugins') | list }}"
+
+- name: Install base OS packages required by installer
+  ansible.builtin.command: "dnf install -y {{ zimbra_base_packages | join(' ') }}"
+  register: dnf_base_install
+  changed_when: "'Nothing to do' not in dnf_base_install.stdout"
+
+- name: Install p7zip-plugins from Oracle EPEL when available
+  ansible.builtin.command: dnf install -y p7zip-plugins --enablerepo=ol9_developer_EPEL
+  register: dnf_p7zip_oracle
+  changed_when: "'Nothing to do' not in dnf_p7zip_oracle.stdout"
+  when:
+    - "'p7zip-plugins' in zimbra_required_packages"
+    - ansible_facts.distribution == "OracleLinux"
+  failed_when: false
+
+- name: Install p7zip-plugins from default repos (fallback)
+  ansible.builtin.command: dnf install -y p7zip-plugins
+  register: dnf_p7zip_fallback
+  changed_when: "'Nothing to do' not in dnf_p7zip_fallback.stdout"
+  when:
+    - "'p7zip-plugins' in zimbra_required_packages"
+    - ansible_facts.distribution != "OracleLinux" or (dnf_p7zip_oracle is defined and dnf_p7zip_oracle.failed)
+
+- name: Ensure rsyslog service is enabled and running
+  ansible.builtin.service:
+    name: rsyslog
+    enabled: true
+    state: started
+
+- name: Ensure firewalld package is present
+  ansible.builtin.command: dnf install -y firewalld
+  register: dnf_firewalld_install
+  changed_when: "'Nothing to do' not in dnf_firewalld_install.stdout"
+  when: zimbra_manage_firewall | bool
+
+- name: Ensure firewalld is enabled and running
+  ansible.builtin.service:
+    name: firewalld
+    enabled: true
+    state: started
+  when: zimbra_manage_firewall | bool
+
+- name: Query permanent firewalld ports for Zimbra
+  ansible.builtin.command: "firewall-cmd --permanent --query-port={{ item }}"
+  register: zimbra_firewall_port_query
+  changed_when: false
+  failed_when: zimbra_firewall_port_query.rc not in [0, 1]
+  loop: "{{ zimbra_firewall_allowed_ports }}"
+  when: zimbra_manage_firewall | bool
+
+- name: Add missing permanent firewalld ports for Zimbra
+  ansible.builtin.command: "firewall-cmd --permanent --add-port={{ item.item }}"
+  loop: "{{ zimbra_firewall_port_query.results | default([]) }}"
+  changed_when: true
+  when:
+    - zimbra_manage_firewall | bool
+    - item.rc == 1
+
+- name: Reload firewalld after port updates
+  ansible.builtin.command: firewall-cmd --reload
+  changed_when: true
+  when:
+    - zimbra_manage_firewall | bool
+    - (zimbra_firewall_port_query.results | default([]) | selectattr('rc', 'equalto', 1) | list | length) > 0
+
+- name: Set SELinux runtime mode to permissive
+  ansible.builtin.command: setenforce 0
+  changed_when: true
+  failed_when: false
+  when:
+    - zimbra_disable_selinux | bool
+    - ansible_facts.selinux is defined
+    - ansible_facts.selinux.status == "enabled"
+    - ansible_facts.selinux.mode == "enforcing"
+
+- name: Persist SELinux permissive mode
+  ansible.builtin.lineinfile:
+    path: /etc/selinux/config
+    regexp: "^SELINUX="
+    line: SELINUX=permissive
+  when: zimbra_disable_selinux | bool
+
+- name: Stop conflicting MTA services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - postfix
+    - sendmail
+  failed_when: false
+  when: zimbra_manage_postfix_conflicts | bool
+
+- name: Set logical hostname for Zimbra
+  ansible.builtin.command: "hostnamectl set-hostname {{ zimbra_hostname }}"
+  changed_when: true
+  when:
+    - zimbra_manage_hostname | bool
+    - ansible_facts.fqdn != zimbra_hostname
+
+- name: Check cloud-init configuration file presence
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg
+  register: zimbra_cloud_cfg_stat
+
+- name: Disable cloud-init /etc/hosts management to preserve Zimbra line format
+  ansible.builtin.lineinfile:
+    path: /etc/cloud/cloud.cfg
+    regexp: "^manage_etc_hosts:"
+    line: "manage_etc_hosts: false"
+  when: zimbra_cloud_cfg_stat.stat.exists
+
+- name: Remove non-compliant IPv4 localhost entries
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.0\\.1(?!\\s+localhost\\.example.internal\\s+localhost$).*$"
+    state: absent
+  when: zimbra_manage_hosts_file | bool
+
+- name: Ensure localhost hosts entry is strict for Zimbra installer
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.0\\.1\\s+localhost\\.example.internal\\s+localhost$"
+    line: "127.0.0.1 localhost.localdomain localhost"
+    insertafter: BOF
+    create: true
+    mode: "0644"
+  when: zimbra_manage_hosts_file | bool
+
+- name: Ensure hostname maps to service IP in /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^{{ zimbra_service_ip | replace(".", "\\.") }}\s+'
+    line: "{{ zimbra_service_ip }} {{ zimbra_hostname }} {{ zimbra_short_hostname }}"
+    create: true
+    mode: "0644"
+  when: zimbra_manage_hosts_file | bool
+
+- name: Check mounted data path for Zimbra
+  ansible.builtin.stat:
+    path: "{{ zimbra_data_mount_path }}"
+  register: zimbra_data_mount_stat
+  when:
+    - zimbra_use_mounted_data_dir | bool
+    - not zimbra_installed_bin.stat.exists
+
+- name: Assert mounted data path exists
+  ansible.builtin.assert:
+    that:
+      - zimbra_data_mount_stat.stat.exists
+      - zimbra_data_mount_stat.stat.isdir
+    fail_msg: "Expected mounted path {{ zimbra_data_mount_path }} to exist before install."
+  when:
+    - zimbra_use_mounted_data_dir | bool
+    - not zimbra_installed_bin.stat.exists
+
+- name: Verify mounted data path is actually mounted
+  ansible.builtin.command: "findmnt -n {{ zimbra_data_mount_path }}"
+  register: zimbra_data_mount_check
+  changed_when: false
+  when:
+    - zimbra_use_mounted_data_dir | bool
+    - not zimbra_installed_bin.stat.exists
+
+- name: Fail when mounted data path is not mounted
+  ansible.builtin.assert:
+    that:
+      - zimbra_data_mount_check.rc == 0
+    fail_msg: "Path {{ zimbra_data_mount_path }} exists but is not mounted."
+  when:
+    - zimbra_use_mounted_data_dir | bool
+    - not zimbra_installed_bin.stat.exists
+
+- name: Ensure persistent data directory for /opt/zimbra exists
+  ansible.builtin.file:
+    path: "{{ zimbra_data_root }}"
+    state: directory
+    mode: "0755"
+  when:
+    - zimbra_use_mounted_data_dir | bool
+    - not zimbra_installed_bin.stat.exists
+
+- name: Ensure /opt/zimbra mountpoint exists
+  ansible.builtin.file:
+    path: /opt/zimbra
+    state: directory
+    mode: "0755"
+  when:
+    - zimbra_use_mounted_data_dir | bool
+    - not zimbra_installed_bin.stat.exists
+
+- name: Persist and mount the /opt/zimbra bind mount
+  ansible.posix.mount:
+    path: /opt/zimbra
+    src: "{{ zimbra_data_root }}"
+    fstype: none
+    opts: bind
+    state: mounted
+  when:
+    - zimbra_use_mounted_data_dir | bool
+    - not zimbra_installed_bin.stat.exists

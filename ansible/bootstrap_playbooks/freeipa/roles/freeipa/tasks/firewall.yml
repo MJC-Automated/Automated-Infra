@@ -1,0 +1,48 @@
+---
+- name: Ensure firewalld is installed
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+  register: freeipa_firewalld_install
+  until: freeipa_firewalld_install is succeeded
+  retries: 3
+  delay: 10
+  when: freeipa_manage_firewall | bool
+
+- name: Ensure firewalld is running
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: true
+    state: started
+  when: freeipa_manage_firewall | bool
+
+- name: Open required FreeIPA services in firewall
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: >-
+    {{
+      freeipa_firewall_services
+      + (['dns'] if (freeipa_setup_dns | bool) else [])
+    }}
+  when: freeipa_manage_firewall | bool
+
+- name: Close FreeIPA DNS service in firewall when integrated DNS is disabled
+  ansible.posix.firewalld:
+    service: dns
+    permanent: true
+    state: disabled
+    immediate: true
+  when:
+    - freeipa_manage_firewall | bool
+    - not freeipa_setup_dns | bool
+
+- name: Open Zabbix Agent port in firewall
+  ansible.posix.firewalld:
+    port: "{{ freeipa_zabbix_agent_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when: freeipa_manage_firewall | bool

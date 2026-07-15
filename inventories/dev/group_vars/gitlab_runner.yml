@@ -1,0 +1,11 @@
+# Account baseline exceptions for GitLab Runner hosts.
+allowed_unmanaged_accounts:
+  - gitlab-runner
+
+# Each GitLab Runner VM registers as its inventory hostname by default. Override
+# in host_vars for per-node names, tags, executor type, or Docker settings.
+gitlab_runner_name: "{{ inventory_hostname }}"
+gitlab_runner_tags:
+  - docker
+  - local
+  - homelab

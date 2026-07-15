@@ -31,7 +31,7 @@ Everything below is a documentation or platform expansion idea. None of it shoul
 - Add a deeper Oracle listener and service-registration appendix once the repo intentionally documents the static-vs-dynamic listener model.
 - Add a FreeIPA and Keycloak identity-flow chapter if the repo grows explicit federation or SSO integration automation.
 - Add a Zimbra operational appendix covering DNS and mail-routing practices only when those details become tracked configuration, not just operator knowledge.
-- Add a reusable service-template guide based on the Zabbix modular pattern for onboarding new projects under `bootstrap_playbooks/`.
+- Add a reusable service-template guide based on the Zabbix modular pattern for onboarding new projects under `ansible/bootstrap_playbooks/`.
 
 ## Diagram Ideas
 

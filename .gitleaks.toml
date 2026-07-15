@@ -16,7 +16,7 @@ description = "Allowlisted findings"
 # Each fingerprint is:  <commit>:<file>:<rule>:<line>
 fingerprints = [
   # ── False positive: .env.example placeholder "<set-strong-password>" ──
-  "c1484b84007eb4b83d0b4a28efad9eb4ff160c4d:bootstrap_playbooks/observability/.env.example:generic-api-key:4",
+  "c1484b84007eb4b83d0b4a28efad9eb4ff160c4d:ansible/bootstrap_playbooks/observability/.env.example:generic-api-key:4",
 
   # ── Historical: terraform-proxmox-k8s/.env  (file deleted, tokens rotated) ──
   "041d84d436e9cb2d14761276abe740e372954dbf:terraform-proxmox-k8s/.env:generic-api-key:2",

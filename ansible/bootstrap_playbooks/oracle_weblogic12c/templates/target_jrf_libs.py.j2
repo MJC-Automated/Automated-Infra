@@ -1,0 +1,102 @@
+import jarray
+from javax.management import ObjectName
+
+# Target JRF libs for {{ wlst_domain_name }}
+admin_url = 't3://localhost:{{ item.admin_port }}'
+admin_user = '{{ item.weblogic_admin_user | default(weblogic_admin_user) }}'
+admin_password = '{{ weblogic_password }}'
+
+connect(admin_user, admin_password, admin_url)
+edit()
+startEdit()
+
+cd('/Libraries')
+libs = cmo.getLibraries()
+
+# Only target JRF/ADF framework libraries, not application-specific ones
+jrf_prefixes = [
+    'adf.oracle.',
+    'oracle.adf.',
+    'oracle.jsp',
+    'oracle.pwdgen',
+    'oracle.jrf.',
+    'oracle.sdp.',
+    'oracle.wsm.',
+    'oracle.dconfig-infra',
+    'oracle.logging-utils',
+    'oracle.xml.ws',
+    'oracle.applcore',
+    'jax-rs',
+    'odl.',
+    'owasp.',
+    'UIX',
+    'jsf',
+    'javax.faces',
+    'glassfish.jsf',
+    'weblogic.jaxrs'
+]
+
+lib_names = []
+for lib in libs:
+    name = lib.getName()
+    for prefix in jrf_prefixes:
+        if name.startswith(prefix):
+            lib_names.append(name)
+            break
+
+targets = []
+cd('/Servers/{{ item.admin_server_name | default(admin_server_name | default("AdminServer")) }}')
+targets.append(cmo.getObjectName())
+
+cluster_enabled = {{ 'True' if item.cluster_enabled | default(cluster_enabled | default(false)) else 'False' }}
+cluster_name = '{{ item.cluster_name | default(cluster_name | default("")) }}'
+if cluster_enabled and cluster_name:
+    cd('/')
+    for c in cmo.getClusters():
+        if c.getName() == cluster_name:
+            cd('/Clusters/' + cluster_name)
+            targets.append(cmo.getObjectName())
+
+managed_servers = {{ item.managed_servers | default(managed_servers | default([])) | to_json }}
+for ms in managed_servers:
+    cd('/')
+    for s in cmo.getServers():
+        if s.getName() == ms['name']:
+            cd('/Servers/' + ms['name'])
+            targets.append(cmo.getObjectName())
+
+target_array = jarray.array(targets, ObjectName)
+
+any_changed = False
+for lib_name in lib_names:
+    cd('/Libraries/' + lib_name)
+    current_targets = get('Targets')
+    current_names = [t.getKeyProperty('Name') for t in current_targets]
+    # Merge: add any missing expected targets without removing existing ones
+    missing = []
+    for t in targets:
+        t_name = t.getKeyProperty('Name')
+        if t_name not in current_names:
+            missing.append(t)
+    if missing:
+        merged = list(current_targets) + missing
+        merged_array = jarray.array(merged, ObjectName)
+        set('Targets', merged_array)
+        print 'INFO: Added targets to ' + lib_name
+        any_changed = True
+
+if any_changed:
+    save()
+    activate()
+else:
+    cancelEdit('y')
+
+f = open('/tmp/lib_status_{{ item.admin_port }}.txt', 'w')
+if any_changed:
+    f.write('CHANGED')
+else:
+    f.write('UNCHANGED')
+f.close()
+
+disconnect()
+exit()

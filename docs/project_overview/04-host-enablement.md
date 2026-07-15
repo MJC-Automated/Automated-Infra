@@ -2,12 +2,12 @@
 
 ## Primary Sources
 
-- [user-man/README.md](../../user-man/README.md)
-- [user-man/main.yml](../../user-man/main.yml)
-- [time_sync/README.md](../../time_sync/README.md)
-- [time_sync/main.yml](../../time_sync/main.yml)
+- [ansible/user-man/README.md](../../ansible/user-man/README.md)
+- [ansible/user-man/main.yml](../../ansible/user-man/main.yml)
+- [ansible/time_sync/README.md](../../ansible/time_sync/README.md)
+- [ansible/time_sync/main.yml](../../ansible/time_sync/main.yml)
 - [inventories/aliases.ini](../../inventories/aliases.ini)
-- [bootstrap_playbooks/README.md](../../bootstrap_playbooks/README.md)
+- [ansible/bootstrap_playbooks/README.md](../../ansible/bootstrap_playbooks/README.md)
 
 ## Why Host Enablement Is Its Own Layer
 
@@ -68,7 +68,7 @@ The alias file confirms the repo-wide grouping model:
 
 The bootstrap playbooks README adds the operational rule:
 
-- run `time_sync/main.yml` before `freeipa`
+- run `ansible/time_sync/main.yml` before `freeipa`
 - also run it before Kerberos-sensitive or identity-adjacent service stacks such as Keycloak and observability
 
 This means time sync is part of the platform baseline, not a post-config cleanup step.

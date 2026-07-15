@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart keycloak
+  ansible.builtin.systemd:
+    name: keycloak
+    state: restarted

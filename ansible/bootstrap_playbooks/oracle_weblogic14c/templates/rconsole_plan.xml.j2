@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<deployment-plan xmlns="http://xmlns.oracle.com/weblogic/deployment-plan" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlns.oracle.com/weblogic/deployment-plan http://xmlns.oracle.com/weblogic/deployment-plan/1.0/deployment-plan.xsd">
+  <application-name>weblogic-remote-console-app</application-name>
+  <variable-definition>
+    <variable>
+      <name>CookieNameVar</name>
+      <value>JSESSIONID_{{ wlst_domain_name | default(domain_name) | upper }}</value>
+    </variable>
+  </variable-definition>
+  <module-override>
+    <module-name>wls-remote-console.war</module-name>
+    <module-type>war</module-type>
+    <module-descriptor external="false">
+      <root-element>weblogic-web-app</root-element>
+      <uri>WEB-INF/weblogic.xml</uri>
+      <variable-assignment>
+        <name>CookieNameVar</name>
+        <xpath>/weblogic-web-app/session-descriptor/cookie-name</xpath>
+        <operation>add</operation>
+      </variable-assignment>
+    </module-descriptor>
+  </module-override>
+</deployment-plan>

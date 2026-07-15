@@ -7,8 +7,9 @@ proxmox_node         = "<proxmox-node>"
 proxmox_token_id     = "unused-when-vault-enabled"
 proxmox_token        = "unused-when-vault-enabled"
 proxmox_tls_insecure = true
+ssh_host             = "<base-vm-ip>"
 
-template_name = "ubuntu2404-template"
+template_name = "ubuntu2404"
 vm_id         = 999999995
 clone_vm_id   = 999999992
 cpu_cores     = 8

@@ -1,0 +1,110 @@
+---
+- name: Install dependencies
+  ansible.builtin.apt:
+    name:
+      - git
+      - curl
+      - gnupg
+      - ca-certificates
+      - apt-transport-https
+    state: present
+    update_cache: true
+  register: jenkins_dependency_install
+  until: jenkins_dependency_install is succeeded
+  retries: 3
+  delay: 10
+
+- name: Check local Jenkins package on controller
+  ansible.builtin.stat:
+    path: "{{ jenkins_package_path }}"
+  delegate_to: localhost
+  become: false
+  register: jenkins_local_package
+  when: jenkins_package_path | length > 0
+
+- name: Assert configured local Jenkins package exists
+  ansible.builtin.assert:
+    that:
+      - jenkins_local_package.stat.exists
+      - jenkins_local_package.stat.isreg
+    fail_msg: "Jenkins package {{ jenkins_package_path }} was not found on the controller."
+  when: jenkins_package_path | length > 0
+
+- name: Copy local Jenkins package to target
+  ansible.builtin.copy:
+    src: "{{ jenkins_package_path }}"
+    dest: "/tmp/{{ jenkins_package_path | basename }}"
+    mode: "0644"
+  when: jenkins_package_path | length > 0
+
+- name: Install Jenkins from local package
+  ansible.builtin.apt:
+    deb: "/tmp/{{ jenkins_package_path | basename }}"
+    state: present
+  register: jenkins_local_package_install
+  until: jenkins_local_package_install is succeeded
+  retries: 3
+  delay: 10
+  when: jenkins_package_path | length > 0
+
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: "0755"
+  when: jenkins_package_path | length == 0
+
+- name: Check whether the Jenkins repository keyring exists
+  ansible.builtin.stat:
+    path: /usr/share/keyrings/jenkins-keyring.gpg
+  register: jenkins_repository_keyring
+  when: jenkins_package_path | length == 0
+
+- name: Download Jenkins repository key
+  ansible.builtin.get_url:
+    url: "{{ jenkins_repo_key_url }}"
+    dest: /tmp/jenkins.io-2026.key
+    mode: "0644"
+    force: false
+  register: jenkins_repository_key_download
+  until: jenkins_repository_key_download is succeeded
+  retries: 3
+  delay: 10
+  when:
+    - jenkins_package_path | length == 0
+    - not jenkins_repository_keyring.stat.exists
+
+- name: De-armor Jenkins repository key
+  ansible.builtin.command: >
+    gpg --yes --dearmor -o /usr/share/keyrings/jenkins-keyring.gpg /tmp/jenkins.io-2026.key
+  args:
+    creates: /usr/share/keyrings/jenkins-keyring.gpg
+  when:
+    - jenkins_package_path | length == 0
+    - not jenkins_repository_keyring.stat.exists
+
+- name: Set correct permissions on keyring
+  ansible.builtin.file:
+    path: /usr/share/keyrings/jenkins-keyring.gpg
+    owner: root
+    group: root
+    mode: "0644"
+  when: jenkins_package_path | length == 0
+
+- name: Add Jenkins repository source list
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] {{ jenkins_repo_url }} binary/"
+    state: present
+    filename: jenkins
+  when: jenkins_package_path | length == 0
+
+- name: Install Jenkins LTS package
+  ansible.builtin.apt:
+    name: "{{ 'jenkins=' + jenkins_version if jenkins_version | length > 0 else 'jenkins' }}"
+    state: present
+    update_cache: true
+  register: jenkins_package_install
+  until: jenkins_package_install is succeeded
+  retries: 3
+  delay: 10
+  when: jenkins_package_path | length == 0

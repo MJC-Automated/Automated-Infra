@@ -14,6 +14,10 @@ resource "vault_mount" "kv" {
   options = {
     version = "2"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "vault_kv_secret_backend_v2" "kv_config" {
@@ -21,6 +25,10 @@ resource "vault_kv_secret_backend_v2" "kv_config" {
   max_versions         = var.kv_max_versions
   delete_version_after = var.kv_delete_version_after_seconds
   cas_required         = var.kv_cas_required
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "vault_policy" "proxmox" {
@@ -38,11 +46,19 @@ path "auth/token/lookup-self" {
   capabilities = ["read"]
 }
 EOT
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "vault_auth_backend" "approle" {
   type = "approle"
   path = var.approle_path
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "vault_approle_auth_backend_role" "terraform" {
@@ -58,4 +74,8 @@ resource "vault_approle_auth_backend_role" "terraform" {
   token_policies          = [vault_policy.proxmox.name]
   token_ttl               = var.token_ttl_seconds
   token_max_ttl           = var.token_max_ttl_seconds
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }

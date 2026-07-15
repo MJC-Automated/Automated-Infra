@@ -1,0 +1,50 @@
+---
+- name: Download Zabbix release package (Ubuntu)
+  ansible.builtin.get_url:
+    url: "{{ zabbix_platform.repo_package_url }}"
+    dest: "{{ zabbix_platform.repo_package_file }}"
+    mode: "0644"
+  when: ansible_facts.distribution == 'Ubuntu'
+
+- name: Install Zabbix release package (Ubuntu)
+  ansible.builtin.apt:
+    deb: "{{ zabbix_platform.repo_package_file }}"
+    state: present
+  when: ansible_facts.distribution == 'Ubuntu'
+
+- name: Update apt cache after repository install (Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_facts.distribution == 'Ubuntu'
+
+- name: Check if EPEL repo file exists (Oracle Linux)
+  ansible.builtin.stat:
+    path: /etc/yum.repos.d/epel.repo
+  register: zabbix_epel_repo
+  when: ansible_facts.distribution == 'OracleLinux'
+
+- name: Exclude Zabbix packages from EPEL (Oracle Linux)
+  ansible.builtin.lineinfile:
+    path: /etc/yum.repos.d/epel.repo
+    regexp: "^excludepkgs="
+    line: "excludepkgs=zabbix*"
+    insertafter: "^\\[epel\\]"
+  when:
+    - ansible_facts.distribution == 'OracleLinux'
+    - zabbix_oracle_exclude_epel_zabbix | bool
+    - zabbix_epel_repo.stat.exists
+
+- name: Install Zabbix repository RPM (Oracle Linux)
+  ansible.builtin.dnf:
+    name: "{{ zabbix_platform.repo_rpm_url }}"
+    state: present
+
+  # We intentionally keep GPG verification behavior from distro defaults.
+  # Zabbix publishes signed RPM metadata and packages.
+  when: ansible_facts.distribution == 'OracleLinux'
+
+- name: Clean dnf metadata after repository install (Oracle Linux)
+  ansible.builtin.command: dnf clean all
+  changed_when: false
+  when: ansible_facts.distribution == 'OracleLinux'

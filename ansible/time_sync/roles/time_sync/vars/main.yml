@@ -1,0 +1,12 @@
+---
+# Force python3 for all tasks in this role to avoid SyntaxError on OL8
+ansible_python_interpreter: /usr/bin/python3
+
+# OS Family mappings for service names
+os_chrony_services:
+  Debian: chrony
+  RedHat: chronyd
+
+os_ntp_services:
+  Debian: ntp
+  RedHat: ntpd

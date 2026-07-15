@@ -2,16 +2,16 @@
 
 ## Primary Sources
 
-- [bootstrap_playbooks/README.md](../../bootstrap_playbooks/README.md)
-- [bootstrap_playbooks/oracle819c/README.md](../../bootstrap_playbooks/oracle819c/README.md)
-- [bootstrap_playbooks/oracle821c/README.md](../../bootstrap_playbooks/oracle821c/README.md)
-- [bootstrap_playbooks/oracle_weblogic12c/README.md](../../bootstrap_playbooks/oracle_weblogic12c/README.md)
-- [bootstrap_playbooks/oracle_weblogic14c/README.md](../../bootstrap_playbooks/oracle_weblogic14c/README.md)
-- [bootstrap_playbooks/freeipa/README.md](../../bootstrap_playbooks/freeipa/README.md)
-- [bootstrap_playbooks/keycloak/README.md](../../bootstrap_playbooks/keycloak/README.md)
-- [bootstrap_playbooks/observability/README.md](../../bootstrap_playbooks/observability/README.md)
-- [bootstrap_playbooks/zabbix_server/README.md](../../bootstrap_playbooks/zabbix_server/README.md)
-- [bootstrap_playbooks/zimbra/README.md](../../bootstrap_playbooks/zimbra/README.md)
+- [ansible/bootstrap_playbooks/README.md](../../ansible/bootstrap_playbooks/README.md)
+- [ansible/bootstrap_playbooks/oracle819c/README.md](../../ansible/bootstrap_playbooks/oracle819c/README.md)
+- [ansible/bootstrap_playbooks/oracle821c/README.md](../../ansible/bootstrap_playbooks/oracle821c/README.md)
+- [ansible/bootstrap_playbooks/oracle_weblogic12c/README.md](../../ansible/bootstrap_playbooks/oracle_weblogic12c/README.md)
+- [ansible/bootstrap_playbooks/oracle_weblogic14c/README.md](../../ansible/bootstrap_playbooks/oracle_weblogic14c/README.md)
+- [ansible/bootstrap_playbooks/freeipa/README.md](../../ansible/bootstrap_playbooks/freeipa/README.md)
+- [ansible/bootstrap_playbooks/keycloak/README.md](../../ansible/bootstrap_playbooks/keycloak/README.md)
+- [ansible/bootstrap_playbooks/observability/README.md](../../ansible/bootstrap_playbooks/observability/README.md)
+- [ansible/bootstrap_playbooks/zabbix_server/README.md](../../ansible/bootstrap_playbooks/zabbix_server/README.md)
+- [ansible/bootstrap_playbooks/zimbra/README.md](../../ansible/bootstrap_playbooks/zimbra/README.md)
 - [docs/oracle-db-weblogic-crud-scenario.md](../../docs/oracle-db-weblogic-crud-scenario.md)
 
 ## How to Read This Chapter
@@ -25,7 +25,7 @@ This is a service map, not a replacement for the service READMEs. It summarizes:
 
 ## Common Project Shape
 
-Most service projects under `bootstrap_playbooks/` follow the same broad layout:
+Most service projects under `ansible/bootstrap_playbooks/` follow the same broad layout:
 
 - `main.yml` as the playbook entrypoint
 - `.env.example` for local operator input
@@ -74,7 +74,7 @@ Both WebLogic projects assume installer payloads are present on the control node
 
 Shared operator facts:
 
-- they use the `v3.9.21-weblogic` pyenv runtime
+- they use the repository-wide `v3.13.14` pyenv runtime
 - they validate required passwords in `pre_tasks`
 - they check control-node archives before attempting installation
 - they use inline `assert` and `wait_for` checks rather than a separate role-level `verify.yml`

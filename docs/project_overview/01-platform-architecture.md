@@ -7,9 +7,9 @@
 - [terraform-proxmox/main.tf](../../terraform-proxmox/main.tf)
 - [terraform-proxmox/templates/inventory.tpl](../../terraform-proxmox/templates/inventory.tpl)
 - [inventories/aliases.ini](../../inventories/aliases.ini)
-- [bootstrap_playbooks/README.md](../../bootstrap_playbooks/README.md)
-- [user-man/README.md](../../user-man/README.md)
-- [time_sync/README.md](../../time_sync/README.md)
+- [ansible/bootstrap_playbooks/README.md](../../ansible/bootstrap_playbooks/README.md)
+- [ansible/user-man/README.md](../../ansible/user-man/README.md)
+- [ansible/time_sync/README.md](../../ansible/time_sync/README.md)
 
 ## What This Repo Is
 
@@ -17,8 +17,8 @@ This monorepo is a layered automation platform with distinct ownership boundarie
 
 - `terraform-proxmox/` defines infrastructure state, workspace-aware environment scaffolding, snippet rendering, inventory generation, and Packer entrypoints.
 - `inventories/` is the bridge between Terraform output and Ansible targeting.
-- `bootstrap_playbooks/` holds service-specific automation for databases, middleware, identity, monitoring, and mail.
-- `user-man/` and `time_sync/` are cross-cutting host baselines that sit underneath the service playbooks.
+- `ansible/bootstrap_playbooks/` holds service-specific automation for databases, middleware, identity, monitoring, and mail.
+- `ansible/user-man/` and `ansible/time_sync/` are cross-cutting host baselines that sit underneath the service playbooks.
 - The root and per-project READMEs explain operator entrypoints and conventions, while the Makefile and playbook `main.yml` files encode the executable flow.
 
 ## Layer Model
@@ -30,8 +30,8 @@ This monorepo is a layered automation platform with distinct ownership boundarie
 | Image and template substrate | `terraform-proxmox/scripts/`, `terraform-proxmox/packer/` | cloud images, base VMs, clone-based templates |
 | Environment state model | `terraform-proxmox/environments/*.tfvars`, `terraform-proxmox/main.tf` | node groups, OS profiles, tags, networking, disks, snippets |
 | Inventory bridge | `terraform-proxmox/templates/inventory.tpl`, `inventories/aliases.ini` | generated host map plus stable semantic groups |
-| Host enablement | `user-man/`, `time_sync/` | account access, SSH baseline, sudo posture, Chrony baseline |
-| Service bootstrap | `bootstrap_playbooks/*` | app, DB, identity, monitoring, and mail installation/configuration |
+| Host enablement | `ansible/user-man/`, `ansible/time_sync/` | account access, SSH baseline, sudo posture, Chrony baseline |
+| Service bootstrap | `ansible/bootstrap_playbooks/*` | app, DB, identity, monitoring, and mail installation/configuration |
 | Execution and verification | `terraform-proxmox/Makefile`, playbook `main.yml`, role `validate.yml` and `verify.yml` files | guardrails, prechecks, workflow entrypoints, generated logs and summaries |
 
 ## Architecture Diagram

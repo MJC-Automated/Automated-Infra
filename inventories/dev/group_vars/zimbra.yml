@@ -1,4 +1,3 @@
 # Account baseline exceptions for Zimbra hosts.
 allowed_unmanaged_accounts:
-  - root
   - zimbra

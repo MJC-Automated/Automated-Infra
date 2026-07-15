@@ -1,0 +1,15 @@
+---
+observability_stack_dir: "/opt/observability"
+observability_manage_firewall: true
+
+observability_grafana_admin_user: "admin"
+observability_prometheus_retention: "15d"
+observability_required_password_length: 20
+
+observability_ports:
+  - 3000
+  - 9090
+  - 3100
+  - 4317
+  - 4318
+  - 10050

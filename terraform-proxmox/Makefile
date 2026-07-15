@@ -20,6 +20,7 @@ NC := \033[0m # No Color
 
 TFSEC_MIN_SEVERITY ?= HIGH
 TFLINT_MIN_FAILURE_SEVERITY ?= error
+TF_INIT_UPGRADE ?= -upgrade
 
 # Directory structure
 DIRS := plans summaries logs backups snippets
@@ -33,7 +34,7 @@ LOG_DIR := logs
 BACKUP_DIR := backups
 
 # External dependencies
-KUBESPRAY_DIR ?= $(HOME)/ansible/kubespray
+KUBESPRAY_DIR ?= $(HOME)/kubespray
 RESOLVE_PROXMOX_HOST_SCRIPT ?= ./scripts/resolve-proxmox-host.sh
 RESOLVE_ANSIBLE_HOST_SCRIPT ?= ./scripts/resolve-ansible-host.sh
 DISCOVER_PROXMOX_CORE_SCRIPT ?= ./scripts/discover-proxmox-core.sh
@@ -78,7 +79,7 @@ DATA_STORAGE ?=
 BASE_VM_BRIDGE ?= vmbr0
 BASE_VM_IPCIDR ?= dhcp
 BASE_VM_GATEWAY ?=
-BASE_VM_DNS ?= 198.51.100.31
+BASE_VM_DNS ?= 198.51.100.10
 BASE_VM_OS_STORAGE ?= local-lvm
 BASE_VM_DATA_STORAGE ?= local-lvm
 BASE_VM_EFI_STORAGE ?= local-lvm
@@ -230,6 +231,7 @@ help:
 	    @echo "  PACKER_VARS=$(PACKER_VARS)"
 	    @echo "  PACKER_USE_VAULT_CREDS=$(PACKER_USE_VAULT_CREDS)"
 	    @echo "  PACKER_VAULT_PATH=$(PACKER_VAULT_PATH)"
+	    @echo "  TF_INIT_UPGRADE=$(TF_INIT_UPGRADE)"
 	    @echo ""
 	    @echo "${YELLOW}Workspace Management:${NC}"
 	    @echo "  ${GREEN}workspace-create${NC}  : Create a new workspace for the environment"
@@ -276,9 +278,9 @@ help:
 	    @echo "${YELLOW}Examples:${NC}"
 	    @echo "  make deploy ENVIRONMENT=dev"
 	    @echo "  make plan ENVIRONMENT=prod"
-	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.23"
-	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.23 AUTO_DISCOVER=true"
-	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.23 PROXMOX_NODE=proxmox"
+	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.11"
+	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.11 AUTO_DISCOVER=true"
+	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.11 PROXMOX_NODE=proxmox"
 	    @echo "  make workspace-create ENVIRONMENT=testing"
 	    @echo "  make backup ENVIRONMENT=prod"
 	    @echo "  make tree"
@@ -536,7 +538,7 @@ fmt:
 # Initialize Terraform
 init: create-dirs
 	    @echo "${YELLOW}--- Initializing Terraform ---${NC}"
-	    @/bin/bash -lc "set -o pipefail; terraform init -upgrade 2>&1 | tee \"$(LOG_DIR)/terraform-init-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
+	    @/bin/bash -lc "set -o pipefail; terraform init $(TF_INIT_UPGRADE) 2>&1 | tee \"$(LOG_DIR)/terraform-init-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
 	    @echo "${GREEN}✓ Terraform initialized${NC}"
 
 # Render partitioning snippets from tfvars without provisioning VMs
@@ -763,13 +765,13 @@ k8s-deploy: check-env ## Deploy Kubernetes cluster
 		exit 1; \
 	fi
 	@echo "Installing python requirements..."
-	@cd "$(KUBESPRAY_DIR)" && pip install -r requirements.txt
+	@cd "$(KUBESPRAY_DIR)" && $(HOME)/.pyenv/versions/v3.13.14/bin/pip install -r requirements.txt
 	@echo "Running Ansible Playbook..."
-	@# Using absolute path to inventory as we are changing directory to kubespray
-	@cd "$(KUBESPRAY_DIR)" && ansible-playbook -i "$(INVENTORY_FILE)" \
+	@cd "$(KUBESPRAY_DIR)" && $(HOME)/.pyenv/versions/v3.13.14/bin/ansible-playbook -i "$(INVENTORY_FILE)" -i "$(INVENTORY_DIR)/../aliases.ini" \
 		--become --become-user=root \
+		--vault-password-file "$(MAKEFILE_DIR)/../ansible/.vault_password" \
 		cluster.yml \
-		--extra-vars "ansible_user=ansible ansible_ssh_private_key_file=~/.ssh/id_ed25519"
+		--extra-vars "ansible_user=ansible ansible_ssh_private_key_file=~/.ssh/id_rsa"
 	@echo "Kubernetes cluster deployed for $(ENVIRONMENT)!"
 
 # Backup current state
@@ -789,7 +791,8 @@ backup: create-dirs workspace-select
 destroy: workspace-select backup
 	    @echo "${YELLOW}--- Destroying Terraform resources in ${ENVIRONMENT} ---${NC}"
 	    @echo "${RED}WARNING: This will destroy ALL resources in the $(ENVIRONMENT) environment!${NC}"
-	    @read -p "Type 'yes' to confirm destruction of $(ENVIRONMENT) environment: " confirm; \
+	    @set -e; \
+	    read -p "Type 'yes' to confirm destruction of $(ENVIRONMENT) environment: " confirm; \
 	    if [ "$$confirm" = "yes" ]; then \
 	            if [ ! -f "environments/$(ENVIRONMENT).tfvars" ]; then \
 	              echo "${RED}Error: environments/$(ENVIRONMENT).tfvars not found${NC}"; \

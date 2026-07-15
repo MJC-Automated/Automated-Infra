@@ -4,7 +4,7 @@ This repository includes a sanitize-and-publish pipeline for maintaining a publi
 
 ## Why This Exists
 
-GitHub visibility is set at the repository level, not per branch. Public repositories expose all pushed branches.  
+GitHub visibility is set at the repository level, not per branch. Public repositories expose all pushed branches.
 Use this workflow when you need private development branches but a public sanitized mirror for selected branches.
 
 ## Branch Strategy

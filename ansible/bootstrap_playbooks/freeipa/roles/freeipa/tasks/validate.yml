@@ -1,0 +1,37 @@
+---
+- name: Validate target OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == "RedHat"
+    fail_msg: "FreeIPA server role is currently supported on Oracle/RHEL family hosts only."
+
+- name: Validate required identity values
+  ansible.builtin.assert:
+    that:
+      - freeipa_domain | string | trim | length > 0
+      - freeipa_realm | string | trim | length > 0
+      - freeipa_server_fqdn | string | trim | length > 0
+      - freeipa_server_fqdn is regex('^.+\\..+$')
+      - freeipa_server_fqdn | lower is search((freeipa_domain | lower | regex_escape) ~ '$')
+    fail_msg: >-
+      freeipa_domain/freeipa_realm must be set and freeipa_server_fqdn must be a
+      fully-qualified hostname within the configured domain.
+
+- name: Validate integrated DNS requirements
+  ansible.builtin.assert:
+    that:
+      - (not freeipa_setup_dns | bool) or (freeipa_server_ip | string | trim | length > 0)
+    fail_msg: "freeipa_server_ip must be set when freeipa_setup_dns=true."
+
+- name: Validate required password values
+  ansible.builtin.assert:
+    that:
+      - freeipa_ds_password | string | length >= freeipa_required_password_length
+      - freeipa_admin_password | string | length >= freeipa_required_password_length
+      - freeipa_ds_password != freeipa_admin_password
+      - not (freeipa_ds_password | string is match('^<.*>$'))
+      - not (freeipa_admin_password | string is match('^<.*>$'))
+    fail_msg: >-
+      FreeIPA passwords must be distinct, non-placeholder values with at least
+      {{ freeipa_required_password_length }} characters each.
+  no_log: true

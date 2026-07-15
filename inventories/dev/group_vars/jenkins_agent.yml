@@ -1,0 +1,16 @@
+# Account baseline exceptions for Jenkins Agent hosts.
+allowed_unmanaged_accounts:
+  - jenkins
+
+# Each Jenkins agent VM registers to the controller as its inventory hostname by
+# default. Override these in host_vars when a specific node needs different
+# labels, executor count, user, or workspace.
+jenkins_agent_name: "{{ inventory_hostname }}"
+jenkins_agent_host: "{{ ansible_host | default(inventory_hostname) }}"
+jenkins_agent_user: jenkins
+jenkins_agent_work_dir: /home/jenkins
+jenkins_agent_executors: 4
+jenkins_agent_labels:
+  - linux
+  - docker
+  - homelab

@@ -1,0 +1,28 @@
+# ===========================================
+# roles/user_management/vars/main.yml
+# ===========================================
+---
+# Default groups that should exist on all systems
+# Note: sudo/wheel will be automatically converted based on OS family
+groups_to_create:
+  #  - admin
+  #  - dev
+  - wheel # Will become 'sudo' on Debian/Ubuntu systems
+  - users
+#  - docker     # Common group for Docker access
+#  - jenkins    # For CI/CD systems
+
+# OS Family mappings for admin groups
+os_admin_groups:
+  Debian: sudo
+  RedHat: wheel
+  Suse: wheel
+  Archlinux: wheel
+
+# Common service groups that might be needed
+service_groups:
+#  - nginx
+#  - apache
+#  - mysql
+#  - postgresql
+#  - redis

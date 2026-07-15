@@ -1,0 +1,43 @@
+---
+freeipa_domain: "example.internal"
+freeipa_realm: "EXAMPLE.INTERNAL"
+freeipa_setup_dns: true
+freeipa_setup_kra: false
+freeipa_no_ntp: true
+freeipa_no_host_dns: true
+freeipa_manage_firewall: true
+freeipa_configure_hosts: true
+freeipa_server_fqdn: >-
+  {{
+    ansible_facts.fqdn
+    if (ansible_facts.fqdn is defined and (ansible_facts.fqdn | regex_search('\\.')))
+    else (
+      inventory_hostname
+      if (inventory_hostname | regex_search('\\.'))
+      else (inventory_hostname ~ '.' ~ freeipa_domain)
+    )
+  }}
+freeipa_server_ip: "{{ ansible_host | default(ansible_facts.default_ipv4.address | default('')) }}"
+freeipa_forwarders: []
+freeipa_install_extra_args: []
+freeipa_required_password_length: 20
+freeipa_generate_local_passwords: true
+freeipa_ds_password: ""
+freeipa_admin_password: ""
+freeipa_ds_password_path: "{{ playbook_dir }}/files/freeipa_ds_password"
+freeipa_admin_password_path: "{{ playbook_dir }}/files/freeipa_admin_password"
+freeipa_local_secret_owner: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
+freeipa_local_secret_group: "{{ lookup('pipe', 'id -gn ' ~ freeipa_local_secret_owner) }}"
+freeipa_required_packages_common:
+  - ipa-server
+  - ipa-server-trust-ad
+  - bind-dyndb-ldap
+  - ipa-healthcheck
+freeipa_required_packages_dns:
+  - ipa-server-dns
+freeipa_firewall_services:
+  - freeipa-4
+  - freeipa-ldap
+  - freeipa-ldaps
+
+freeipa_zabbix_agent_port: 10050

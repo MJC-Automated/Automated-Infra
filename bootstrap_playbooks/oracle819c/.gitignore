@@ -1,5 +1,0 @@
-.env
-*.retry
-*.log
-files/
-artifacts/

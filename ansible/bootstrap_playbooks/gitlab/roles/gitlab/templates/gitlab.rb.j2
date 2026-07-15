@@ -1,0 +1,20 @@
+# GitLab configuration file
+# Managed by Ansible - edit with care
+
+external_url '{{ gitlab_external_url }}'
+
+# Initial root password (only set during first reconfigure/boot)
+gitlab_rails['initial_root_password'] = '{{ gitlab_root_password }}'
+gitlab_rails['time_zone'] = '{{ gitlab_time_zone }}'
+gitlab_rails['gitlab_shell_ssh_port'] = 22
+
+# Local-network install. Public DNS and public inbound HTTP are not assumed.
+letsencrypt['enable'] = {{ gitlab_letsencrypt_enable | bool | lower }}
+registry['enable'] = {{ gitlab_registry_enable | bool | lower }}
+prometheus_monitoring['enable'] = {{ gitlab_prometheus_enable | bool | lower }}
+
+# Performance Tuning for Homelab (Reduce memory usage)
+# By default, GitLab is configured for 1000+ users. We can scale it down.
+puma['worker_processes'] = {{ gitlab_puma_worker_processes }}
+sidekiq['max_concurrency'] = {{ gitlab_sidekiq_max_concurrency }}
+postgresql['shared_buffers'] = '{{ gitlab_postgresql_shared_buffers }}'

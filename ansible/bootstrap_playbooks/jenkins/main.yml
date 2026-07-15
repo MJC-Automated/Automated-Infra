@@ -1,0 +1,261 @@
+---
+- name: Jenkins automation (Controller and Agent)
+  hosts: jenkins_servers:jenkins_agents
+  become: true
+  gather_facts: false
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  pre_tasks:
+    - name: Bootstrap python3 on target host (if missing)
+      ansible.builtin.raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        if command -v dnf >/dev/null 2>&1; then
+          dnf install -y python3 python3-dnf
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update -y && apt-get install -y python3 python3-apt
+        else
+          echo "No supported package manager found. Install python3 manually." >&2
+          exit 1
+        fi
+      changed_when: false
+      tags: [always]
+
+    - name: Gather facts
+      ansible.builtin.setup:
+      tags: [always]
+
+    - name: Read .env file from playbook directory (optional)
+      ansible.builtin.set_fact:
+        jenkins_env_content_lines: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/.env', errors='ignore') | default('', true)).splitlines() }}"
+      changed_when: false
+      tags: [always]
+
+    - name: Parse JENKINS_* values from .env
+      ansible.builtin.set_fact:
+        "{{ item.split('=', 1)[0] }}": "{{ item.split('=', 1)[1] | regex_replace('^[\"\\x27]|[\"\\x27]$', '') }}"
+      loop: "{{ jenkins_env_content_lines | default([]) }}"
+      when:
+        - (item | trim | length) > 0
+        - not (item | trim | regex_search('^#'))
+        - "'=' in item"
+      no_log: true
+      tags: [always]
+
+    - name: Apply JENKINS non-secret overrides from .env
+      ansible.builtin.set_fact:
+        jenkins_version: "{{ JENKINS_VERSION | default(jenkins_version, true) }}"
+        jenkins_package_path: "{{ JENKINS_PACKAGE_PATH | default(jenkins_package_path, true) }}"
+        jenkins_http_port: "{{ (JENKINS_HTTP_PORT | default(jenkins_http_port | string, true)) | int }}"
+        jenkins_listen_address: "{{ JENKINS_LISTEN_ADDRESS | default(jenkins_listen_address, true) }}"
+        jenkins_url: "{{ JENKINS_URL | default(jenkins_url, true) }}"
+        jenkins_system_message: "{{ JENKINS_SYSTEM_MESSAGE | default(jenkins_system_message, true) }}"
+        jenkins_controller_executors: "{{ (JENKINS_CONTROLLER_EXECUTORS | default(jenkins_controller_executors | string, true)) | int }}"
+        jenkins_java_opts: "{{ JENKINS_JAVA_OPTS | default(jenkins_java_opts, true) }}"
+        jenkins_java_install_method: "{{ JENKINS_JAVA_INSTALL_METHOD | default(jenkins_java_install_method, true) }}"
+        jenkins_java_package: "{{ JENKINS_JAVA_PACKAGE | default(jenkins_java_package, true) }}"
+        jenkins_java_home: "{{ JENKINS_JAVA_HOME | default(jenkins_java_home, true) }}"
+        jdk_archive_path: "{{ JDK_ARCHIVE_PATH | default(jdk_archive_path, true) }}"
+        jdk_dest_dir: "{{ JDK_DEST_DIR | default(jdk_dest_dir, true) }}"
+        jdk_version_dir: "{{ JDK_VERSION_DIR | default(jdk_version_dir, true) }}"
+        java_home: "{{ JAVA_HOME | default(java_home, true) }}"
+        jenkins_plugins: "{{ (JENKINS_PLUGINS | default(jenkins_plugins | join(','), true)).split(',') | map('trim') | reject('equalto', '') | list }}"
+        jenkins_theme: "{{ JENKINS_THEME | default(jenkins_theme, true) }}"
+        jenkins_disable_user_themes: "{{ (JENKINS_DISABLE_USER_THEMES | default(jenkins_disable_user_themes | string, true)) | bool }}"
+        jenkins_manage_agents: "{{ (JENKINS_MANAGE_AGENTS | default(jenkins_manage_agents | string, true)) | bool }}"
+        jenkins_autodiscover_agents: "{{ (JENKINS_AUTODISCOVER_AGENTS | default(jenkins_autodiscover_agents | string, true)) | bool }}"
+        jenkins_allow_external_agents: "{{ (JENKINS_ALLOW_EXTERNAL_AGENTS | default(jenkins_allow_external_agents | string, true)) | bool }}"
+        jenkins_agent_name: "{{ JENKINS_AGENT_NAME | default(jenkins_agent_name, true) }}"
+        jenkins_agent_host: "{{ JENKINS_AGENT_HOST | default(jenkins_agent_host, true) }}"
+        jenkins_agent_user: "{{ JENKINS_AGENT_USER | default(jenkins_agent_user, true) }}"
+        jenkins_agent_work_dir: "{{ JENKINS_AGENT_WORK_DIR | default(jenkins_agent_work_dir, true) }}"
+        jenkins_agent_executors: "{{ (JENKINS_AGENT_EXECUTORS | default(jenkins_agent_executors | string, true)) | int }}"
+        jenkins_agent_labels: "{{ (JENKINS_AGENT_LABELS | default(jenkins_agent_labels | join(','), true)).split(',') | map('trim') | reject('equalto', '') | list
+          }}"
+        jenkins_agent_mode: "{{ JENKINS_AGENT_MODE | default(jenkins_agent_mode, true) }}"
+        jenkins_agent_port: "{{ (JENKINS_AGENT_PORT | default(jenkins_agent_port | string, true)) | int }}"
+        jenkins_agent_jvm_options: "{{ JENKINS_AGENT_JVM_OPTIONS | default(jenkins_agent_jvm_options, true) }}"
+        jenkins_agent_install_docker: "{{ (JENKINS_AGENT_INSTALL_DOCKER | default(jenkins_agent_install_docker | string, true)) | bool }}"
+      tags: [always]
+
+    - name: Apply JENKINS secret overrides from .env
+      ansible.builtin.set_fact:
+        jenkins_admin_user: "{{ JENKINS_ADMIN_USER | default(jenkins_admin_user | default('admin'), true) }}"
+        jenkins_admin_password: "{{ JENKINS_ADMIN_PASSWORD | default(jenkins_admin_password | default(''), true) }}"
+      no_log: true
+      tags: [always]
+
+    - name: Find Jenkins agent hosts from inventory groups
+      ansible.builtin.set_fact:
+        jenkins_inventory_agent_hosts: "{{ ((groups.get('jenkins_agents', []) | list) + (groups.get('jenkins_agent', []) | list)) | unique | list }}"
+      tags: [always]
+
+    - name: Build Jenkins agents list from inventory hosts
+      ansible.builtin.set_fact:
+        jenkins_inventory_agents: "{{ (jenkins_inventory_agents | default([])) + [jenkins_inventory_agent] }}"
+      vars:
+        jenkins_inventory_agent:
+          name: "{{ hostvars[item].jenkins_agent_name | default(item, true) }}"
+          host: "{{ hostvars[item].jenkins_agent_host | default(hostvars[item].ansible_host | default(item), true) }}"
+          user: "{{ hostvars[item].jenkins_agent_user | default(jenkins_agent_user, true) }}"
+          remote_fs: "{{ hostvars[item].jenkins_agent_work_dir | default(jenkins_agent_work_dir, true) }}"
+          executors: "{{ hostvars[item].jenkins_agent_executors | default(jenkins_agent_executors, true) }}"
+          labels: "{{ hostvars[item].jenkins_agent_labels | default(jenkins_agent_labels, true) }}"
+          mode: "{{ hostvars[item].jenkins_agent_mode | default(jenkins_agent_mode, true) }}"
+          port: "{{ hostvars[item].jenkins_agent_port | default(jenkins_agent_port, true) }}"
+          jvm_options: "{{ hostvars[item].jenkins_agent_jvm_options | default(jenkins_agent_jvm_options, true) }}"
+      loop: "{{ jenkins_inventory_agent_hosts }}"
+      when:
+        - jenkins_manage_agents | bool
+        - jenkins_autodiscover_agents | bool
+        - jenkins_agents | default([]) | length == 0
+      tags: [always]
+
+    - name: Use inventory-discovered Jenkins agents when no explicit list is configured
+      ansible.builtin.set_fact:
+        jenkins_agents: "{{ jenkins_inventory_agents | default([]) }}"
+      when:
+        - jenkins_manage_agents | bool
+        - jenkins_autodiscover_agents | bool
+        - jenkins_agents | default([]) | length == 0
+      tags: [always]
+
+    - name: Apply single-agent .env overrides to Jenkins agents list
+      ansible.builtin.set_fact:
+        jenkins_agents:
+          - name: "{{ jenkins_agent_name }}"
+            host: "{{ jenkins_agent_host }}"
+            user: "{{ jenkins_agent_user }}"
+            remote_fs: "{{ jenkins_agent_work_dir }}"
+            executors: "{{ jenkins_agent_executors }}"
+            labels: "{{ jenkins_agent_labels }}"
+            mode: "{{ jenkins_agent_mode }}"
+            port: "{{ jenkins_agent_port }}"
+            jvm_options: "{{ jenkins_agent_jvm_options }}"
+      when: >
+        (jenkins_manage_agents | bool) and (
+        (jenkins_inventory_agent_hosts | default([]) | length > 0) or
+        (jenkins_allow_external_agents | bool)) and (
+        JENKINS_AGENT_NAME is defined or
+        JENKINS_AGENT_HOST is defined or
+        JENKINS_AGENT_USER is defined or
+        JENKINS_AGENT_WORK_DIR is defined or
+        JENKINS_AGENT_EXECUTORS is defined or
+        JENKINS_AGENT_LABELS is defined or
+        JENKINS_AGENT_MODE is defined or
+        JENKINS_AGENT_PORT is defined or
+        JENKINS_AGENT_JVM_OPTIONS is defined)
+      tags: [always]
+
+    - name: Disable Jenkins agents when requested
+      ansible.builtin.set_fact:
+        jenkins_agents: []
+      when: not (jenkins_manage_agents | bool)
+      tags: [always]
+
+    - name: Ensure Jenkins local files directory exists
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/files"
+        state: directory
+        mode: "0700"
+      tags: [always]
+
+    - name: Generate Jenkins admin password when not supplied
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.shell: |
+        set -eu
+        if [ ! -s "{{ jenkins_admin_password_path }}" ]; then
+          umask 077
+          openssl rand -base64 30 > "{{ jenkins_admin_password_path }}"
+        fi
+      args:
+        creates: "{{ jenkins_admin_password_path }}"
+      when: jenkins_admin_password | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Read generated Jenkins admin password
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.slurp:
+        src: "{{ jenkins_admin_password_path }}"
+      register: jenkins_generated_admin_password_b64
+      when: jenkins_admin_password | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Use generated Jenkins admin password
+      ansible.builtin.set_fact:
+        jenkins_admin_password: "{{ jenkins_generated_admin_password_b64.content | b64decode | trim }}"
+      when: jenkins_admin_password | length == 0
+      no_log: true
+      tags: [always]
+
+    - name: Assert Jenkins admin password is strong enough
+      ansible.builtin.assert:
+        that:
+          - jenkins_admin_password | length >= jenkins_required_password_length
+        fail_msg: "Set JENKINS_ADMIN_PASSWORD to at least {{ jenkins_required_password_length }} characters or allow the playbook to generate one under ansible/bootstrap_playbooks/jenkins/files/."
+      no_log: true
+      tags: [always]
+
+    - name: Generate SSH keypair for Jenkins agent connection
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -f
+          - "{{ jenkins_agent_private_key_path }}"
+      args:
+        creates: "{{ jenkins_agent_private_key_path }}"
+      when: jenkins_manage_agents | bool and jenkins_agents | default([]) | length > 0
+      tags: [always]
+
+    - name: Read SSH private key contents
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.slurp:
+        src: "{{ jenkins_agent_private_key_path }}"
+      register: jenkins_private_key_b64
+      when: jenkins_manage_agents | bool and jenkins_agents | default([]) | length > 0
+      no_log: true
+      tags: [always]
+
+    - name: Read SSH public key contents
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.slurp:
+        src: "{{ jenkins_agent_private_key_path }}.pub"
+      register: jenkins_public_key_b64
+      when: jenkins_manage_agents | bool and jenkins_agents | default([]) | length > 0
+      tags: [always]
+
+    - name: Set SSH key facts for all hosts
+      ansible.builtin.set_fact:
+        jenkins_agent_private_key: "{{ jenkins_private_key_b64.content | b64decode }}"
+        jenkins_agent_public_key: "{{ jenkins_public_key_b64.content | b64decode }}"
+      when: jenkins_manage_agents | bool and jenkins_agents | default([]) | length > 0
+      no_log: true
+      tags: [always]
+
+  roles:
+    - role: jenkins

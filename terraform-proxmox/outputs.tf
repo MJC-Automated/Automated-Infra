@@ -44,6 +44,7 @@ output "all_vm_ids" {
 output "all_vm_ips" {
   description = "ipconfig0 strings of all VMs (corresponding to sorted names)."
   value       = [for name in local.sorted_vm_names : local.vm_name_to_ip[name]]
+  sensitive   = true
 }
 
 output "all_vm_host_ips" {
@@ -52,6 +53,41 @@ output "all_vm_host_ips" {
     for name in local.sorted_vm_names :
     split("/", split("=", split(",", local.vm_name_to_ip[name])[0])[1])[0]
   ]
+  sensitive = true
+}
+
+output "vm_backup_policy" {
+  description = "Per-VM Proxmox backup inclusion and destination policy."
+  value = {
+    for key, vm in local.flattened_vms : key => {
+      vmid    = vm.config.vmid
+      name    = vm.config.name
+      enabled = local.vm_backup_enabled[key]
+      storage = length(local.vm_backup_storage[key]) > 0 ? local.vm_backup_storage[key][0] : null
+    }
+  }
+}
+
+output "backup_job_settings" {
+  description = "Environment-level schedule, performance, notification, and retention settings for Proxmox backup jobs."
+  value = {
+    target_node          = var.target_node
+    schedule             = var.backup_defaults.schedule
+    mode                 = var.backup_defaults.mode
+    compress             = var.backup_defaults.compress
+    bandwidth_limit_kib  = var.backup_defaults.bandwidth_limit_kib
+    ionice               = var.backup_defaults.ionice
+    repeat_missed        = var.backup_defaults.repeat_missed
+    notification_mode    = var.backup_defaults.notification_mode
+    max_backup_age_hours = var.backup_defaults.max_backup_age_hours
+    retention = {
+      keep_last    = var.backup_defaults.retention.keep_last
+      keep_daily   = var.backup_defaults.retention.keep_daily
+      keep_weekly  = var.backup_defaults.retention.keep_weekly
+      keep_monthly = var.backup_defaults.retention.keep_monthly
+      keep_yearly  = var.backup_defaults.retention.keep_yearly
+    }
+  }
 }
 
 // File paths for automation tools
@@ -116,6 +152,7 @@ output "connection_info" {
       ]
     }
   }
+  sensitive = true
 }
 
 // Workspace and environment information

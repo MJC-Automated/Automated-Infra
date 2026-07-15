@@ -1,0 +1,87 @@
+---
+- name: Install dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - openssh-server
+      - ca-certificates
+      - tzdata
+      - perl
+      - gnupg
+    state: present
+    update_cache: true
+  register: gitlab_dependency_install
+  until: gitlab_dependency_install is succeeded
+  retries: 3
+  delay: 10
+
+- name: Check local GitLab package on controller
+  ansible.builtin.stat:
+    path: "{{ gitlab_package_path }}"
+  delegate_to: localhost
+  become: false
+  register: gitlab_local_package
+  when: gitlab_package_path | length > 0
+
+- name: Assert configured local GitLab package exists
+  ansible.builtin.assert:
+    that:
+      - gitlab_local_package.stat.exists
+      - gitlab_local_package.stat.isreg
+    fail_msg: "GitLab package {{ gitlab_package_path }} was not found on the controller."
+  when: gitlab_package_path | length > 0
+
+- name: Copy local GitLab package to target
+  ansible.builtin.copy:
+    src: "{{ gitlab_package_path }}"
+    dest: "/tmp/{{ gitlab_package_path | basename }}"
+    mode: "0644"
+  when: gitlab_package_path | length > 0
+
+- name: Install GitLab from local package
+  ansible.builtin.apt:
+    deb: "/tmp/{{ gitlab_package_path | basename }}"
+    state: present
+  register: gitlab_local_package_install
+  until: gitlab_local_package_install is succeeded
+  retries: 3
+  delay: 10
+  when: gitlab_package_path | length > 0
+
+- name: Check whether the GitLab repository is configured
+  ansible.builtin.stat:
+    path: "/etc/apt/sources.list.d/gitlab_{{ gitlab_edition }}.list"
+  register: gitlab_repository_source
+  when: gitlab_package_path | length == 0
+
+- name: Download GitLab repository installation script
+  ansible.builtin.get_url:
+    url: "https://packages.gitlab.com/install/repositories/gitlab/{{ gitlab_edition }}/script.deb.sh"
+    dest: /tmp/gitlab_install_repo.sh
+    mode: "0755"
+  register: gitlab_repository_script_download
+  until: gitlab_repository_script_download is succeeded
+  retries: 3
+  delay: 10
+  when:
+    - gitlab_package_path | length == 0
+    - not gitlab_repository_source.stat.exists
+
+- name: Run GitLab repository installation script
+  ansible.builtin.command: /tmp/gitlab_install_repo.sh
+  args:
+    creates: "/etc/apt/sources.list.d/gitlab_{{ gitlab_edition }}.list"
+  when:
+    - gitlab_package_path | length == 0
+    - not gitlab_repository_source.stat.exists
+
+- name: Install GitLab CE package
+  ansible.builtin.apt:
+    name: "{{ gitlab_edition }}{{ '=' + gitlab_version if gitlab_version != '' else '' }}"
+    state: present
+    update_cache: true
+  register: gitlab_package_install
+  until: gitlab_package_install is succeeded
+  retries: 3
+  delay: 10
+  when: gitlab_package_path | length == 0

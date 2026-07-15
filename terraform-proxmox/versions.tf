@@ -7,7 +7,7 @@ terraform {
   required_providers {
     proxmox = {
       source  = "Telmate/proxmox"
-      version = "3.0.2-rc07"
+      version = "3.0.2-rc08"
     }
     local = {
       source  = "hashicorp/local"
@@ -15,7 +15,7 @@ terraform {
     }
     vault = {
       source  = "hashicorp/vault"
-      version = "5.9.0"
+      version = "5.10.1"
     }
   }
 }
