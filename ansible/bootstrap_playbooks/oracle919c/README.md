@@ -34,13 +34,13 @@ Example structure:
 
 ```yaml
 oracle_servers:
-  public-database19c-ol9-03:  # must match inventory_hostname exactly
-    oracle_hostname: "public-database19c-ol9-04.example.internal"
+  public-database19c-ol9-02:  # must match inventory_hostname exactly
+    oracle_hostname: "public-database19c-ol9-03.example.internal"
 
     oracle_listeners:
       - name: "LISTENER"
         port: 1521
-        host: "public-database19c-ol9-04.example.internal"
+        host: "public-database19c-ol9-03.example.internal"
 
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
@@ -61,7 +61,7 @@ Optional app SQL bootstrap for a host can also be defined there:
 
 ```yaml
 oracle_servers:
-  public-database19c-ol9-03:
+  public-database19c-ol9-02:
     oracle_app_sql_enabled: true
     oracle_app_sql_targets:
       - cdb_sid: "cdb1"
@@ -77,7 +77,7 @@ To add a second CDB and PDB, extend both lists for the same host key:
 
 ```yaml
 oracle_servers:
-  public-database19c-ol9-03:
+  public-database19c-ol9-02:
     oracle_cdbs:
       - global_db_name: "cdb1.example.internal"
         sid: "cdb1"

@@ -79,7 +79,7 @@ DATA_STORAGE ?=
 BASE_VM_BRIDGE ?= vmbr0
 BASE_VM_IPCIDR ?= dhcp
 BASE_VM_GATEWAY ?=
-BASE_VM_DNS ?= 198.51.100.10
+BASE_VM_DNS ?= 198.51.100.11
 BASE_VM_OS_STORAGE ?= local-lvm
 BASE_VM_DATA_STORAGE ?= local-lvm
 BASE_VM_EFI_STORAGE ?= local-lvm
@@ -278,9 +278,9 @@ help:
 	    @echo "${YELLOW}Examples:${NC}"
 	    @echo "  make deploy ENVIRONMENT=dev"
 	    @echo "  make plan ENVIRONMENT=prod"
-	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.11"
-	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.11 AUTO_DISCOVER=true"
-	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.11 PROXMOX_NODE=proxmox"
+	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.17"
+	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.17 AUTO_DISCOVER=true"
+	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.17 PROXMOX_NODE=proxmox"
 	    @echo "  make workspace-create ENVIRONMENT=testing"
 	    @echo "  make backup ENVIRONMENT=prod"
 	    @echo "  make tree"

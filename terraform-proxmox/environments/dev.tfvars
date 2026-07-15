@@ -68,6 +68,28 @@ data_disk_defaults = {
   slot    = "virtio1"
 }
 
+// VM backups use the slow, HDD-backed Proxmox datastore. Individual VM
+// definitions can override backup and backup_storage when policy differs.
+backup_defaults = {
+  enabled              = false
+  storage              = "backups"
+  schedule             = "03:30"
+  mode                 = "snapshot"
+  compress             = "zstd"
+  bandwidth_limit_kib  = 51200
+  ionice               = 8
+  repeat_missed        = false
+  notification_mode    = "notification-system"
+  max_backup_age_hours = 36
+  retention = {
+    keep_last    = 2
+    keep_daily   = 7
+    keep_weekly  = 4
+    keep_monthly = 3
+    keep_yearly  = 0
+  }
+}
+
 // VM Default Configuration
 vm_defaults = {
   agent_enabled = 1
@@ -97,12 +119,14 @@ node_groups = {
   // Oracle Linux 9: WebLogic 14c
   "weblogic14c" = {
     "weblogic14c-dot80" = {
-      vmid      = 10000
-      name      = "public-weblogic14c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.18"
-      cores     = 6
-      memory    = 10240
-      disk_size = "50G"
+      vmid           = 10000
+      name           = "public-weblogic14c-01"
+      backup         = false
+      backup_storage = "backups"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.16"
+      cores          = 6
+      memory         = 10240
+      disk_size      = "50G"
       // Optional: place this VM's root/cloud-init disks on a different VM-disk pool.
       // vm_disk_storage = "local-zfs"
       // Optional HA/power/protection per-VM overrides:
@@ -131,14 +155,16 @@ node_groups = {
   // Oracle Linux 8: WebLogic 12c
   "weblogic12c" = {
     "weblogic12c-dot81" = {
-      vmid      = 10001
-      name      = "public-weblogic12c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.18"
-      cores     = 6
-      memory    = 10240
-      disk_size = "50G"
-      tags      = "weblogic12c"
-      data_disk = { size = "55G" }
+      vmid           = 10001
+      name           = "public-weblogic12c-01"
+      backup         = false
+      backup_storage = "backups"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.16"
+      cores          = 6
+      memory         = 10240
+      disk_size      = "50G"
+      tags           = "weblogic12c"
+      data_disk      = { size = "55G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -156,14 +182,16 @@ node_groups = {
   // Oracle Linux 8: Database 19c
   "database19c" = {
     "database19c-dot82" = {
-      vmid      = 10002
-      name      = "public-database19c-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.18"
-      cores     = 6
-      memory    = 10240
-      disk_size = "50G"
-      tags      = "database19c"
-      data_disk = { size = "65G" }
+      vmid           = 10002
+      name           = "public-database19c-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.16"
+      cores          = 6
+      memory         = 10240
+      disk_size      = "50G"
+      tags           = "database19c"
+      data_disk      = { size = "65G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -179,15 +207,17 @@ node_groups = {
   // Oracle Linux 9.7: Database 19c
   "database19c_ol9" = {
     "public-ol9-01" = {
-      vmid       = 10009
-      name       = "public-database19c-ol9-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.18"
-      os_profile = "oracle9"
-      cores      = 6
-      memory     = 10240
-      disk_size  = "50G"
-      tags       = "database19c,ol9"
-      data_disk  = { size = "65G" }
+      vmid           = 10009
+      name           = "public-database19c-ol9-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.16"
+      os_profile     = "oracle9"
+      cores          = 6
+      memory         = 10240
+      disk_size      = "50G"
+      tags           = "database19c,ol9"
+      data_disk      = { size = "65G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -203,14 +233,16 @@ node_groups = {
   // Oracle Linux 8: Database 21c
   "database21c" = {
     "database21c-dot83" = {
-      vmid      = 10003
-      name      = "public-database21c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.18"
-      cores     = 6
-      memory    = 10240
-      disk_size = "50G"
-      tags      = "database21c"
-      data_disk = { size = "65G" }
+      vmid           = 10003
+      name           = "public-database21c-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.16"
+      cores          = 6
+      memory         = 10240
+      disk_size      = "50G"
+      tags           = "database21c"
+      data_disk      = { size = "65G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -226,14 +258,16 @@ node_groups = {
   // Ubuntu 24.04: Zabbix
   "zabbix" = {
     "zabbix-dot84" = {
-      vmid      = 10004
-      name      = "public-zabbix-01"
-      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.24"
-      cores     = 6
-      memory    = 10240
-      disk_size = "50G"
-      tags      = "zabbix"
-      data_disk = { size = "8G" }
+      vmid           = 10004
+      name           = "public-zabbix-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      cores          = 6
+      memory         = 10240
+      disk_size      = "50G"
+      tags           = "zabbix"
+      data_disk      = { size = "8G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -248,15 +282,17 @@ node_groups = {
   // Oracle Linux 9: FreeIPA
   "freeipa" = {
     "freeipa-dot85" = {
-      vmid       = 10005
-      name       = "public-freeipa-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
-      os_profile = "oracle9"
-      cores      = 4
-      memory     = 8192
-      disk_size  = "50G"
-      tags       = "freeipa"
-      data_disk  = { size = "30G" }
+      vmid           = 10005
+      name           = "public-freeipa-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      os_profile     = "oracle9"
+      cores          = 4
+      memory         = 8192
+      disk_size      = "50G"
+      tags           = "freeipa"
+      data_disk      = { size = "30G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -273,15 +309,17 @@ node_groups = {
   // Ubuntu 24.04: Keycloak
   "keycloak" = {
     "keycloak-dot86" = {
-      vmid       = 10006
-      name       = "public-keycloak-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 4
-      memory     = 8192
-      disk_size  = "50G"
-      tags       = "keycloak,sso"
-      data_disk  = { size = "20G" }
+      vmid           = 10006
+      name           = "public-keycloak-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 4
+      memory         = 8192
+      disk_size      = "50G"
+      tags           = "keycloak,sso"
+      data_disk      = { size = "20G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -298,15 +336,17 @@ node_groups = {
   // Ubuntu 24.04: Unified observability core (Prometheus, Loki, Grafana)
   "observability" = {
     "observability-dot87" = {
-      vmid       = 10007
-      name       = "public-observability-01"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 6
-      memory     = 16384
-      disk_size  = "50G"
-      tags       = "observability,monitoring"
-      data_disk  = { size = "30G" }
+      vmid           = 10007
+      name           = "public-observability-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 6
+      memory         = 16384
+      disk_size      = "50G"
+      tags           = "observability,monitoring"
+      data_disk      = { size = "30G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -324,15 +364,17 @@ node_groups = {
   // Oracle Linux 9: Zimbra Collaboration Suite
   "zimbra" = {
     "zimbra-dot88" = {
-      vmid       = 10008
-      name       = "public-zimbra-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
-      os_profile = "oracle9"
-      cores      = 6
-      memory     = 16384
-      disk_size  = "50G"
-      tags       = "zimbra,mail"
-      data_disk  = { size = "15G" }
+      vmid           = 10008
+      name           = "public-zimbra-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      os_profile     = "oracle9"
+      cores          = 6
+      memory         = 16384
+      disk_size      = "50G"
+      tags           = "zimbra,mail"
+      data_disk      = { size = "15G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -347,15 +389,17 @@ node_groups = {
   // Ubuntu 24.04: Jenkins controller
   "jenkins" = {
     "jenkins-dot94" = {
-      vmid       = 10014
-      name       = "public-jenkins-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 4
-      memory     = 15360
-      disk_size  = "50G"
-      tags       = "cicd,jenkins"
-      data_disk  = { size = "30G" }
+      vmid           = 10014
+      name           = "public-jenkins-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 4
+      memory         = 15360
+      disk_size      = "50G"
+      tags           = "cicd,jenkins"
+      data_disk      = { size = "30G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -370,15 +414,17 @@ node_groups = {
   // Ubuntu 24.04: GitLab server
   "gitlab" = {
     "gitlab-dot95" = {
-      vmid       = 10015
-      name       = "public-gitlab-01"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 4
-      memory     = 15360
-      disk_size  = "50G"
-      tags       = "cicd,gitlab"
-      data_disk  = { size = "40G" }
+      vmid           = 10015
+      name           = "public-gitlab-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 4
+      memory         = 15360
+      disk_size      = "50G"
+      tags           = "cicd,gitlab"
+      data_disk      = { size = "40G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -393,15 +439,17 @@ node_groups = {
   // Ubuntu 24.04: Jenkins build agent
   "jenkins_agent" = {
     "public-agent-01" = {
-      vmid       = 10016
-      name       = "public-jenkins-agent-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 4
-      memory     = 15360
-      disk_size  = "50G"
-      tags       = "cicd,jenkins-agent"
-      data_disk  = { size = "30G" }
+      vmid           = 10016
+      name           = "public-jenkins-agent-01"
+      backup         = false
+      backup_storage = "backups"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 4
+      memory         = 15360
+      disk_size      = "50G"
+      tags           = "cicd,jenkins-agent"
+      data_disk      = { size = "30G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -416,15 +464,17 @@ node_groups = {
   // Ubuntu 24.04: GitLab Runner
   "gitlab_runner" = {
     "public-runner-01" = {
-      vmid       = 10017
-      name       = "public-gitlab-runner-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 4
-      memory     = 15360
-      disk_size  = "50G"
-      tags       = "cicd,gitlab-runner"
-      data_disk  = { size = "30G" }
+      vmid           = 10017
+      name           = "public-gitlab-runner-01"
+      backup         = false
+      backup_storage = "backups"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 4
+      memory         = 15360
+      disk_size      = "50G"
+      tags           = "cicd,gitlab-runner"
+      data_disk      = { size = "30G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -446,15 +496,17 @@ node_groups = {
   // Kubernetes: Control Plane + etcd
   "k8s_control_plane" = {
     "public-cp-01" = {
-      vmid       = 10010
-      name       = "public-k8s-cp-01"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 4
-      memory     = 4096
-      disk_size  = "50G"
-      tags       = "kubernetes,k8s,control-plane,etcd"
-      data_disk  = { size = "40G" }
+      vmid           = 10010
+      name           = "public-k8s-cp-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 4
+      memory         = 4096
+      disk_size      = "50G"
+      tags           = "kubernetes,k8s,control-plane,etcd"
+      data_disk      = { size = "40G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -472,15 +524,17 @@ node_groups = {
   // For production, you may want to run etcd on dedicated nodes.
   "k8s_etcd" = {
     "public-etcd-01" = {
-      vmid       = 10013
-      name       = "public-k8s-etcd-01"
-      ipconfig0  = "ip=203.0.113.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 2
-      memory     = 4096
-      disk_size  = "50G"
-      tags       = "kubernetes,k8s,etcd"
-      data_disk  = { size = "20G" }
+      vmid           = 10013
+      name           = "public-k8s-etcd-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 2
+      memory         = 4096
+      disk_size      = "50G"
+      tags           = "kubernetes,k8s,etcd"
+      data_disk      = { size = "20G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -495,15 +549,17 @@ node_groups = {
   // Kubernetes: Worker Nodes
   "k8s_workers" = {
     "public-worker-01" = {
-      vmid       = 10011
-      name       = "public-k8s-worker-01"
-      ipconfig0  = "ip=192.0.2.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 2
-      memory     = 4096
-      disk_size  = "50G"
-      tags       = "kubernetes,k8s,worker"
-      data_disk  = { size = "40G" }
+      vmid           = 10011
+      name           = "public-k8s-worker-01"
+      backup         = false
+      backup_storage = "backups"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 2
+      memory         = 4096
+      disk_size      = "50G"
+      tags           = "kubernetes,k8s,worker"
+      data_disk      = { size = "40G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -515,15 +571,17 @@ node_groups = {
       }
     }
     "public-worker-02" = {
-      vmid       = 10012
-      name       = "public-k8s-worker-02"
-      ipconfig0  = "ip=198.51.100.0/24,gw=198.51.100.24"
-      os_profile = "ubuntu2404"
-      cores      = 2
-      memory     = 4096
-      disk_size  = "50G"
-      tags       = "kubernetes,k8s,worker"
-      data_disk  = { size = "40G" }
+      vmid           = 10012
+      name           = "public-k8s-worker-02"
+      backup         = false
+      backup_storage = "backups"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      os_profile     = "ubuntu2404"
+      cores          = 2
+      memory         = 4096
+      disk_size      = "50G"
+      tags           = "kubernetes,k8s,worker"
+      data_disk      = { size = "40G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
