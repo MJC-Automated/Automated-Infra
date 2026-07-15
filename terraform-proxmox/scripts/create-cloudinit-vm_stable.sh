@@ -20,10 +20,10 @@ Required content:
   CIUSER="ansible"
   PASSWORD="<set-strong-cloud-init-password>"
   SSH_KEYS_FILE="/root/.ssh/authorized_keys"
-  ZABBIX_SERVER="198.51.100.25"
+  ZABBIX_SERVER="198.51.100.24"
   # Optional explicit split targets:
-  # ZABBIX_SERVER_PASSIVE="198.51.100.25"
-  # ZABBIX_SERVER_ACTIVE="198.51.100.25:10051"
+  # ZABBIX_SERVER_PASSIVE="198.51.100.24"
+  # ZABBIX_SERVER_ACTIVE="198.51.100.24:10051"
 
 EOF
   exit 1
@@ -63,10 +63,10 @@ if [[ -z "${ZABBIX_SERVER_PASSIVE}" || -z "${ZABBIX_SERVER_ACTIVE}" ]]; then
 ERROR: Zabbix target is not configured in ${ENV_FILE}
 
 Set either:
-  ZABBIX_SERVER="198.51.100.25"
+  ZABBIX_SERVER="198.51.100.24"
 or explicit split values:
-  ZABBIX_SERVER_PASSIVE="198.51.100.25"
-  ZABBIX_SERVER_ACTIVE="198.51.100.25:10051"
+  ZABBIX_SERVER_PASSIVE="198.51.100.24"
+  ZABBIX_SERVER_ACTIVE="198.51.100.24:10051"
 EOF
   exit 1
 fi
@@ -79,7 +79,7 @@ VMID="${VMID:-999999991}"
 NAME="${NAME:-}"          # Leave empty → auto-derived from OS_TYPE + IP last octet
 OS_TYPE="${OS_TYPE:-oracle-linux-8}"  # See detect_os_config() for supported values
 IPCIDR="${IPCIDR:-203.0.113.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
-GATEWAY="${GATEWAY:-198.51.100.21}"
+GATEWAY="${GATEWAY:-198.51.100.19}"
 FORCE="${FORCE:-1}"       # 1 = destroy existing VM, 0 = abort if exists
 DRY_RUN="${DRY_RUN:-0}"   # 1 = show what would happen without executing
 SANITIZE_TEMPLATE_BASE="${SANITIZE_TEMPLATE_BASE:-0}" # 1 = clean per-instance state before final shutdown
@@ -98,7 +98,7 @@ readonly FEDORA_43_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-
 
 # Network.
 readonly BRIDGE="${BRIDGE:-vmbr0}"
-readonly DNS="${DNS:-198.51.100.10}"
+readonly DNS="${DNS:-198.51.100.27}"
 
 # CPU, memory, and display.
 readonly CORES="${CORES:-6}"

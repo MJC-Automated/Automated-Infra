@@ -123,7 +123,7 @@ node_groups = {
       name           = "public-weblogic14c-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.16"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.14"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -159,7 +159,7 @@ node_groups = {
       name           = "public-weblogic12c-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.16"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.14"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -186,7 +186,7 @@ node_groups = {
       name           = "public-database19c-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.16"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.14"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -211,7 +211,7 @@ node_groups = {
       name           = "public-database19c-ol9-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.16"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.14"
       os_profile     = "oracle9"
       cores          = 6
       memory         = 10240
@@ -237,7 +237,7 @@ node_groups = {
       name           = "public-database21c-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.16"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.14"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"

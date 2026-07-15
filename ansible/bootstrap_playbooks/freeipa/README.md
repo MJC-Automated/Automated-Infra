@@ -67,8 +67,8 @@ ansible-galaxy collection install -r requirements.yml
 
 When `FREEIPA_SETUP_DNS=false`, publish these records in the zone before expecting `ipa-healthcheck` verification to pass:
 
-- Host A/AAAA for the FreeIPA server FQDN, for example `public-freeipa-02.example.internal -> 198.51.100.26`
-- Host A/AAAA for `ipa-ca.<domain>`, for example `ipa-ca.example.internal -> 198.51.100.26`
+- Host A/AAAA for the FreeIPA server FQDN, for example `public-freeipa-02.example.internal -> 198.51.100.25`
+- Host A/AAAA for `ipa-ca.<domain>`, for example `ipa-ca.example.internal -> 198.51.100.25`
 - SRV records:
   - `_ldap._tcp.<domain>` -> port `389`
   - `_kerberos._tcp.<domain>` -> port `88`
@@ -95,8 +95,8 @@ Example `example.internal` snippet for the current `example` environment:
 
 ```ini
 # /etc/dnsmasq.d/99-freeipa-lab-local.conf
-host-record=public-freeipa-02.example.internal,198.51.100.26
-host-record=ipa-ca.example.internal,198.51.100.26
+host-record=public-freeipa-02.example.internal,198.51.100.25
+host-record=ipa-ca.example.internal,198.51.100.25
 
 srv-host=_ldap._tcp.example.internal,public-freeipa-02.example.internal,389,0,100
 srv-host=_kerberos._tcp.example.internal,public-freeipa-02.example.internal,88,0,100
@@ -120,9 +120,9 @@ sudo pihole restartdns
 Validate the external DNS view before rerunning FreeIPA:
 
 ```bash
-dig @198.51.100.27 +short A ipa-ca.example.internal
-dig @198.51.100.27 +short SRV _ldap._tcp.example.internal
-dig @198.51.100.27 +short TYPE256 _kerberos.example.internal
+dig @198.51.100.26 +short A ipa-ca.example.internal
+dig @198.51.100.26 +short SRV _ldap._tcp.example.internal
+dig @198.51.100.26 +short TYPE256 _kerberos.example.internal
 ```
 
 ## Verification Expectations
