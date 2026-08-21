@@ -98,7 +98,7 @@ readonly FEDORA_43_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-
 
 # Network.
 readonly BRIDGE="${BRIDGE:-vmbr0}"
-readonly DNS="${DNS:-198.51.100.27}"
+readonly DNS="${DNS:-198.51.100.29}"
 
 # CPU, memory, and display.
 readonly CORES="${CORES:-6}"
