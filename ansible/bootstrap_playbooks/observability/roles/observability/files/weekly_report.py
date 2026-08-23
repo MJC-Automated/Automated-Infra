@@ -35,6 +35,26 @@ SAFE_ENVIRONMENT = re.compile(r"^[A-Za-z0-9_.-]+$")
 SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
 
 
+def threshold_css(value: float | None, *, warn: float = 75, crit: float = 90) -> str:
+    """Return a CSS class for a metric value based on threshold levels."""
+    if value is None:
+        return "neutral"
+    if value >= crit:
+        return "critical"
+    if value >= warn:
+        return "warning"
+    return "good"
+
+
+def alert_severity_css(severity: str) -> str:
+    """Return a CSS class for an alert severity label."""
+    if severity == "critical":
+        return "critical"
+    if severity == "warning":
+        return "warning"
+    return "neutral"
+
+
 class ReportError(RuntimeError):
     """An expected reporting failure that is safe to log."""
 
@@ -241,6 +261,73 @@ def build_availability_rows(
     return rows
 
 
+def _build_oracle_rows(
+    cdb_uptime_results: list[dict],
+    cdb_current: dict,
+    pdb_counts: dict,
+    pdb_uptime_results: list[dict],
+    pdb_current: dict,
+) -> list[dict[str, Any]]:
+    """Build sorted Oracle CDB/PDB rows from Prometheus query results."""
+    oracle_rows: list[dict[str, Any]] = []
+    for item in cdb_uptime_results:
+        labels = item.get("metric", {})
+        instance = str(labels.get("instance", ""))
+        cdb = str(labels.get("cdb", ""))
+        pdbs: list[dict[str, Any]] = []
+        for pdb_item in pdb_uptime_results:
+            pdb_labels = pdb_item.get("metric", {})
+            if (
+                str(pdb_labels.get("instance", "")) == instance
+                and str(pdb_labels.get("cdb", "")) == cdb
+            ):
+                pdb = str(pdb_labels.get("pdb", ""))
+                pdbs.append(
+                    {
+                        "name": pdb,
+                        "uptime": result_value(pdb_item),
+                        "current": pdb_current.get((instance, cdb, pdb)),
+                    }
+                )
+        pdbs.sort(key=lambda row: row["name"])
+        oracle_rows.append(
+            {
+                "instance": instance,
+                "role": str(labels.get("role", "")),
+                "cdb": cdb,
+                "uptime": result_value(item),
+                "current": cdb_current.get((instance, cdb)),
+                "pdb_count": pdb_counts.get((instance, cdb)),
+                "pdbs": pdbs,
+            }
+        )
+    oracle_rows.sort(key=lambda row: (row["instance"], row["cdb"]))
+    return oracle_rows
+
+
+def _gather_alerts(
+    client: "PrometheusClient",
+    environment: str,
+    end: datetime,
+) -> list[dict[str, str]]:
+    """Query firing alerts and return sorted label dicts for the environment."""
+    alerts: list[dict[str, str]] = []
+    for item in client.query('ALERTS{alertstate="firing"}', end):
+        labels = {str(k): str(v) for k, v in item.get("metric", {}).items()}
+        alert_environment = labels.get("environment", "")
+        if alert_environment and alert_environment != environment:
+            continue
+        alerts.append(labels)
+    alerts.sort(
+        key=lambda labels: (
+            SEVERITY_ORDER.get(labels.get("severity", "info"), 9),
+            labels.get("alertname", ""),
+            labels.get("instance", ""),
+        )
+    )
+    return alerts
+
+
 def fetch_report_data(
     client: PrometheusClient,
     environment: str,
@@ -376,54 +463,11 @@ def fetch_report_data(
     cdb_current = result_map(cdb_current_results, ("instance", "cdb"))
     pdb_counts = result_map(pdb_count_results, ("instance", "cdb"))
     pdb_current = result_map(pdb_current_results, ("instance", "cdb", "pdb"))
-    oracle_rows: list[dict[str, Any]] = []
-    for item in cdb_uptime_results:
-        labels = item.get("metric", {})
-        instance = str(labels.get("instance", ""))
-        cdb = str(labels.get("cdb", ""))
-        pdbs: list[dict[str, Any]] = []
-        for pdb_item in pdb_uptime_results:
-            pdb_labels = pdb_item.get("metric", {})
-            if (
-                str(pdb_labels.get("instance", "")) == instance
-                and str(pdb_labels.get("cdb", "")) == cdb
-            ):
-                pdb = str(pdb_labels.get("pdb", ""))
-                pdbs.append(
-                    {
-                        "name": pdb,
-                        "uptime": result_value(pdb_item),
-                        "current": pdb_current.get((instance, cdb, pdb)),
-                    }
-                )
-        pdbs.sort(key=lambda row: row["name"])
-        oracle_rows.append(
-            {
-                "instance": instance,
-                "role": str(labels.get("role", "")),
-                "cdb": cdb,
-                "uptime": result_value(item),
-                "current": cdb_current.get((instance, cdb)),
-                "pdb_count": pdb_counts.get((instance, cdb)),
-                "pdbs": pdbs,
-            }
-        )
-    oracle_rows.sort(key=lambda row: (row["instance"], row["cdb"]))
-
-    alerts: list[dict[str, str]] = []
-    for item in client.query('ALERTS{alertstate="firing"}', end):
-        labels = {str(k): str(v) for k, v in item.get("metric", {}).items()}
-        alert_environment = labels.get("environment", "")
-        if alert_environment and alert_environment != environment:
-            continue
-        alerts.append(labels)
-    alerts.sort(
-        key=lambda labels: (
-            SEVERITY_ORDER.get(labels.get("severity", "info"), 9),
-            labels.get("alertname", ""),
-            labels.get("instance", ""),
-        )
+    oracle_rows = _build_oracle_rows(
+        cdb_uptime_results, cdb_current, pdb_counts, pdb_uptime_results, pdb_current
     )
+
+    alerts = _gather_alerts(client, environment, end)
 
     host_values = [row["uptime"] for row in hosts if row["uptime"] is not None]
     host_expected_values = [
@@ -556,7 +600,7 @@ def render_resources(rows: list[dict[str, Any]]) -> str:
             value = row.get(key)
             css = "neutral"
             if value is not None:
-                css = "critical" if value >= 90 else "warning" if value >= 75 else "good"
+                css = threshold_css(value)
             metrics.append(
                 f'<td><span class="badge {css}">{percent(value)}</span></td>'
             )
@@ -611,7 +655,7 @@ def render_alerts(alerts: list[dict[str, str]]) -> str:
     rendered: list[str] = []
     for labels in alerts:
         severity = labels.get("severity", "info")
-        css = "critical" if severity == "critical" else "warning" if severity == "warning" else "neutral"
+        css = alert_severity_css(severity)
         rendered.append(
             "<tr>"
             f'<td><span class="badge {css}">{escape(severity.upper())}</span></td>'
@@ -643,7 +687,12 @@ def render_html(
     expected_host_css = availability_css(
         summary["host_expected_uptime"], warning, critical
     )
-    alert_css = "critical" if summary["alerts_critical"] else "warning" if summary["alerts_total"] else "good"
+    if summary["alerts_critical"]:
+        alert_css = "critical"
+    elif summary["alerts_total"]:
+        alert_css = "warning"
+    else:
+        alert_css = "good"
     coverage_css = availability_css(
         summary["telemetry_coverage"], 99.0, 95.0
     )
@@ -860,7 +909,12 @@ Firing alerts at period end: {summary['alerts_total']} ({summary['alerts_critica
 
 The attached color PDF contains per-VM and per-service availability, estimated downtime, resource snapshots, Oracle CDB/PDB health, and firing-alert details.
 """
-    color = "#dc2626" if summary["alerts_critical"] else "#d97706" if summary["alerts_total"] else "#16a34a"
+    if summary["alerts_critical"]:
+        color = "#dc2626"
+    elif summary["alerts_total"]:
+        color = "#d97706"
+    else:
+        color = "#16a34a"
     rich = f"""<html><body style="font-family:Arial,sans-serif;color:#132238">
 <div style="max-width:680px;margin:auto;border:1px solid #dbe5ef;border-radius:12px;overflow:hidden">
 <div style="background:#0b2545;color:white;padding:22px"><h2 style="margin:0">Weekly infrastructure health</h2><div>{escape(environment)} · {escape(end.strftime('%d %b %Y'))}</div></div>
@@ -883,6 +937,7 @@ The attached color PDF contains per-VM and per-service availability, estimated d
         filename=pdf_path.name,
     )
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     try:
         with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as connection:
             connection.ehlo(smtp_helo)

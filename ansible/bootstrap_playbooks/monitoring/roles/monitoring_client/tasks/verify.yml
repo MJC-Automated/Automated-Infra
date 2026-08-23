@@ -366,7 +366,7 @@
   ansible.builtin.uri:
     url: "https://{{ ansible_host }}:6443/livez"
     method: GET
-    validate_certs: false
+    validate_certs: false  # Accepted risk: homelab uses self-signed cluster CA
     status_code: 200
   register: monitoring_kubernetes_api_live
   until: monitoring_kubernetes_api_live.status == 200

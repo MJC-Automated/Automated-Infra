@@ -87,7 +87,7 @@
     method: GET
     headers:
       Authorization: "Bearer {{ monitoring_kubernetes_metrics_token_slurp.content | b64decode | trim }}"
-    validate_certs: false
+    validate_certs: false  # Accepted risk: homelab uses self-signed cluster CA
     status_code: [200]
   register: monitoring_kubernetes_metrics_token_probe
   failed_when: false
