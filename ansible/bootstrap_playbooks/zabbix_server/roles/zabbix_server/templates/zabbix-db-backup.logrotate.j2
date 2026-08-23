@@ -1,0 +1,10 @@
+{{ zabbix_backup_log_path }} {
+    su root root
+    weekly
+    rotate {{ zabbix_backup_log_rotate_count | int }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+}

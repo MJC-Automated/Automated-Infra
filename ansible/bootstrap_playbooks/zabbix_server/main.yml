@@ -67,7 +67,8 @@
                   (item.split('=', 1)[0] | trim): (
                     item.split('=', 1)[1]
                     | trim
-                    | regex_replace('^[\"\']|[\"\']$', '')
+                    | trim('"')
+                    | trim("'")
                   )
                 }
               )
@@ -115,6 +116,14 @@
         zabbix_backup_require_mount: "{{ (zabbix_dotenv.ZABBIX_BACKUP_REQUIRE_MOUNT | default((zabbix_backup_require_mount | string), true)) | bool }}"
         zabbix_backup_script_path: "{{ zabbix_dotenv.ZABBIX_BACKUP_SCRIPT_PATH | default(zabbix_backup_script_path, true) }}"
         zabbix_backup_log_path: "{{ zabbix_dotenv.ZABBIX_BACKUP_LOG_PATH | default(zabbix_backup_log_path, true) }}"
+        zabbix_backup_log_rotate_count: >-
+          {{
+            (
+              zabbix_dotenv.ZABBIX_BACKUP_LOG_ROTATE_COUNT
+              | default(zabbix_backup_log_rotate_count | string, true)
+            )
+            | int
+          }}
         zabbix_email_alerts_enabled: "{{ (zabbix_dotenv.ZABBIX_EMAIL_ALERTS_ENABLED | default((zabbix_email_alerts_enabled | string), true)) | bool }}"
         zabbix_email_media_type_name: "{{ zabbix_dotenv.ZABBIX_EMAIL_MEDIA_TYPE_NAME | default(zabbix_email_media_type_name, true) }}"
         zabbix_email_smtp_server: "{{ zabbix_dotenv.ZABBIX_EMAIL_SMTP_SERVER | default(zabbix_email_smtp_server, true) }}"

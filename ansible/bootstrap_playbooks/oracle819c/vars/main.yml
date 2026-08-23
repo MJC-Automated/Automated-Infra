@@ -92,7 +92,7 @@ oracle_password_require_special: true
 
 # Lifecycle/ops
 oracle_oratab_autostart: "Y"
-oracle_manage_systemd: false
+oracle_manage_systemd: true
 oracle_systemd_service_name: "oracle19c"
 oracle_systemd_state: "started"
 oracle_artifacts_dir: "{{ playbook_dir }}/artifacts"

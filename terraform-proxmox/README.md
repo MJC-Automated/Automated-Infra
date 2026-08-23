@@ -1,12 +1,14 @@
 # Proxmox Infrastructure Automation Platform
 
-Scalable, secure, and generic Infrastructure as Code (IaC) for Proxmox VE using Terraform, Packer, and Vault.
+An operator guide for the Proxmox VE Terraform, Packer, cloud-init, and Vault
+workflow in this repository. Start with a scenario below; the numbered
+reference chapters remain available for first-time platform setup and recovery.
 
 ## Overview
 
 This platform provisions and manages VM infrastructure on Proxmox VE. It is optimized for node-group patterns (database, weblogic, CI/CD, Kubernetes, etc.) and generates a shared Ansible inventory for each environment.
 
-Key features:
+Key capabilities:
 
 - Generic node groups with per-group or per-VM overrides.
 - Vault-backed secrets for Proxmox API credentials.
@@ -14,6 +16,107 @@ Key features:
 - Packer template build path for Ubuntu 24.04, Oracle Linux 8, and Oracle Linux 9.
 - Checksum-verified cloud-image sync helper for Ubuntu 22.04, Ubuntu 24.04, Debian 12, Oracle Linux 8/9, Rocky Linux 9, AlmaLinux 9, and Fedora 43.
 - Automatic cloud-init snippets for data-disk partitioning.
+- Environment-scoped PVE backup schedules, archive verification, and a
+  stopped-VM restore drill.
+
+## Start With the Outcome
+
+Run commands from this directory. Replace `<env>` with the Terraform workspace
+and `ENVIRONMENT` name (for example, `example`). Use explicit
+`ENVIRONMENT=<env>` in automation; a missing value otherwise follows the
+selected workspace and falls back to `dev`.
+
+| I want to… | Start here | What it does | Before you run it |
+| --- | --- | --- | --- |
+| Check an existing environment | `make fmt validate ENVIRONMENT=<env>` | Formats and validates the Terraform configuration. | This is local validation; use `make plan` to inspect real changes. |
+| Preview infrastructure changes | `make plan ENVIRONMENT=<env>` | Selects the workspace and writes `plans/<env>.tfplan`. | Confirm the workspace, tfvars, Vault auth, and PVE endpoint agree. |
+| Apply a reviewed change | `make apply ENVIRONMENT=<env>` | Renders/uploads snippets, plans, applies, then generates inventory. | Review the plan first. |
+| Provision a new environment | `make env-bootstrap ENVIRONMENT=<env> ...` | Scaffolds inputs, prepares SSH/Vault, base VM(s), Packer templates, snippets, and stops at a plan. | Review generated files and the plan before applying. |
+| Rebuild the reusable image substrate | `make env-base-vms …` then `make packer-build-* …` | Recreates source base VMs and turns them into cloneable templates. | This can replace reserved base/template VMIDs. |
+| Refresh only a Packer template | `make packer-build-ubuntu2404 ENVIRONMENT=<env>` | Builds one template from its prepared base VM. | Ensure the matching base VM is healthy and stopped. |
+| Reconcile PVE backups | `make backup-jobs ENVIRONMENT=<env> CONFIRM=YES` | Creates or updates policy-owned PVE schedules. | Run the `DRY_RUN=true` form first. |
+| Verify or drill recovery | `make verify-backups …` / `make restore-drill …` | Checks archive freshness or restores one archive into a stopped reserved VM. | A restore drill requires `CONFIRM=YES`; see the recovery section. |
+| Retire workload VMs | `make destroy-workloads ENVIRONMENT=<env>` | Backs up state then destroys workload resources while retaining Vault governance. | Requires two interactive confirmation phrases. |
+
+### Safe Day-to-Day Loop
+
+```bash
+cd terraform-proxmox
+make fmt validate ENVIRONMENT=example
+make plan ENVIRONMENT=example
+# Review plans/example.tfplan and the generated plan log.
+make apply ENVIRONMENT=example
+ansible-inventory -i ../inventories/example/inventory.ini -i ../inventories/aliases.ini --graph
+```
+
+`apply` owns the snippet render/upload sequence. Do not run raw `terraform
+apply` as a substitute when a change can affect generated partitioning or
+first-access cloud-init inputs.
+
+### New Environment: Stop at a Reviewable Plan
+
+```bash
+make env-template \
+  ENVIRONMENT=qa \
+  TEMPLATE_ENV=dev \
+  PROXMOX_HOST=<pve-address> \
+  PROXMOX_NODE=<pve-node> \
+  AUTO_DISCOVER=true
+
+# Review environments/qa.tfvars, environments/qa.bootstrap.env, and packer vars.
+make env-bootstrap ENVIRONMENT=qa
+make apply ENVIRONMENT=qa
+```
+
+`env-bootstrap` is intentionally a *plan-first* workflow. It creates the
+required substrate and finishes with `make plan`; it does not apply unless you
+choose `env-bootstrap-apply`.
+
+### Rebuild Base VMs and Templates
+
+The base-VM path is destructive to its reserved VMIDs. It reads the existing
+root-only remote PVE environment file (`/root/scripts/.env` by default) and
+does not copy it to `/tmp`. Explicit Make values override that remote file.
+
+```bash
+# Ubuntu 24.04 plus Oracle Linux 8/9 source VMs. This replaces the reserved
+# base VMIDs when BASE_VM_FORCE=1 (the default).
+make env-base-vms ENVIRONMENT=example BASE_VM_BUILD_ORACLE=true \
+  BASE_VM_IPCIDR=192.0.2.0/24 BASE_VM_GATEWAY=198.51.100.10
+
+# Build the matching templates only after the bases are accepted.
+make packer-build-all ENVIRONMENT=example
+```
+
+`BASE_VM_IPCIDR` can be `dhcp` (the default) or a static IPv4 CIDR. Set
+`BASE_VM_DNS`, storage values, `BASE_VM_CORES`, and `BASE_VM_MEM` explicitly
+when the target differs from the generated bootstrap defaults. Packer bases
+must keep `BASE_VM_DO_OS_UPDATE=0`; base acceptance requires a final stopped
+VM with bootstrap `cicustom` state removed and `ciupgrade=0`.
+
+### VLAN-Aware Environments
+
+Set `NETWORK_VLAN` to an integer from `1` through `4094` to tag the primary
+NICs of both generated base VMs and Terraform-managed workloads. `0` is the
+default and leaves NICs untagged. The scaffold writes `network_vlan = <id>` to
+the environment tfvars and `BASE_VM_VLAN=<id>` to its bootstrap file; Make
+forwards the latter as `NETWORK_VLAN` to the remote base builder.
+
+```bash
+make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev \
+  PROXMOX_HOST=<pve-address> PROXMOX_NODE=<pve-node> \
+  NETWORK_BRIDGE=vmbr0 NETWORK_VLAN=120 AUTO_DISCOVER=true
+
+# Existing environment/base refresh.
+make env-base-vms ENVIRONMENT=example BASE_VM_BUILD_ORACLE=true \
+  BASE_VM_VLAN=120 BASE_VM_IPCIDR=192.0.2.0/24 \
+  BASE_VM_GATEWAY=198.51.100.10
+```
+
+Terraform rejects decimal, negative, and out-of-range values; the builder also
+validates its received value. The Proxmox bridge must be VLAN-aware and
+upstream switching must carry the tag—this repository intentionally does not
+configure either of those site-network prerequisites.
 
 ## Quick Start Summary
 
@@ -27,9 +130,12 @@ Key features:
 
 The detailed steps below are intended to be followed top to bottom.
 
+For a scenario-oriented entry point, use [Start With the Outcome](#start-with-the-outcome).
+
 ## Table of Contents
 
 - [Overview](#overview)
+- [Start With the Outcome](#start-with-the-outcome)
 - [Quick Start Summary](#quick-start-summary)
 - [Prerequisites](#prerequisites)
 - [1. Install Vault Terraform and Packer](#1-install-vault-terraform-and-packer)
@@ -232,6 +338,7 @@ Recommended auth/governance combinations:
 - `vault_auth_mode="token"` + `manage_vault_access=true`: use an admin-capable `VAULT_TOKEN` (required to manage Vault mount/policy/auth backend resources).
 - `vault_auth_mode="approle"` + `manage_vault_access=false`: use AppRole credentials for routine Terraform/Packer secret access after governance is already in place.
 - If you switch back to governance management, provide a privileged `VAULT_TOKEN` again and rerun `make vault-bootstrap`.
+- When `.env` contains both `VAULT_TOKEN` and AppRole values, helper flows prefer the token unless a runtime verifier explicitly clears it. Use `make vault-runtime-verify ENVIRONMENT=<env>` to prove the AppRole-only path still works.
 
 Option B: `secrets.auto.tfvars`:
 
@@ -263,12 +370,12 @@ chmod 600 .env
 
 Documented concrete defaults in this repo:
 
-- `TF_VAR_vault_address=https://198.51.100.10:8200`
-- `VAULT_ADDR=https://198.51.100.10:8200`
+- `TF_VAR_vault_address=https://198.51.100.11:8200`
+- `VAULT_ADDR=https://198.51.100.11:8200`
 - `PROXMOX_USER=root`
-- `PROXMOX_HOST_DEV=198.51.100.11`
-- `PROXMOX_HOST_PROD=198.51.100.12`
-- `PROXMOX_HOST_TESTING=198.51.100.13`
+- `PROXMOX_HOST_DEV=198.51.100.12`
+- `PROXMOX_HOST_PROD=198.51.100.13`
+- `PROXMOX_HOST_TESTING=198.51.100.14`
 
 Required values intentionally not documented as concrete literals:
 
@@ -335,9 +442,9 @@ Use this checklist when `.env` was removed (for example after `make clean-all`).
 
 ```bash
 # Use the same reachable endpoint for both variables.
-# This repo documents a LAN default of 198.51.100.10 for dev examples.
-VAULT_ADDR=https://198.51.100.10:8200
-TF_VAR_vault_address=https://198.51.100.10:8200
+# This repo documents a LAN default of 198.51.100.11 for dev examples.
+VAULT_ADDR=https://198.51.100.11:8200
+TF_VAR_vault_address=https://198.51.100.11:8200
 ```
 
 1. `VAULT_TOKEN` / `TF_VAR_vault_token` (token mode, admin/governance workflows)
@@ -406,6 +513,45 @@ This helper:
 - refreshes AppRole `role_id`/`secret_id` into `.env`
 - rotates Proxmox credentials into `<vault_kv_mount_path>/<vault_secret_prefix>/<env>/creds` (defaults to `secret/terraform/<env>/creds`)
 
+After bootstrap, verify the non-governance runtime path:
+
+```bash
+make vault-runtime-verify ENVIRONMENT=dev
+```
+
+This logs in with AppRole, reads the configured credential path, renders a
+temporary Packer override file, and runs a Terraform plan with
+`vault_auth_mode=approle` and `manage_vault_access=false`.
+
+If the role is healthy but its local SecretID has expired, refresh only the
+runtime pair with an admin-capable token, then repeat the verifier:
+
+```bash
+VAULT_TOKEN="$(tr -d '\n' < ~/.vault-recovery/latest/root-token.txt)" \
+  make vault-approle-refresh ENVIRONMENT=dev
+make vault-runtime-verify ENVIRONMENT=dev
+```
+
+`vault-approle-refresh` reads the live role ID, mints and validates one new
+SecretID, revokes its short-lived validation token with the admin token, and
+atomically updates only `VAULT_ROLE_ID`, `VAULT_SECRET_ID`, and their two
+`TF_VAR_` counterparts in the mode-`0600` `.env`. It does not apply Vault
+governance, rotate Proxmox credentials, or enumerate/revoke other SecretIDs.
+
+Check Vault audit logging before governance changes:
+
+```bash
+make vault-audit-check
+```
+
+If no audit device is enabled on the local Vault server, enable the standard
+file audit device:
+
+```bash
+make vault-audit-enable-file CONFIRM=ENABLE_AUDIT
+make vault-audit-check
+```
+
 `make plan` also auto-runs `make vault-bootstrap` once and retries when it detects common bootstrap conditions (`manage_vault_access=true` and AppRole bootstrap or "path is already in use" conflicts).
 
 ### 3.3 Workspace and ENVIRONMENT Defaults
@@ -464,10 +610,10 @@ make vault-mode-verify ENVIRONMENT=dev
 Optional overrides:
 
 ```bash
-make vault-mode-lan ENVIRONMENT=dev VAULT_LAN_IP=198.51.100.10 VAULT_LAN_HOST=198.51.100.10
+make vault-mode-lan ENVIRONMENT=dev VAULT_LAN_IP=198.51.100.11 VAULT_LAN_HOST=198.51.100.11
 
 # Regenerate Vault cert only (adds SANs for 127.0.0.1 + LAN host/IP)
-make vault-tls-regenerate VAULT_LAN_IP=198.51.100.10 VAULT_LAN_HOST=198.51.100.10
+make vault-tls-regenerate VAULT_LAN_IP=198.51.100.11 VAULT_LAN_HOST=198.51.100.11
 ```
 
 If your host has multiple NICs and LAN switch verification fails with `no route to host` or `connection refused`, pin the exact source IP:
@@ -572,8 +718,8 @@ bash -n .env
 Minimum required keys for this repo:
 
 ```bash
-TF_VAR_vault_address=https://198.51.100.10:8200
-VAULT_ADDR=https://198.51.100.10:8200
+TF_VAR_vault_address=https://198.51.100.11:8200
+VAULT_ADDR=https://198.51.100.11:8200
 VAULT_SKIP_VERIFY=true
 ```
 
@@ -696,6 +842,19 @@ make env-base-vm-oracle9 ENVIRONMENT=<env>
 
 You can also run `make env-base-vms ENVIRONMENT=<env> BASE_VM_BUILD_ORACLE=true` to do this in one command.
 
+For a static address during the example base rebuild, the complete command is:
+
+```bash
+make env-base-vms ENVIRONMENT=example BASE_VM_BUILD_ORACLE=true \
+  BASE_VM_IPCIDR=192.0.2.0/24 BASE_VM_GATEWAY=198.51.100.10
+```
+
+This command replaces reusable base VMIDs when `BASE_VM_FORCE=1` (the
+default), and it builds Ubuntu 24.04 plus both Oracle bases. It does **not**
+run Packer; follow it with `make packer-build-all ENVIRONMENT=example` after
+the bases are verified. The `.80` address is reserved for builder testing and
+must be active on only one PVE host at a time.
+
 Scope note:
 
 - `env-base-vm-*` and `packer-build-*` currently build templates only for `ubuntu24`, `oracle8`, and `oracle9`.
@@ -709,8 +868,55 @@ Base VM requirements:
 - CPU: 8 cores
 - RAM: 10GB
 - No data disk (data disks are attached by Terraform)
+- Existing root-only builder environment: `/root/scripts/.env` on the target
+  PVE by default; override with `BASE_VM_REMOTE_ENV_FILE` when the file lives
+  elsewhere
 
-After creation, shut them down before running Packer.
+Explicit Make/wrapper environment values take precedence over the remote
+environment file. The file supplies only values the invocation did not set,
+so `BASE_VM_DO_OS_UPDATE=0`, storage, image, network, and finalization choices
+cannot be silently reversed by stale PVE-local defaults.
+
+The Make targets pass the exact catalog-selected source image into the remote
+builder, clean per-instance cloud-init state, detach bootstrap-only userdata,
+set Proxmox `ciupgrade=0`, assert the regenerated standard user-data does not
+request `package_upgrade: true`, and shut each base VM down before Packer.
+`DO_OS_UPDATE` is therefore the only builder OS-upgrade control; detaching the
+custom user-data cannot trigger an implicit upgrade on Packer's next boot. Set
+`BASE_VM_SANITIZE_TEMPLATE_BASE=0` only for a direct disposable VM test that is
+not going to be cloned as a base.
+
+The pinned OL8.10 b287 image currently contains Oracle's
+`cloud-init-23.4-7.0.4.el8_10.12`, whose sysconfig renderer calls the absent
+`cloudinit.util.load_text_file` API when PVE supplies DNS. For the initial OL8
+boot only, the builder attaches temporary DNS-free network-data (PVE otherwise
+inherits host DNS even when `nameserver` is unset), repairs that exact call to
+the package's available `load_file` API, supplies bootstrap DNS, persists the
+declared resolver through a bounded NetworkManager readiness/reapply loop, and
+verifies repository resolution.
+It refreshes the resolver again at the start of `runcmd` because NetworkManager
+rewrites the bootstrap file after the package stage, then deletes the temporary
+network-data and restores PVE's standard network generation so Packer and
+Terraform clones exercise the repaired renderer.
+Terminal cloud-init errors, failed systemd units, and an inactive Zabbix Agent
+2 are acceptance failures; they are not tolerated as package-download warnings.
+The OL8 Zabbix path retains the fresh cloud-init DNF metadata cache and the
+verifier waits, for at most five minutes and only while the installer process
+exists, before judging the service. A failure prints the preserved installer
+tail. On OL8, `firewall-cmd` can hang under cloud-init's SELinux domain even
+while firewalld serves interactive clients. The bootstrap therefore removes
+broad and stale Agent 2 rules from every zone with `firewall-offline-cmd`, adds
+only the declared sources, validates the persistent configuration, and restarts
+firewalld once. Post-cloud-init SSH acceptance then proves the exact permanent
+and runtime rule sets and rejects any extra TCP/10050 accept.
+The UFW path removes every existing Agent 2 allow command, including broad,
+CIDR-shaped, duplicate, and stale-source forms, then proves that `ufw show
+added` contains exactly the declared source set. The base builder does not
+implicitly enable an inactive UFW policy; acceptance reports whether the
+verified rules are live or persisted for later activation.
+On failure, the builder stops the VM but preserves guest logs and bootstrap
+snippets and refuses reusable-base finalization so the root cause remains
+inspectable. The next accepted attempt must force-recreate the VM.
 
 Reserved Packer template outputs (definitive names + high VMIDs):
 
@@ -752,6 +958,17 @@ Checksum behavior:
 - SHA256: Ubuntu, Oracle Linux, Rocky Linux, AlmaLinux, Fedora
 - SHA512: Debian 12
 - Oracle Linux checksum discovery uses Oracle's official template metadata JSON.
+- The Packer input set is pinned in `config/cloud-images.env`; Make and the
+  Bash image/builder helpers consume that one catalog while allowing explicit
+  runtime overrides.
+- Current pins are Oracle Linux 8.10 `b287`, Oracle Linux 9.8 `b293`, and the
+  Ubuntu Noble `20260801` daily image. Upgrade the URL, filename, and checksum
+  atomically, then repeat the two-PVE builder acceptance.
+
+The builder validates `CORES` against the target node's `nproc` value before
+creating or replacing a VM because current PVE rejects a per-VM vCPU request
+above that node limit. Eight cores is the example default; pass
+`BASE_VM_CORES=6` (or direct `CORES=6`) on a six-CPU builder sandbox.
 
 Current live validation status on Proxmox:
 
@@ -794,7 +1011,39 @@ Credential behavior for Packer build/destroy:
 - Default (`PACKER_USE_VAULT_CREDS=true`): `proxmox_api_url`, `proxmox_token_id`, and `proxmox_token` are read from the environment Vault path `<vault_kv_mount_path>/<vault_secret_prefix>/<env>/creds` (default `secret/terraform/<env>/creds`).
 - Optional fallback (`PACKER_USE_VAULT_CREDS=false`): provide `proxmox_api_url`, `proxmox_token_id`, and `proxmox_token` in `vars.<env>.pkrvars.hcl`.
 
-The templates use `task_timeout = 15m`. Increase if your Proxmox storage is slow.
+The templates use `ssh_timeout = 20m` and `task_timeout = 15m`. Increase either if first-boot cloud-init or Proxmox storage is slow. Packer authenticates as `ansible` with `ssh_private_key_file` (default `~/.ssh/id_rsa`). The builder's first boot installs the matching public key, then template-base finalization removes the bootstrap-only `cicustom` attachment and snippet while preserving the provisioned account/key in the stopped base disk.
+
+Before each clone, Make resolves `clone_vm_id`, `vm_id`, `proxmox_node`,
+`ssh_username`, and `ssh_private_key_file` through `packer console`, and derives
+the public key from that selected private key. It then uses
+`scripts/packer-cloudinit-guard.sh` to attach a unique, mode-`0600` temporary
+`users:`-list cloud-config snippet to the stopped source VM. This avoids the
+deprecated scalar `user` generated by Proxmox when the Packer plugin supplies
+its temporary `ciuser` and `sshkeys`. One exit trap removes both the Vault
+override and the owned cloud-init attachment/snippet on success or failure.
+Successful builds additionally fail unless the result is a stopped template
+with no `cicustom`, cloud-init drive, `ciuser`, `sshkeys`, DNS, or temporary
+network fields. A pre-existing target VMID or a foreign `cicustom` attachment
+is never replaced by this guard.
+
+Make defaults `PACKER_ON_ERROR=cleanup`. For a bounded diagnostic that must
+preserve the failed build VM, use `PACKER_ON_ERROR=abort`; inspect and remove
+that reserved build VM before retrying. The target accepts only `cleanup`,
+`abort`, or `run-cleanup-provisioner`, and its Vault override remains a trapped
+mode-`0600` temporary file in every mode. `abort` preserves the failed VM for
+diagnosis but still detaches the owned snippet, so the source and failed target
+cannot retain a reference to a deleted temporary file.
+
+Base-VM Zabbix passive targets must be comma-separated IPv4 addresses or CIDRs.
+The builder rejects invalid sources before VM creation, removes the legacy broad
+Agent 2 port rule, and configures TCP/10050 only from those sources through the
+guest's firewalld, UFW, or iptables path. Firewalld is verified live; an
+inactive UFW installation is verified through its exact persisted rule set and
+left inactive for the environment policy to activate. Environment monitoring
+roles still reconcile and verify the final runtime firewall policy after
+cloning.
+Ubuntu bases install the NFS client (`nfs-common`) only; an NFS server is a
+service-level decision and is not enabled in every clone.
 
 ## 7. Build Packer Templates
 
@@ -814,6 +1063,23 @@ make packer-build-ubuntu2404 ENVIRONMENT=dev PACKER_VAULT_PATH=kv-team/platform/
 
 With the committed defaults, these generate templates named `ubuntu2404`, `oracle8`, and `oracle9`, which Terraform clones through OS profiles.
 
+When `cloudinit_first_access_ssh_public_key` is non-empty, Terraform renders a
+mode-`0600` `<environment>-<vmid>-<name>-first-access-user.yaml` file for each
+managed VM. Each file declares the VM hostname and FQDN, disables distro FQDN
+preference, manages the hosts file, and supplies the configured
+`cloudinit_first_access_user` and public key list. Generated VM
+`cicustom` values compose the matching `user=` file with any generated
+partitioning `vendor=` file. Per-VM user-data is required because PVE emits
+only an `instance-id` in NoCloud metadata when custom user-data is attached;
+without the hostname in primary user-data, a clone retains its Packer source
+hostname. Oracle cloud-init also prefers the FQDN, so omitting an explicit
+`fqdn` makes it select that same datasource fallback. This keeps first access
+key-only and avoids Proxmox's deprecated
+scalar `user` cloud-config. Explicit per-VM `cicustom` remains authoritative
+and is not rewritten. Use `make snippets`/`make apply` so every referenced file
+is uploaded before a VM's first boot, then require the guest hostname to match
+the Terraform VM name.
+
 ## 8. Configure Terraform Environment
 
 Update `environments/<env>.tfvars`:
@@ -824,6 +1090,10 @@ Update `environments/<env>.tfvars`:
 - `data_disk_defaults.storage` should match the data-disk pool (e.g., `local-lvm`).
 - Use per-VM `vm_disk_storage` when you want specific VMs on different VM-disk pools (root/cloud-init and default data-disk fallback).
 - Define your `node_groups` and per-VM settings.
+- Use per-VM `monitoring_enabled` to control membership in the generated
+  `monitoring_clients` group. `monitoring_profile` defaults to the node-group
+  name, while `monitoring_expected_up` defaults from the resolved desired power
+  state when it is not set explicitly.
 
 Example node group for Oracle DB (single large data disk, `/u01` fixed, `/u02` auto-grow):
 
@@ -833,7 +1103,7 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=192.0.2.0/24,gw=198.51.100.14"
+      ipconfig0 = "ip=198.51.100.0/24,gw=198.51.100.15"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -889,6 +1159,12 @@ make snippets ENVIRONMENT=dev
 
 This renders `snippets/<env>-<vmid>-<vmname>-partitioning.yaml` and uploads to the Proxmox storage defined by `snippet_storage` in `environments/<env>.tfvars` (default `local`).
 
+Both `*-partitioning.yaml` and `*-first-access-user.yaml` are generated local
+Terraform artifacts and are ignored by Git. Do not hand-edit, commit, or
+manually purge snippets for declared VMs. Terraform creates and removes them
+with their `local_file` resources; delete only a proven orphan that no longer
+exists in the authoritative environment model.
+
 Example in `environments/<env>.tfvars`:
 
 ```hcl
@@ -913,15 +1189,15 @@ Override defaults in `.env` if needed:
 
 ```bash
 PROXMOX_USER=root
-PROXMOX_HOST_DEV=198.51.100.11
-PROXMOX_HOST_PROD=198.51.100.12
-PROXMOX_HOST_TESTING=198.51.100.13
+PROXMOX_HOST_DEV=198.51.100.12
+PROXMOX_HOST_PROD=198.51.100.13
+PROXMOX_HOST_TESTING=198.51.100.14
 # Additional environments:
-# PROXMOX_HOST_QA=198.51.100.15
+# PROXMOX_HOST_QA=198.51.100.16
 # PROXMOX_NODE_QA=proxmox
-# ANSIBLE_HOST_QA=198.51.100.16
-# NETWORK_CIDR_QA=198.51.100.0/24
-# NETWORK_GW_QA=198.51.100.17
+# ANSIBLE_HOST_QA=198.51.100.17
+# NETWORK_CIDR_QA=203.0.113.0/24
+# NETWORK_GW_QA=198.51.100.18
 # STORAGE_POOL_QA=local-lvm
 # DATA_STORAGE_QA=local-lvm
 AUTO_DISCOVER=true
@@ -947,6 +1223,11 @@ For security/lint onboarding, run `make tf_scan` before `make deploy`.
 Ansible inventory is generated at:
 
 - `../inventories/<env>/inventory.ini`
+
+`main.tf` is the sole inventory renderer. Each host line includes its resolved
+backup and monitoring policy, and enabled hosts are added to the exact
+`monitoring_clients` group consumed by the unified monitoring playbook. The
+deployment summary contains the same monitoring policy map for review.
 
 Common Terraform outputs after apply:
 
@@ -1001,13 +1282,13 @@ From `terraform-proxmox/`:
 
 ```bash
 # Optional: inspect discovered values first
-make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.15
+make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.16
 
 # Scaffold using discovery (default AUTO_DISCOVER=true)
 make env-template \
   ENVIRONMENT=qa \
   TEMPLATE_ENV=dev \
-  PROXMOX_HOST=198.51.100.15 \
+  PROXMOX_HOST=198.51.100.16 \
   AUTO_DISCOVER=true
 ```
 
@@ -1080,13 +1361,13 @@ Preflight checklist (recommended before first `plan`/`apply`):
 
 If you need a specific VM IP window, edit `ipconfig0` entries in `environments/<env>.tfvars`.
 Also verify `snippet_storage` matches a storage that supports `snippets` on the target Proxmox.
-Example for `198.51.100.18-130`:
+Example for `198.51.100.19-130`:
 
-- `ip=203.0.113.0/24,gw=198.51.100.19`
-- `ip=192.0.2.0/24,gw=198.51.100.19`
-- `ip=198.51.100.0/24,gw=198.51.100.19`
-- `ip=203.0.113.0/24,gw=198.51.100.19`
-- `ip=192.0.2.0/24,gw=198.51.100.19`
+- `ip=192.0.2.0/24,gw=198.51.100.20`
+- `ip=198.51.100.0/24,gw=198.51.100.20`
+- `ip=203.0.113.0/24,gw=198.51.100.20`
+- `ip=192.0.2.0/24,gw=198.51.100.20`
+- `ip=198.51.100.0/24,gw=198.51.100.20`
 
 If you already have base/source VMs for Packer, set `clone_vm_id` in each env Packer vars file:
 
@@ -1101,13 +1382,13 @@ clone_vm_id = 999999990
 clone_vm_id = 999999992
 ```
 
-Concrete example (dev-like stack on `198.51.100.13` with IPs `198.51.100.18-130`):
+Concrete example (dev-like stack on `198.51.100.14` with IPs `198.51.100.19-130`):
 
 ```bash
-make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.13 ENV_TEMPLATE_FORCE=true
+make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.14 ENV_TEMPLATE_FORCE=true
 
 # Edit environments/testing.tfvars:
-# - ipconfig0 values to 198.51.100.18-129
+# - ipconfig0 values to 198.51.100.19-129
 # - cloudinit_first_access_ssh_public_key with required public keys
 # - clone_template values (or os_profiles override) if template names differ on Proxmox
 # Edit packer/*/vars.testing.pkrvars.hcl clone_vm_id values to 999999991/999999990/999999992
@@ -1119,26 +1400,26 @@ make workspace-create ENVIRONMENT=testing
 make plan ENVIRONMENT=testing
 ```
 
-Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `198.51.100.0/24`, Proxmox host `198.51.100.20`, control node `198.51.100.21`):
+Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `203.0.113.0/24`, Proxmox host `198.51.100.21`, control node `198.51.100.22`):
 
 ```bash
-make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.20
+make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.21
 
 make env-template \
   ENVIRONMENT=example \
   TEMPLATE_ENV=dev \
-  PROXMOX_HOST=198.51.100.20 \
+  PROXMOX_HOST=198.51.100.21 \
   PROXMOX_NODE=proxmox \
-  ANSIBLE_HOST=198.51.100.21 \
-  NETWORK_CIDR=198.51.100.0/24 \
-  NETWORK_GW=198.51.100.22 \
+  ANSIBLE_HOST=198.51.100.22 \
+  NETWORK_CIDR=203.0.113.0/24 \
+  NETWORK_GW=198.51.100.10 \
   AUTO_DISCOVER=true \
   ENV_TEMPLATE_FORCE=true
 
 # Then review environments/example.tfvars and adjust env-specific values:
 # - cluster_name = "public-stack"
-# - vault_approle_*_bound_cidrs include 198.51.100.0/24
-# - ipconfig0 entries stay in 198.51.100.0/24
+# - vault_approle_*_bound_cidrs include 203.0.113.0/24
+# - ipconfig0 entries stay in 203.0.113.0/24
 
 make env-bootstrap ENVIRONMENT=example
 # If bootstrap reaches plan successfully, deploy:
@@ -1148,9 +1429,9 @@ make apply ENVIRONMENT=example
 If discovery picked values you want to override, pass them explicitly:
 
 ```bash
-make env-template ENVIRONMENT=qa PROXMOX_HOST=198.51.100.15 \
+make env-template ENVIRONMENT=qa PROXMOX_HOST=198.51.100.16 \
   PROXMOX_NODE=proxmox STORAGE_POOL=local-zfs DATA_STORAGE=local-lvm \
-  NETWORK_CIDR=198.51.100.0/24 NETWORK_GW=198.51.100.17 ENV_TEMPLATE_FORCE=true
+  NETWORK_CIDR=203.0.113.0/24 NETWORK_GW=198.51.100.18 ENV_TEMPLATE_FORCE=true
 ```
 
 ### 12.3 Bootstrap End-to-End Until Plan
@@ -1222,12 +1503,16 @@ Notes:
 ```text
 .
 ├── environments/           # Environment-specific variables (*.tfvars)
+├── logs/                   # Centralized execution & provider logs (terraform-plugin-proxmox-<env>.log, init, plan, apply)
 ├── modules/
 │   └── proxmox-vm/         # Core QEMU VM provisioning logic
 ├── packer/                 # Packer templates for Proxmox VM images
+├── plans/                  # Compiled Terraform plans (.tfplan)
+├── summaries/              # Deployment JSON summaries
 ├── snippets/               # Cloud-init snippets (generated)
+├── backups/                # State and artifact backup archives
 ├── scripts/                # Setup and automation utilities
-├── templates/              # Ansible inventory templates
+├── templates/              # Cloud-init and environment templates
 ├── Makefile                # Unified entry point
 └── main.tf                 # Root module
 ```
@@ -1283,6 +1568,10 @@ Rules:
 
 ## Makefile Targets (Common)
 
+The outcome-based command map at the beginning of this guide is the preferred
+operator interface. This list is a compact index; run `make help` for the
+current target descriptions and defaults.
+
 - `make setup-tools`
 - `make check-tools`
 - `make env-discover ENVIRONMENT=<env> PROXMOX_HOST=<ip>`
@@ -1291,6 +1580,7 @@ Rules:
 - `make env-cloud-images ENVIRONMENT=<env>`
 - `make env-cloud-images ENVIRONMENT=<env> CLOUD_IMAGES=all`
 - `make env-base-vms ENVIRONMENT=<env>`
+- `make env-base-vms ENVIRONMENT=<env> BASE_VM_BUILD_ORACLE=true BASE_VM_IPCIDR=<ip/prefix> BASE_VM_GATEWAY=<gateway>`
 - `make env-bootstrap ENVIRONMENT=<env>`
 - `make env-bootstrap-apply ENVIRONMENT=<env>`
 - `make deploy ENVIRONMENT=dev`
@@ -1305,8 +1595,12 @@ Rules:
 - `make packer-build-ubuntu2404 ENVIRONMENT=dev`
 - `make packer-build-oracle8 ENVIRONMENT=dev`
 - `make packer-build-oracle9 ENVIRONMENT=dev`
-- `make packer-destroy-all ENVIRONMENT=dev`
-- `make verify-resources`
+- `make packer-destroy-all ENVIRONMENT=dev` (requires `red alert <env>` and then `packer-destroy-all <env>`)
+- `../scripts/verify-resources.sh` (installer checksum governance; not a Make target)
+- `make vault-runtime-verify ENVIRONMENT=dev`
+- `make vault-approle-refresh ENVIRONMENT=dev` (requires an admin-capable token)
+- `make vault-audit-check`
+- `make vault-audit-enable-file CONFIRM=ENABLE_AUDIT`
 - `make backup ENVIRONMENT=dev`
 - `make backup-jobs ENVIRONMENT=dev DRY_RUN=true`
 - `make backup-jobs ENVIRONMENT=dev CONFIRM=YES`
@@ -1314,8 +1608,9 @@ Rules:
 - `make backup-vms ENVIRONMENT=dev BACKUP_VMIDS=<vmid> PROTECTED=true CONFIRM=YES` (final decommission archive only)
 - `make verify-backups ENVIRONMENT=dev`
 - `make restore-drill ENVIRONMENT=dev SOURCE_VMID=<vmid> RESTORE_VMID=999999980 RESTORE_STORAGE=<storage> CONFIRM=YES`
-- `make destroy ENVIRONMENT=dev`
-- `make clean` (generated artifacts; retained backups are preserved)
+- `make destroy-workloads ENVIRONMENT=dev`
+- `make destroy-governance ENVIRONMENT=dev` (requires separate review and `prevent_destroy` removal)
+- `make clean` (generated artifacts; retained backups and `logs/acceptance/` are preserved)
 - `make clean-backups CONFIRM=DELETE_BACKUPS` (explicitly delete retained state archives)
 - `make clean-all` (local artifacts + state; retained backups are preserved)
 
@@ -1334,16 +1629,25 @@ Freshness and restore selection accept only non-empty completed `.vma`, `.vma.gz
 An active `vzdump` owns the VM's `backup` lock. Wait for it to finish before
 starting the guest or running configuration; do not manually clear the lock.
 
-`make backup` protects Terraform state and related environment artifacts before
-plans/destroys and after applies. Archives and SHA-256 sidecars are mode `0600`,
-kept for 30 days with at least the newest five preserved, and are not removed by
-routine `make clean`.
+`make backup` pulls remote workspace state (`terraform state pull`) and archives
+it with related environment artifacts. It is a prerequisite of destroy targets.
+Archives and SHA-256 sidecars are mode `0600`, kept for 30 days with at least
+the newest five preserved, and are not removed by routine `make clean`.
+`STATE_BACKUP_RETENTION_DAYS` and `STATE_BACKUP_KEEP_MIN` configure those two
+limits; the minimum set is retained even after it exceeds the age limit.
 
-`make destroy` removes the environment workload VMs and generated local files,
-but deliberately retains the shared Vault KV mount, policy, and AppRole control
-plane. Those Vault resources also use Terraform `prevent_destroy`; removing
-them requires an explicit lifecycle change and a separately reviewed recovery
-plan.
+`make destroy-workloads` removes the environment workload VMs plus generated
+local Terraform files and deliberately retains the shared Vault KV mount,
+policy, AppRole backend, and AppRole role. It requires two prompts: first the
+red-alert phrase `red alert <env>`, then `destroy-workloads <env>`.
+
+`make destroy-governance` targets only the Vault governance module. It is a
+separate endpoint because deleting governance can remove the credential source,
+break Terraform/Packer auth, invalidate AppRole logins, and damage shared Vault
+mounts. The target still respects Terraform `prevent_destroy`; actually
+removing those resources requires a separate reviewed lifecycle change and
+recovery plan. It requires two prompts: first the red-alert phrase
+`red alert <env>`, then `destroy-governance <env>`.
 
 PVE-protected backups are exempt from pruning and therefore require a separate
 operator review. Use `PROTECTED=true` only for the documented final

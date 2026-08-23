@@ -1,0 +1,45 @@
+metricsNameSnakeCase: true
+domainQualifier: true
+queries:
+  - key: name
+    keyName: server
+    prefix: wls_server_
+    stringValues:
+      state: [SHUTDOWN, STARTING, RUNNING, STANDBY, FORCE_SUSPENDING, RESUMING, SHUTTING_DOWN, FAILED, UNKNOWN, FAILED_NOT_RESTARTABLE, ADMIN, FORCE_SHUTTING_DOWN]
+    overallHealthState:
+      prefix: wls_server_overallhealth_
+      stringValues:
+        state: [ok, failed, overloaded, critical, warn]
+    healthState:
+      prefix: wls_server_health_
+      stringValues:
+        state: [ok, failed, overloaded, critical, warn]
+  - key: name
+    keyName: server
+    prefix: wls_server_
+    values: [openSocketsCurrentCount]
+  - JVMRuntime:
+      prefix: wls_jvm_
+      key: name
+      values: [heapFreeCurrent, heapFreePercent, heapSizeCurrent, heapSizeMax, uptime]
+  - threadPoolRuntime:
+      prefix: wls_threadpool_
+      key: name
+      values: [executeThreadTotalCount, executeThreadIdleCurrentCount, queueLength, stuckThreadCount, hoggingThreadCount, completedRequestCount]
+  - JDBCServiceRuntime:
+      JDBCDataSourceRuntimeMBeans:
+        prefix: wls_datasource_
+        key: name
+        values: [activeConnectionsCurrentCount, activeConnectionsHighCount, failuresToReconnectCount]
+  - JTARuntime:
+      prefix: wls_jta_
+      key: name
+      values: [transactionTotalCount, transactionCommittedTotalCount, transactionRolledBackTotalCount]
+  - applicationRuntimes:
+      key: name
+      keyName: application
+      componentRuntimes:
+        type: WebAppComponentRuntime
+        prefix: wls_webapp_
+        key: name
+        values: [deploymentState, openSessionsCurrentCount, sessionsOpenedTotalCount]

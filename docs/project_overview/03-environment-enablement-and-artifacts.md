@@ -47,7 +47,7 @@ This is operational, not cosmetic. The repo expects Ansible work to use the same
 | Terraform runtime state | `.terraform/`, `*.tfstate`, lock files, plans | Terraform | Terraform, backup workflow |
 | Generated inventories | `inventories/<env>/inventory.ini` | Terraform | all Ansible projects |
 | Generated summaries | `summaries/deployment-summary-<env>.json` | Terraform apply | operators and downstream docs |
-| Generated logs and backups | `logs/`, `backups/`, `plans/` under `terraform-proxmox/` | Makefile targets | operators |
+| Generated logs and backups | `logs/` (Terraform, provider plugin `terraform-plugin-proxmox-<env>.log`, snippet/destroy logs), `backups/`, `plans/` under `terraform-proxmox/` | Makefile targets, Terraform `log_config` | operators |
 | Rendered snippet source | `snippets/*.yaml` | `render-snippets` | `upload-snippets`, cloud-init guest setup |
 
 ## What the Root `.gitignore` Encodes

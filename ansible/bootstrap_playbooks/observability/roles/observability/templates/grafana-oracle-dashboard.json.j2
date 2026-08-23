@@ -1,0 +1,84 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "values": false}},
+      "targets": [{"expr": "sum(iac_oracle_cdb_up)", "instant": true}],
+      "title": "Open CDBs",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "values": false}},
+      "targets": [{"expr": "sum(iac_oracle_pdb_count)", "instant": true}],
+      "title": "Discovered Workload PDBs",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2, "min": 0, "max": 100}, "overrides": []},
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"displayMode": "lcd", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "values": false}},
+      "targets": [{"expr": "avg_over_time(iac_oracle_cdb_up[${__range}]) * 100", "instant": true, "legendFormat": "{{ "{{" }}instance{{ "}}" }}/{{ "{{" }}cdb{{ "}}" }}"}],
+      "title": "CDB Uptime (Selected Range)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "custom": {"lineWidth": 0, "fillOpacity": 70}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+      "id": 4,
+      "options": {"showValue": "auto", "alignLastValues": "right", "mergeValues": true},
+      "targets": [{"expr": "iac_oracle_cdb_up", "legendFormat": "{{ "{{" }}instance{{ "}}" }}/{{ "{{" }}cdb{{ "}}" }}"}],
+      "title": "CDB Availability History",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 12},
+      "id": 5,
+      "options": {"showHeader": true, "sortBy": []},
+      "targets": [{"expr": "iac_oracle_pdb_count", "format": "table", "instant": true}],
+      "title": "PDB Count per Database VM and CDB",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "NOT READ WRITE"}, "1": {"color": "green", "text": "READ WRITE"}}, "type": "value"}], "custom": {"lineWidth": 0, "fillOpacity": 70}}, "overrides": []},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 19},
+      "id": 6,
+      "options": {"showValue": "auto", "alignLastValues": "right", "mergeValues": true},
+      "targets": [{"expr": "iac_oracle_pdb_up", "legendFormat": "{{ "{{" }}instance{{ "}}" }}/{{ "{{" }}cdb{{ "}}" }}/{{ "{{" }}pdb{{ "}}" }}"}],
+      "title": "Dynamically Discovered PDB Health History",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 28},
+      "id": 7,
+      "options": {"showHeader": true, "sortBy": []},
+      "targets": [{"expr": "iac_oracle_pdb_info", "format": "table", "instant": true}],
+      "title": "Current PDB Open Modes",
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["iac", "oracle", "database"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "IaC Oracle CDB and PDB Health",
+  "uid": "iac-oracle",
+  "version": 1
+}

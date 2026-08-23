@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 0027
+
+metrics_directory={{ monitoring_oracle_metrics_directory | quote }}
+metrics_file={{ monitoring_oracle_metrics_file | quote }}
+temporary_file=$(mktemp "${metrics_directory}/.oracle.prom.XXXXXX")
+trap 'rm -f "${temporary_file}"' EXIT
+
+{
+  printf '%s\n' '# HELP iac_oracle_cdb_up Whether an inventory-declared Oracle CDB is open read-write.'
+  printf '%s\n' '# TYPE iac_oracle_cdb_up gauge'
+  printf '%s\n' '# HELP iac_oracle_pdb_count Number of non-seed PDBs currently discovered in the CDB.'
+  printf '%s\n' '# TYPE iac_oracle_pdb_count gauge'
+  printf '%s\n' '# HELP iac_oracle_pdb_up Whether a dynamically discovered non-seed PDB is open read-write.'
+  printf '%s\n' '# TYPE iac_oracle_pdb_up gauge'
+  printf '%s\n' '# HELP iac_oracle_pdb_info Current bounded open mode for a dynamically discovered non-seed PDB.'
+  printf '%s\n' '# TYPE iac_oracle_pdb_info gauge'
+} > "${temporary_file}"
+
+export ORACLE_HOME={{ monitoring_oracle_home | quote }}
+export PATH="${ORACLE_HOME}/bin:/usr/bin:/bin"
+export LD_LIBRARY_PATH="${ORACLE_HOME}/lib"
+
+{% for cdb in monitoring_oracle_cdbs %}
+export ORACLE_SID={{ cdb.sid | quote }}
+set +e
+sql_output=$(
+  "${ORACLE_HOME}/bin/sqlplus" -s / as sysdba <<'SQL'
+whenever oserror exit failure
+whenever sqlerror exit sql.sqlcode
+set pages 0 feedback off heading off echo off verify off trimspool on lines 32767
+select 'iac_oracle_cdb_up{cdb="'||upper(name)||'"} 1'
+  from v$database
+ where open_mode = 'READ WRITE';
+select 'iac_oracle_pdb_count{cdb="'||upper(d.name)||'"} '||count(p.con_id)
+  from v$database d
+  left join v$pdbs p on p.con_id > 2
+ group by d.name;
+select 'iac_oracle_pdb_up{cdb="'||upper(d.name)||'",pdb="'||upper(p.name)||'"} '||
+       case when p.open_mode = 'READ WRITE' then '1' else '0' end
+  from v$database d
+ cross join v$pdbs p
+ where p.con_id > 2
+ order by p.con_id;
+select 'iac_oracle_pdb_info{cdb="'||upper(d.name)||'",pdb="'||upper(p.name)||
+       '",open_mode="'||replace(upper(p.open_mode),' ','_')||'"} 1'
+  from v$database d
+ cross join v$pdbs p
+ where p.con_id > 2
+ order by p.con_id;
+exit
+SQL
+)
+sql_rc=$?
+set -e
+
+if [[ ${sql_rc} -eq 0 ]] && grep -q '^iac_oracle_cdb_up{' <<< "${sql_output}"; then
+  grep '^iac_oracle_' <<< "${sql_output}" >> "${temporary_file}"
+else
+  printf 'iac_oracle_cdb_up{cdb="%s"} 0\n' "${ORACLE_SID^^}" >> "${temporary_file}"
+  printf 'iac_oracle_pdb_count{cdb="%s"} 0\n' "${ORACLE_SID^^}" >> "${temporary_file}"
+fi
+{% endfor %}
+
+chgrp alloy "${temporary_file}"
+chmod 0640 "${temporary_file}"
+mv -f "${temporary_file}" "${metrics_file}"
+trap - EXIT

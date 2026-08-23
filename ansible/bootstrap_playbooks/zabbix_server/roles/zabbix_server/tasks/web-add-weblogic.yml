@@ -1,0 +1,31 @@
+---
+- name: Initialize domains for one WebLogic web endpoint host
+  ansible.builtin.set_fact:
+    zabbix_web_weblogic_domains:
+      - domain_name: "{{ hostvars[zabbix_web_weblogic_host].domain_name }}"
+        admin_port: "{{ hostvars[zabbix_web_weblogic_host].admin_port | int }}"
+
+- name: Add secondary domains for one WebLogic web endpoint host
+  ansible.builtin.set_fact:
+    zabbix_web_weblogic_domains: >-
+      {{ zabbix_web_weblogic_domains + [{
+           'domain_name': item.domain_name,
+           'admin_port': item.admin_port | int
+         }] }}
+  loop: "{{ hostvars[zabbix_web_weblogic_host].additional_weblogic_domains | default([]) }}"
+
+- name: Add declared WebLogic admin endpoints
+  ansible.builtin.set_fact:
+    zabbix_web_desired_endpoints: >-
+      {{ zabbix_web_desired_endpoints + [{
+           'host_name': zabbix_web_weblogic_host,
+           'environment': hostvars[zabbix_web_weblogic_host].monitoring_environment,
+           'expected_up': hostvars[zabbix_web_weblogic_host].monitoring_expected_up | bool,
+           'service': 'weblogic-' ~ item.domain_name,
+           'scenario_name': 'IaC WebLogic ' ~ item.domain_name ~ ' availability',
+           'service_id': 'web::' ~ hostvars[zabbix_web_weblogic_host].monitoring_environment ~ '::' ~ zabbix_web_weblogic_host ~ '::weblogic-' ~ item.domain_name,
+           'url': 'http://' ~ hostvars[zabbix_web_weblogic_host].ansible_host ~ ':' ~ (item.admin_port | string) ~ '/console/',
+           'status_codes': '200,302',
+           'verify_tls': true
+         }] }}
+  loop: "{{ zabbix_web_weblogic_domains }}"

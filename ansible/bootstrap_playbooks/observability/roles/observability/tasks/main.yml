@@ -1,4 +1,8 @@
 ---
+- name: Materialize kube-state-metrics kubeconfig when managed
+  ansible.builtin.import_tasks: kube-state-metrics.yml
+  tags: [observability, kube_state_metrics]
+
 - name: Validate input variables
   ansible.builtin.import_tasks: validate.yml
 
@@ -13,3 +17,6 @@
 
 - name: Verify observability endpoints
   ansible.builtin.import_tasks: verify.yml
+
+- name: Reconcile Grafana library panels
+  ansible.builtin.import_tasks: grafana-library.yml

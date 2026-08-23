@@ -1,0 +1,343 @@
+---
+- name: Ensure monitoring package cache exists
+  ansible.builtin.file:
+    path: "{{ monitoring_alloy_package_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# A monitoring package must never be allowed to replace or disrupt the
+# Kubernetes networking policy already owned by the cluster playbook.  Run
+# this guard before any repository or package work so an inherited firewalld
+# installation cannot remain active for the duration of convergence.
+- name: Inspect firewalld state for profiles that require it disabled
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - show
+      - firewalld.service
+      - --property=LoadState,ActiveState,UnitFileState
+      - --value
+  register: monitoring_firewalld_disabled_profile_state
+  changed_when: false
+  failed_when: false
+  when: monitoring_firewall_policy == 'disabled'
+
+- name: Disable firewalld for Kubernetes-native network policy profiles
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: false
+    state: stopped
+  when:
+    - monitoring_firewall_policy == 'disabled'
+    - monitoring_firewalld_disabled_profile_state.rc == 0
+    - "'not-found' not in monitoring_firewalld_disabled_profile_state.stdout"
+
+- name: Download Zabbix repository package for Ubuntu 24.04
+  ansible.builtin.get_url:
+    url: >-
+      https://repo.zabbix.com/zabbix/{{ monitoring_zabbix_version }}/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_{{ monitoring_zabbix_version }}+ubuntu24.04_all.deb
+    dest: "{{ monitoring_alloy_package_dir }}/zabbix-release.deb"
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_facts.distribution == 'Ubuntu'
+
+- name: Wait for boot-time Debian package maintenance before repository install
+  ansible.builtin.command:
+    argv:
+      - fuser
+      - /var/lib/dpkg/lock-frontend
+      - /var/lib/dpkg/lock
+  register: monitoring_dpkg_repository_locks
+  changed_when: false
+  failed_when: false
+  retries: "{{ monitoring_dpkg_lock_retries }}"
+  delay: "{{ monitoring_dpkg_lock_delay }}"
+  until: monitoring_dpkg_repository_locks.rc != 0
+  when: ansible_facts.distribution == 'Ubuntu'
+
+- name: Install Zabbix repository package on Ubuntu 24.04
+  ansible.builtin.apt:
+    deb: "{{ monitoring_alloy_package_dir }}/zabbix-release.deb"
+    state: present
+    lock_timeout: "{{ monitoring_apt_lock_timeout }}"
+  when: ansible_facts.distribution == 'Ubuntu'
+
+- name: Query Zabbix repository package on Oracle Linux
+  ansible.builtin.command:
+    argv:
+      - rpm
+      - -q
+      - zabbix-release
+  register: monitoring_zabbix_repo_rpm
+  changed_when: false
+  failed_when: false
+  when: ansible_facts.distribution == 'OracleLinux'
+
+- name: Install Zabbix repository package on Oracle Linux  # noqa command-instead-of-module
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - install
+      - -y
+      - >-
+        https://repo.zabbix.com/zabbix/{{ monitoring_zabbix_version }}/oracle/{{ ansible_facts.distribution_major_version }}/x86_64/zabbix-release-latest-{{ monitoring_zabbix_version }}.el{{ ansible_facts.distribution_major_version }}.noarch.rpm
+  register: monitoring_zabbix_repo_install
+  when:
+    - ansible_facts.distribution == 'OracleLinux'
+    - >-
+      monitoring_zabbix_repo_rpm.rc != 0 or
+      monitoring_zabbix_version not in monitoring_zabbix_repo_rpm.stdout
+  changed_when: true
+  retries: "{{ monitoring_dnf_retries }}"
+  delay: "{{ monitoring_dnf_retry_delay }}"
+  until: monitoring_zabbix_repo_install.rc == 0
+
+- name: Install common monitoring packages on Debian
+  ansible.builtin.apt:
+    name: "{{ monitoring_common_packages_effective }}"
+    state: present
+    lock_timeout: "{{ monitoring_apt_lock_timeout }}"
+  when: ansible_facts.os_family == 'Debian'
+
+# ansible-core 2.20 requires managed Python >=3.9, while Oracle Linux 8 keeps
+# its DNF bindings exclusively in platform-python 3.6. Invoke the supported
+# package-manager CLI so OL8 can retain /usr/bin/python3 for all Ansible work.
+- name: Query common monitoring packages on Oracle Linux
+  ansible.builtin.command:
+    argv: "{{ ['rpm', '-q'] + monitoring_common_packages_effective }}"
+  register: monitoring_common_rpms
+  changed_when: false
+  failed_when: false
+  when: ansible_facts.os_family == 'RedHat'
+
+- name: Install common monitoring packages on Oracle Linux  # noqa command-instead-of-module
+  ansible.builtin.command:
+    argv: "{{ ['dnf', 'install', '-y'] + monitoring_common_packages_effective }}"
+  register: monitoring_common_rpms_install
+  when:
+    - ansible_facts.os_family == 'RedHat'
+    - monitoring_common_rpms.rc != 0
+  changed_when: true
+  retries: "{{ monitoring_dnf_retries }}"
+  delay: "{{ monitoring_dnf_retry_delay }}"
+  until: monitoring_common_rpms_install.rc == 0
+
+- name: Verify bundled Oracle Agent 2 plugin configuration
+  ansible.builtin.stat:
+    path: /etc/zabbix/zabbix_agent2.d/plugins.d/oracle.conf
+  register: monitoring_oracle_plugin_config
+  when:
+    - monitoring_oracle_enabled | bool
+
+- name: Assert Oracle Agent 2 plugin is bundled
+  ansible.builtin.assert:
+    that:
+      - monitoring_oracle_plugin_config.stat.exists
+      - monitoring_oracle_plugin_config.stat.isreg
+    fail_msg: >-
+      zabbix-agent2 does not contain the Oracle plugin configuration expected
+      at /etc/zabbix/zabbix_agent2.d/plugins.d/oracle.conf.
+  when:
+    - monitoring_oracle_enabled | bool
+
+- name: Inspect controller Alloy resource artifacts
+  ansible.builtin.stat:
+    path: >-
+      {{ monitoring_resource_dir }}/alloy-{{ monitoring_alloy_version }}-1.amd64.{{ item.extension }}
+    checksum_algorithm: sha256
+  loop:
+    - extension: deb
+      checksum: "{{ monitoring_alloy_deb_sha256 }}"
+    - extension: rpm
+      checksum: "{{ monitoring_alloy_rpm_sha256 }}"
+  register: monitoring_alloy_controller_artifacts
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Validate controller Alloy resource artifacts
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.checksum == item.item.checksum
+    fail_msg: >-
+      Missing or invalid checksum-pinned Alloy resource:
+      {{ monitoring_resource_dir }}/alloy-{{ monitoring_alloy_version }}-1.amd64.{{ item.item.extension }}.
+      Run scripts/verify-resources.sh on the controller.
+    quiet: true
+  loop: "{{ monitoring_alloy_controller_artifacts.results }}"
+  loop_control:
+    label: "alloy-{{ monitoring_alloy_version }}-1.amd64.{{ item.item.extension }}"
+  run_once: true
+
+- name: Copy checksum-pinned Grafana Alloy Debian package from controller resources
+  ansible.builtin.copy:
+    src: "{{ monitoring_resource_dir }}/alloy-{{ monitoring_alloy_version }}-1.amd64.deb"
+    dest: "{{ monitoring_alloy_package_dir }}/alloy-{{ monitoring_alloy_version }}.deb"
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_facts.os_family == 'Debian'
+
+- name: Wait for Debian package maintenance before Alloy install
+  ansible.builtin.command:
+    argv:
+      - fuser
+      - /var/lib/dpkg/lock-frontend
+      - /var/lib/dpkg/lock
+  register: monitoring_dpkg_alloy_locks
+  changed_when: false
+  failed_when: false
+  retries: "{{ monitoring_dpkg_lock_retries }}"
+  delay: "{{ monitoring_dpkg_lock_delay }}"
+  until: monitoring_dpkg_alloy_locks.rc != 0
+  when: ansible_facts.os_family == 'Debian'
+
+- name: Install checksum-pinned Grafana Alloy Debian package
+  ansible.builtin.apt:
+    deb: "{{ monitoring_alloy_package_dir }}/alloy-{{ monitoring_alloy_version }}.deb"
+    state: present
+    lock_timeout: "{{ monitoring_apt_lock_timeout }}"
+  when: ansible_facts.os_family == 'Debian'
+
+- name: Copy checksum-pinned Grafana Alloy RPM package from controller resources
+  ansible.builtin.copy:
+    src: "{{ monitoring_resource_dir }}/alloy-{{ monitoring_alloy_version }}-1.amd64.rpm"
+    dest: "{{ monitoring_alloy_package_dir }}/alloy-{{ monitoring_alloy_version }}.rpm"
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_facts.os_family == 'RedHat'
+
+- name: Query installed Grafana Alloy RPM version
+  ansible.builtin.command:
+    argv:
+      - rpm
+      - -q
+      - --qf
+      - "%{VERSION}"
+      - alloy
+  register: monitoring_alloy_rpm_installed
+  changed_when: false
+  failed_when: false
+  when: ansible_facts.os_family == 'RedHat'
+
+- name: Install checksum-pinned Grafana Alloy RPM package  # noqa command-instead-of-module
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - install
+      - -y
+      - "{{ monitoring_alloy_package_dir }}/alloy-{{ monitoring_alloy_version }}.rpm"
+  register: monitoring_alloy_rpm_install
+  when:
+    - ansible_facts.os_family == 'RedHat'
+    - >-
+      monitoring_alloy_rpm_installed.rc != 0 or
+      monitoring_alloy_rpm_installed.stdout | trim != monitoring_alloy_version
+  changed_when: true
+  retries: "{{ monitoring_dnf_retries }}"
+  delay: "{{ monitoring_dnf_retry_delay }}"
+  until: monitoring_alloy_rpm_install.rc == 0
+
+- name: Grant Alloy access to system journals
+  ansible.builtin.user:
+    name: alloy
+    groups: systemd-journal
+    append: true
+  notify: Restart Grafana Alloy
+
+- name: Grant Alloy access to Debian application logs
+  ansible.builtin.user:
+    name: alloy
+    groups: adm
+    append: true
+  when: ansible_facts.os_family == 'Debian'
+  notify: Restart Grafana Alloy
+
+- name: Grant Alloy traversal only to profile-allowlisted log directories
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: x
+    state: present
+  loop: "{{ monitoring_profile_effective.log_directories | default([]) }}"
+  when: not (monitoring_kubernetes_log_access_enabled | bool)
+  notify: Restart Grafana Alloy
+
+- name: Grant Alloy read access to existing Kubernetes container logs
+  ansible.posix.acl:
+    path: /var/log/pods
+    entity: alloy
+    etype: user
+    permissions: rX
+    recursive: true
+    state: present
+  when: monitoring_kubernetes_log_access_enabled | bool
+  notify: Restart Grafana Alloy
+
+- name: Discover existing Kubernetes pod-log directories
+  ansible.builtin.find:
+    paths: /var/log/pods
+    recurse: true
+    file_type: directory
+  register: monitoring_kubernetes_pod_log_directory_scan
+  changed_when: false
+  when: monitoring_kubernetes_log_access_enabled | bool
+
+- name: Preserve Alloy access on future Kubernetes container logs
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: rX
+    default: true
+    state: present
+  loop: >-
+    {{ ['/var/log/pods']
+       + (monitoring_kubernetes_pod_log_directory_scan.files
+          | map(attribute='path')
+          | list) }}
+  when: monitoring_kubernetes_log_access_enabled | bool
+  notify: Restart Grafana Alloy
+
+- name: Grant Alloy list access to Kubernetes container-log symlinks
+  ansible.posix.acl:
+    path: /var/log/containers
+    entity: alloy
+    etype: user
+    permissions: rx
+    state: present
+  when: monitoring_kubernetes_log_access_enabled | bool
+  notify: Restart Grafana Alloy
+
+- name: Inspect Alloy supplementary groups on WebLogic hosts
+  ansible.builtin.command:
+    argv:
+      - id
+      - -nG
+      - alloy
+  register: monitoring_alloy_supplementary_groups
+  changed_when: false
+  when: monitoring_weblogic_enabled | bool
+
+# Alloy receives ACLs on the declared server log paths in weblogic.yml.  It
+# must not inherit write access to middleware/domain files through the service
+# account's broad supplementary group.
+- name: Remove Alloy from the WebLogic service group  # noqa command-instead-of-module
+  ansible.builtin.command:
+    argv:
+      - gpasswd
+      - --delete
+      - alloy
+      - "{{ weblogic_user }}"
+  when:
+    - monitoring_weblogic_enabled | bool
+    - weblogic_user in monitoring_alloy_supplementary_groups.stdout.split()
+  changed_when: true
+  notify: Restart Grafana Alloy

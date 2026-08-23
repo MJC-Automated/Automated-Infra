@@ -1,0 +1,421 @@
+---
+monitoring_enabled: true
+monitoring_profile: "{{ node_role | default('default') }}"
+monitoring_environment: "{{ cluster_environment | default('managed') }}"
+monitoring_expected_up: true
+monitoring_manage_firewall: "{{ monitoring_firewall_policy == 'managed' }}"
+monitoring_firewall_zone: public
+
+monitoring_zabbix_version: "7.0"
+monitoring_supported_platforms:
+  Ubuntu:
+    - "24"
+  OracleLinux:
+    - "8"
+    - "9"
+monitoring_zabbix_server_host: >-
+  {{ hostvars[groups['zabbix_servers'][0]].ansible_host
+     if groups['zabbix_servers'] | default([]) | length > 0 else '' }}
+monitoring_zabbix_server_port: 10051
+monitoring_zabbix_agent_port: 10050
+monitoring_zabbix_hostname: "{{ inventory_hostname }}"
+monitoring_zabbix_timeout: 30
+monitoring_zabbix_agent_rich_rule: >-
+  rule family="ipv4" source address="{{ monitoring_zabbix_server_host }}/32"
+  port port="{{ monitoring_zabbix_agent_port }}" protocol="tcp" accept
+
+monitoring_observability_host: >-
+  {{ hostvars[groups['observability_servers'][0]].ansible_host
+     if groups['observability_servers'] | default([]) | length > 0 else '' }}
+monitoring_prometheus_remote_write_url: >-
+  http://{{ monitoring_observability_host }}:9090/api/v1/write
+monitoring_loki_write_url: >-
+  http://{{ monitoring_observability_host }}:3100/loki/api/v1/push
+
+monitoring_alloy_version: "1.17.1"
+monitoring_alloy_deb_sha256: "79df25ef60db9192d2a679832fd7d8e6e38f097359590f170618ce0ecd342d1b"
+monitoring_alloy_rpm_sha256: "a3f91fc3f1a50240efcb640f17999dddb1763b3d79bc21f3d8227dde5baff901"
+monitoring_resource_dir: /resources
+monitoring_alloy_package_dir: /var/cache/monitoring
+monitoring_alloy_config_path: /etc/alloy/config.alloy
+monitoring_alloy_http_address: 127.0.0.1:12345
+monitoring_apt_lock_timeout: 300
+monitoring_dpkg_lock_retries: 60
+monitoring_dpkg_lock_delay: 5
+monitoring_zimbra_web_mode: "{{ zimbra_service_mode | default('https') }}"
+monitoring_zimbra_firewall_ports: >-
+  {{ ['25/tcp', '110/tcp', '143/tcp', '465/tcp', '587/tcp', '993/tcp', '995/tcp']
+     + (['80/tcp'] if monitoring_zimbra_web_mode in ['http', 'both', 'mixed', 'redirect'] else [])
+     + (['443/tcp'] if monitoring_zimbra_web_mode in ['https', 'both', 'mixed', 'redirect'] else []) }}
+
+monitoring_profile_definitions:
+  default:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports: []
+    firewall_policy: managed
+    alert_labels:
+      service: system
+  gitlab:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths:
+      - /var/log/gitlab/gitaly/current
+      - /var/log/gitlab/gitlab-kas/current
+      - /var/log/gitlab/gitlab-workhorse/current
+      - /var/log/gitlab/nginx/*.log
+      - /var/log/gitlab/postgresql/current
+      - /var/log/gitlab/puma/current
+      - /var/log/gitlab/redis/current
+      - /var/log/gitlab/sidekiq/current
+    log_directories:
+      - /var/log/gitlab/gitaly
+      - /var/log/gitlab/gitlab-kas
+      - /var/log/gitlab/gitlab-workhorse
+      - /var/log/gitlab/nginx
+      - /var/log/gitlab/postgresql
+      - /var/log/gitlab/puma
+      - /var/log/gitlab/redis
+      - /var/log/gitlab/sidekiq
+    firewall_ports:
+      - 80/tcp
+      - 443/tcp
+    alert_labels:
+      service: gitlab
+  gitlab_runner:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports: []
+    alert_labels:
+      service: gitlab-runner
+  jenkins:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports:
+      - 8080/tcp
+    alert_labels:
+      service: jenkins
+  jenkins_agent:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports: []
+    alert_labels:
+      service: jenkins-agent
+  keycloak:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports:
+      - 8080/tcp
+    alert_labels:
+      service: keycloak
+  freeipa:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports:
+      - 53/tcp
+      - 53/udp
+      - 80/tcp
+      - 88/tcp
+      - 88/udp
+      - 389/tcp
+      - 443/tcp
+      - 464/tcp
+      - 464/udp
+      - 636/tcp
+    alert_labels:
+      service: freeipa
+  zimbra:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths:
+      - /var/log/zimbra.log
+    log_directories: []
+    firewall_ports: "{{ monitoring_zimbra_firewall_ports }}"
+    alert_labels:
+      service: zimbra
+  observability:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports:
+      - 3000/tcp
+    alert_labels:
+      service: observability
+  zabbix:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports:
+      - 80/tcp
+      - 443/tcp
+      - 10051/tcp
+    firewall_policy: service_owned
+    alert_labels:
+      service: zabbix
+  k8s_control_plane:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths:
+      - /var/log/containers/*.log
+    log_directories:
+      - /var/log/containers
+      - /var/log/pods
+    firewall_ports: []
+    firewall_policy: disabled
+    alert_labels:
+      service: kubernetes
+      component: control-plane
+  k8s_workers:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths:
+      - /var/log/containers/*.log
+    log_directories:
+      - /var/log/containers
+      - /var/log/pods
+    firewall_ports: []
+    firewall_policy: disabled
+    alert_labels:
+      service: kubernetes
+      component: worker
+  k8s_etcd:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters: []
+    log_paths: []
+    log_directories: []
+    firewall_ports: []
+    firewall_policy: disabled
+    alert_labels:
+      service: etcd
+  database19c:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters:
+      - oracle_agent2
+    log_paths:
+      - /u01/app/oracle/diag/rdbms/*/*/trace/alert_*.log
+      - /u01/app/oracle/diag/tnslsnr/*/*/trace/listener.log
+    log_directories: []
+    firewall_ports:
+      - 1521/tcp
+    alert_labels:
+      service: oracle
+      oracle_version: 19c
+    oracle_home: /u01/app/oracle/product/19.0.0/dbhome_1
+  database19c_ol9:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters:
+      - oracle_agent2
+    log_paths:
+      - /u01/app/oracle/diag/rdbms/*/*/trace/alert_*.log
+      - /u01/app/oracle/diag/tnslsnr/*/*/trace/listener.log
+    log_directories: []
+    firewall_ports:
+      - 1521/tcp
+    alert_labels:
+      service: oracle
+      oracle_version: 19c
+    oracle_home: /u01/app/oracle/product/19.0.0/dbhome_1
+  database21c:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+    exporters:
+      - oracle_agent2
+    log_paths:
+      - /u01/app/oracle/diag/rdbms/*/*/trace/alert_*.log
+      - /u01/app/oracle/diag/tnslsnr/*/*/trace/listener.log
+    log_directories: []
+    firewall_ports:
+      - 1521/tcp
+    alert_labels:
+      service: oracle
+      oracle_version: 21c
+    oracle_home: /u01/app/oracle/product/21.0.0/dbhome_1
+  weblogic12c:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+      - IaC WebLogic JVM LLD
+    exporters:
+      - weblogic_monitoring_exporter
+    log_paths:
+      - /u01/app/oracle/product/12.2.1/user_projects/domains/*/servers/*/logs/*.log
+      - /Logs/*/*.log
+    log_directories: []
+    firewall_ports: []
+    alert_labels:
+      service: weblogic
+      weblogic_version: 12c
+  weblogic14c:
+    zabbix_templates:
+      - Linux by Zabbix agent active
+      - IaC WebLogic JVM LLD
+    exporters:
+      - weblogic_monitoring_exporter
+    log_paths:
+      - /u02/domains/*/servers/*/logs/*.log
+    log_directories: []
+    firewall_ports: []
+    alert_labels:
+      service: weblogic
+      weblogic_version: 14c
+
+monitoring_profile_effective: >-
+  {{ monitoring_profile_definitions[monitoring_profile]
+     | default(monitoring_profile_definitions.default) }}
+monitoring_firewall_policy: >-
+  {{ monitoring_profile_effective.firewall_policy | default('managed') }}
+monitoring_kubernetes_log_access_enabled: >-
+  {{ monitoring_profile in ['k8s_control_plane', 'k8s_workers'] }}
+# Local Alloy scrapes stay on-node and remote-write only series. Credentials
+# are root:alloy mode 0640 token or etcd member cert ACLs — never world-readable.
+monitoring_kubernetes_apiserver_scrape_enabled: >-
+  {{ monitoring_profile == 'k8s_control_plane' }}
+monitoring_kubernetes_etcd_scrape_enabled: >-
+  {{ monitoring_profile == 'k8s_etcd' }}
+monitoring_kubernetes_metrics_namespace: kube-system
+monitoring_kubernetes_metrics_service_account: iac-monitoring
+monitoring_kubernetes_metrics_token_path: /etc/alloy/kubernetes-metrics.token
+monitoring_kubernetes_metrics_token_duration: 8760h
+monitoring_kubernetes_kubeconfig: /etc/kubernetes/admin.conf
+monitoring_kubernetes_apiserver_metrics_url: https://127.0.0.1:6443/metrics
+monitoring_kubernetes_etcd_metrics_url: https://127.0.0.1:2379/metrics
+monitoring_kubernetes_etcd_ssl_dir: /etc/ssl/etcd/ssl
+monitoring_kubernetes_etcd_ca_file: >-
+  {{ monitoring_kubernetes_etcd_ssl_dir }}/ca.pem
+monitoring_kubernetes_etcd_cert_file: >-
+  {{ monitoring_kubernetes_etcd_ssl_dir }}/member-{{ inventory_hostname }}.pem
+monitoring_kubernetes_etcd_key_file: >-
+  {{ monitoring_kubernetes_etcd_ssl_dir }}/member-{{ inventory_hostname }}-key.pem
+monitoring_common_packages:
+  - zabbix-agent2
+  - jq
+  - psmisc
+  - zip
+monitoring_common_packages_effective: >-
+  {{ monitoring_common_packages
+     + ((monitoring_firewall_policy == 'managed')
+        | ternary(
+            [('ufw' if ansible_facts.os_family == 'Debian' else 'firewalld')],
+            []
+          ))
+     + (((monitoring_weblogic_enabled | bool) or
+         (monitoring_kubernetes_etcd_scrape_enabled | bool) or
+         (monitoring_profile_effective.log_directories | default([]) | length > 0))
+        | ternary(['acl'], [])) }}
+monitoring_dnf_retries: 5
+monitoring_dnf_retry_delay: 10
+
+monitoring_oracle_enabled: >-
+  {{ 'oracle_agent2' in monitoring_profile_effective.exporters }}
+monitoring_oracle_user: C##ZABBIX_MONITOR
+monitoring_oracle_password: "{{ vault_monitoring_oracle_password | default('') }}"
+# The database group vars reference this service-playbook-only alias inside
+# PDB definitions.  Monitoring never consumes the PDB administrator password,
+# but defining an empty low-precedence value lets Ansible safely evaluate the
+# surrounding non-secret CDB map without importing database credentials.
+oracle_db_admin_password: ""
+monitoring_oracle_os_user: oracle
+monitoring_oracle_custom_query_dir: /etc/zabbix/oracle_queries
+monitoring_oracle_metrics_directory: /var/lib/oracle-monitoring
+monitoring_oracle_metrics_file: "{{ monitoring_oracle_metrics_directory }}/oracle.prom"
+monitoring_oracle_metrics_script: /usr/local/sbin/iac-oracle-metrics
+monitoring_oracle_metrics_service: iac-oracle-metrics.service
+monitoring_oracle_metrics_timer: iac-oracle-metrics.timer
+monitoring_oracle_home: >-
+  {{ monitoring_profile_effective.oracle_home | default('') }}
+monitoring_oracle_server_definition: >-
+  {{ oracle_servers[inventory_hostname] | default({})
+     if oracle_servers is defined else {} }}
+monitoring_oracle_cdbs: >-
+  {{ monitoring_oracle_server_definition.oracle_cdbs | default([]) }}
+monitoring_oracle_safe_keys:
+  - oracle.ping
+  - oracle.version
+  - oracle.instance.info
+  - oracle.sys.params
+  - oracle.db.discovery
+  - oracle.cdb.info
+  - oracle.pdb.discovery
+  - oracle.pdb.info
+  - oracle.ts.discovery
+  - oracle.ts.stats
+  - oracle.custom.query
+monitoring_oracle_forbidden_query_patterns:
+  - V$ACTIVE_SESSION_HISTORY
+  - DBA_HIST
+  - AWR
+
+monitoring_weblogic_enabled: >-
+  {{ 'weblogic_monitoring_exporter' in monitoring_profile_effective.exporters }}
+monitoring_weblogic_runtime_definitions:
+  weblogic12c:
+    user: wlogic
+    middleware_home: /u01/app/oracle/product/12.2.1
+    domain_base: /u01/app/oracle/product/12.2.1/user_projects/domains
+  weblogic14c:
+    user: wlogic
+    middleware_home: /u01/app/oracle/product/14.1.2
+    domain_base: /u02/domains
+monitoring_weblogic_runtime_effective: >-
+  {{ monitoring_weblogic_runtime_definitions[monitoring_profile]
+     | default({'user': 'wlogic', 'middleware_home': '', 'domain_base': ''}) }}
+# These are role defaults so the inventory's domain-specific values remain
+# authoritative while their path expressions can still resolve.
+weblogic_user: "{{ monitoring_weblogic_runtime_effective.user }}"
+oracle_middleware_home: "{{ monitoring_weblogic_runtime_effective.middleware_home }}"
+domain_base: "{{ monitoring_weblogic_runtime_effective.domain_base }}"
+monitoring_weblogic_monitor_user: iac_monitor
+monitoring_weblogic_monitor_password: "{{ vault_monitoring_weblogic_password | default('') }}"
+monitoring_weblogic_admin_user: "{{ weblogic_admin_user | default('weblogic') }}"
+monitoring_weblogic_admin_env_path: >-
+  {{ playbook_dir }}/../oracle_{{ monitoring_profile }}/.env
+monitoring_weblogic_admin_password_from_service_env: >-
+  {{ lookup(
+       'ansible.builtin.ini',
+       'WLS_ADMIN_PASSWORD',
+       type='properties',
+       file=monitoring_weblogic_admin_env_path,
+       default=''
+     ) | regex_replace('^["\x27]|["\x27]$', '') }}
+monitoring_weblogic_admin_password: >-
+  {{ vault_weblogic_password
+     | default(
+         lookup('env', 'WLS_ADMIN_PASSWORD', default='')
+         | default(monitoring_weblogic_admin_password_from_service_env, true),
+         true
+       ) }}
+monitoring_weblogic_exporter_version: "2.3.12"
+monitoring_weblogic_exporter_sha256: "91e574a3713a3e6dc458672d982373bffd0a4b12cbc98294b5fa993e5994c861"
+monitoring_weblogic_exporter_root: /opt/weblogic-monitoring-exporter
+monitoring_weblogic_restart_for_jmx: true
+monitoring_weblogic_jmx_port_offset: 10000
+monitoring_weblogic_jmx_user: "{{ monitoring_weblogic_monitor_user }}"
+monitoring_weblogic_jmx_password: "{{ monitoring_weblogic_monitor_password }}"

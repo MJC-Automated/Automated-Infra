@@ -2,16 +2,24 @@
 - name: Check whether desired Keycloak admin credentials are active
   ansible.builtin.shell: |
     set -euo pipefail
-    "{{ keycloak_install_dir }}/bin/kcadm.sh" \
-      get users \
-      -r master \
-      --limit 1 \
-      --no-config \
-      --server "http://127.0.0.1:{{ keycloak_http_port }}" \
-      --realm master \
-      --user "$KEYCLOAK_ADMIN_USER" \
-      --password "$KEYCLOAK_ADMIN_PASSWORD" \
-      >/dev/null
+    for attempt in {1..6}; do
+      if "{{ keycloak_install_dir }}/bin/kcadm.sh" \
+        get users \
+        -r master \
+        --limit 1 \
+        --no-config \
+        --server "http://127.0.0.1:{{ keycloak_http_port }}" \
+        --realm master \
+        --user "$KEYCLOAK_ADMIN_USER" \
+        --password "$KEYCLOAK_ADMIN_PASSWORD" \
+        >/dev/null 2>&1; then
+        exit 0
+      fi
+      if [[ "$attempt" -lt 6 ]]; then
+        sleep 5
+      fi
+    done
+    exit 1
   args:
     executable: /bin/bash
   environment:
@@ -23,6 +31,30 @@
   changed_when: false
   failed_when: false
   no_log: true
+
+- name: Classify failed desired-admin authentication without exposing credentials
+  ansible.builtin.set_fact:
+    keycloak_desired_admin_auth_failure_class: >-
+      {% set auth_error = (keycloak_desired_admin_auth.stderr | default(''))
+         ~ ' ' ~ (keycloak_desired_admin_auth.stdout | default('')) %}
+      {% if 'invalid_grant' in auth_error or 'Invalid user credentials' in auth_error %}
+      invalid_credentials
+      {% elif 'Connection refused' in auth_error or 'Unable to connect' in auth_error %}
+      service_unavailable
+      {% elif 'Unknown option' in auth_error or 'Unknown command' in auth_error %}
+      cli_mismatch
+      {% else %}
+      command_failed
+      {% endif %}
+  when: keycloak_desired_admin_auth.rc != 0
+  no_log: true
+
+- name: Report desired-admin authentication failure class
+  ansible.builtin.debug:
+    msg: >-
+      Keycloak desired-admin authentication failed with class
+      {{ keycloak_desired_admin_auth_failure_class | trim }}; guarded recovery is required.
+  when: keycloak_desired_admin_auth.rc != 0
 
 - name: Generate temporary Keycloak recovery service account credentials
   ansible.builtin.set_fact:

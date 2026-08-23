@@ -6,6 +6,9 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # Generic PyYAML does not register Ansible's encrypted !vault tag.
+        # ansible-lint still parses and validates this inventory file below.
+        exclude: ^inventories/example/group_vars/all/monitoring_vault\.yml$
       - id: check-added-large-files
 
   - repo: https://github.com/antonbabenko/pre-commit-terraform

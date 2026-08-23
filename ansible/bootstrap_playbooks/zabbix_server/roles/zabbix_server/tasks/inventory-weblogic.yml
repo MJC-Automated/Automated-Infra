@@ -1,0 +1,26 @@
+---
+- name: Initialize declared domains for one WebLogic host
+  ansible.builtin.set_fact:
+    zabbix_inventory_weblogic_domains:
+      - domain_name: "{{ hostvars[zabbix_inventory_weblogic_host].domain_name }}"
+        admin_port: "{{ hostvars[zabbix_inventory_weblogic_host].admin_port | int }}"
+        admin_server_name: "{{ hostvars[zabbix_inventory_weblogic_host].admin_server_name | default('AdminServer') }}"
+        managed_servers: "{{ hostvars[zabbix_inventory_weblogic_host].managed_servers | default([]) }}"
+  run_once: true
+
+- name: Add additional domains for one WebLogic host
+  ansible.builtin.set_fact:
+    zabbix_inventory_weblogic_domains: >-
+      {{ zabbix_inventory_weblogic_domains + [item | combine({
+           'admin_server_name': item.admin_server_name | default('AdminServer'),
+           'managed_servers': item.managed_servers | default([])
+         })] }}
+  loop: "{{ hostvars[zabbix_inventory_weblogic_host].additional_weblogic_domains | default([]) }}"
+  run_once: true
+
+- name: Add each declared WebLogic domain to exact Zabbix model
+  ansible.builtin.include_tasks: inventory-weblogic-domain.yml
+  loop: "{{ zabbix_inventory_weblogic_domains }}"
+  loop_control:
+    loop_var: zabbix_inventory_weblogic_domain
+  run_once: true

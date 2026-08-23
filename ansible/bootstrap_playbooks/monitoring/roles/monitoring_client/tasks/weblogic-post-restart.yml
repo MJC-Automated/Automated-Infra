@@ -1,0 +1,46 @@
+---
+- name: Rediscover declared WebLogic logs after JVM restart handlers
+  ansible.builtin.find:
+    paths: "{{ item.log_directory }}"
+    patterns: "*.log"
+    file_type: file
+    recurse: false
+  loop: "{{ monitoring_weblogic_log_acl_targets }}"
+  loop_control:
+    label: "{{ item.domain }}/{{ item.server }}"
+  register: monitoring_weblogic_post_restart_log_files
+  changed_when: false
+
+- name: Reconcile Alloy read access on post-restart WebLogic logs
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: r
+    state: present
+  loop: >-
+    {{ monitoring_weblogic_post_restart_log_files.results
+       | map(attribute='files')
+       | flatten
+       | map(attribute='path')
+       | list }}
+  notify: Restart Grafana Alloy
+
+- name: Apply post-restart Alloy reload before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Alloy can read post-restart WebLogic logs
+  ansible.builtin.command:
+    argv:
+      - test
+      - -r
+      - "{{ item }}"
+  become: true
+  become_user: alloy
+  loop: >-
+    {{ monitoring_weblogic_post_restart_log_files.results
+       | map(attribute='files')
+       | flatten
+       | map(attribute='path')
+       | list }}
+  changed_when: false

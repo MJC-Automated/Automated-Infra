@@ -1,16 +1,34 @@
 # templates/stop_weblogic.sh.j2
 #!/bin/bash
-# Stop WebLogic Admin Server
+# Stop WebLogic Admin Server using domain boot.properties (no password on argv/disk here).
 
 TIME=`/usr/bin/date +%b-%d-%Y-%H%M%S`
 
 export JAVA_HOME="{{ java_home }}"
 export PATH="$JAVA_HOME/bin:$PATH"
+# JMX options from the service drop-in are for the server JVM, not the shutdown client.
+unset JAVA_OPTIONS USER_MEM_ARGS
 
 echo "INFO: Stopping {{ wlst_admin_server_name | default(admin_server_name) }} for {{ wlst_domain_name | default(domain_name) }}"
 
 cd "{{ wlst_domain_home | default(domain_home) }}/bin" || { echo "ERROR: Cannot change to domain bin directory"; exit 1; }
 
-./stopWebLogic.sh {{ wlst_admin_user | default(weblogic_admin_user) }} "{{ weblogic_password }}" > "{{ wlst_admin_logs_dir | default(admin_logs_dir) }}/stop_{{ wlst_admin_server_name | default(admin_server_name) }}_$TIME.log" 2>&1
+STOP_LOG="{{ wlst_admin_logs_dir | default(admin_logs_dir) }}/stop_{{ wlst_admin_server_name | default(admin_server_name) }}_$TIME.log"
+LISTEN_PORT={{ wlst_admin_port | default(admin_port) }}
+STOP_TIMEOUT={{ admin_server_stop_timeout_seconds | default(300) }}
 
-echo "INFO: Stop command issued."
+if ! ./stopWebLogic.sh > "$STOP_LOG" 2>&1; then
+  echo "ERROR: WebLogic shutdown command failed; inspect $STOP_LOG." >&2
+  exit 1
+fi
+
+for ((elapsed = 0; elapsed < STOP_TIMEOUT; elapsed += 5)); do
+  if ! /usr/sbin/ss -H -lnt "sport = :$LISTEN_PORT" | /usr/bin/grep -q LISTEN; then
+    echo "INFO: Admin server {{ wlst_admin_server_name | default(admin_server_name) }} stopped listening on port $LISTEN_PORT."
+    exit 0
+  fi
+  /usr/bin/sleep 5
+done
+
+echo "ERROR: Admin server {{ wlst_admin_server_name | default(admin_server_name) }} still listens on port $LISTEN_PORT after ${STOP_TIMEOUT}s." >&2
+exit 1

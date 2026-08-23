@@ -36,9 +36,14 @@ override.tf.json
 .terraformrc
 terraform.rc
 
-# Ansible vault password (centralized)
+# Ansible vault password (centralized) — cover common local name variants
 .ansible/
 .vault_password
+**/.vault_password
+**/vault_password
+**/vault_password.txt
+**/.vault_pass
+**/.vault_pass.txt
 .env
 .env.*
 !.env.example

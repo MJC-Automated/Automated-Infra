@@ -1,0 +1,13 @@
+{
+  "data": [
+{% for jvm in monitoring_weblogic_jvms %}
+    {
+      "{{ '{#DOMAIN}' }}": {{ jvm.domain | to_json }},
+      "{{ '{#SERVER}' }}": {{ jvm.server | to_json }},
+      "{{ '{#SERVICE}' }}": {{ jvm.service | to_json }},
+      "{{ '{#JMX_PORT}' }}": {{ jvm.jmx_port | string | to_json }},
+      "{{ '{#LISTEN_PORT}' }}": {{ jvm.listen_port | string | to_json }}
+    }{{ ',' if not loop.last else '' }}
+{% endfor %}
+  ]
+}

@@ -8,9 +8,13 @@ proxmox_token_id     = "unused-when-vault-enabled"
 proxmox_token        = "unused-when-vault-enabled"
 proxmox_tls_insecure = true
 ssh_host             = "<base-vm-ip>"
+# Must match a public key embedded in the base VM cicustom userdata snippet.
+# Ephemeral Packer keys are ignored when cicustom user= overrides generated user-data.
+ssh_private_key_file = "~/.ssh/id_rsa"
 
 template_name = "ubuntu2404"
 vm_id         = 999999995
 clone_vm_id   = 999999992
 cpu_cores     = 8
 memory_mb     = 10240
+# vlan_tag    = -1  # Set to a valid VLAN ID (0-4094) if the build network is tagged

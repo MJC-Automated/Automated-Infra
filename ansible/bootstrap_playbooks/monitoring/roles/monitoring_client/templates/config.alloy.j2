@@ -1,0 +1,290 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+prometheus.exporter.unix "node" {
+  enable_collectors         = ["systemd"{% if monitoring_oracle_enabled | bool %}, "textfile"{% endif %}]
+  include_exporter_metrics = true
+{% if monitoring_oracle_enabled | bool %}
+
+  textfile {
+    directory = "{{ monitoring_oracle_metrics_directory }}"
+  }
+{% endif %}
+}
+
+discovery.relabel "node" {
+  targets = prometheus.exporter.unix.node.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = "{{ inventory_hostname }}"
+  }
+  rule {
+    target_label = "environment"
+    replacement  = "{{ monitoring_environment }}"
+  }
+  rule {
+    target_label = "role"
+    replacement  = "{{ node_role | default('unknown') }}"
+  }
+  rule {
+    target_label = "profile"
+    replacement  = "{{ monitoring_profile }}"
+  }
+  rule {
+    target_label = "expected_up"
+    replacement  = "{{ (monitoring_expected_up | bool) | ternary('true', 'false') }}"
+  }
+}
+
+prometheus.scrape "node" {
+  targets         = discovery.relabel.node.output
+  forward_to      = [prometheus.remote_write.central.receiver]
+  scrape_interval = "15s"
+}
+
+prometheus.scrape "alloy" {
+  targets = [{
+    __address__ = "{{ monitoring_alloy_http_address }}",
+    instance    = "{{ inventory_hostname }}",
+    job         = "alloy",
+    environment = "{{ monitoring_environment }}",
+    role        = "{{ node_role | default('unknown') }}",
+    expected_up = "{{ (monitoring_expected_up | bool) | ternary('true', 'false') }}",
+  }]
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
+{% if monitoring_weblogic_enabled | bool %}
+prometheus.scrape "weblogic" {
+  targets = [
+{% for jvm in monitoring_weblogic_jvms %}
+    {
+      __address__ = "127.0.0.1:{{ jvm.listen_port }}",
+      __metrics_path__ = "/wls-exporter/metrics",
+      instance = "{{ inventory_hostname }}",
+      job = "weblogic",
+      environment = "{{ monitoring_environment }}",
+      role = "{{ node_role | default('unknown') }}",
+      domain = "{{ jvm.domain }}",
+      server = "{{ jvm.server }}",
+    },
+{% endfor %}
+  ]
+  forward_to = [prometheus.remote_write.central.receiver]
+
+  basic_auth {
+    username = "{{ monitoring_weblogic_monitor_user }}"
+    password = "{{ monitoring_weblogic_monitor_password }}"
+  }
+}
+{% endif %}
+
+{% if monitoring_kubernetes_apiserver_scrape_enabled | bool %}
+prometheus.scrape "kube_apiserver" {
+  targets = [{
+    __address__     = "127.0.0.1:6443",
+    __metrics_path__ = "/metrics",
+    instance        = "{{ inventory_hostname }}",
+    job             = "kube-apiserver",
+    environment     = "{{ monitoring_environment }}",
+    role            = "{{ node_role | default('unknown') }}",
+    expected_up     = "{{ (monitoring_expected_up | bool) | ternary('true', 'false') }}",
+  }]
+  scheme               = "https"
+  bearer_token_file    = "{{ monitoring_kubernetes_metrics_token_path }}"
+  scrape_interval      = "30s"
+  forward_to           = [prometheus.remote_write.central.receiver]
+
+  tls_config {
+    insecure_skip_verify = true
+  }
+}
+{% endif %}
+
+{% if monitoring_kubernetes_etcd_scrape_enabled | bool %}
+prometheus.scrape "etcd" {
+  targets = [{
+    __address__      = "127.0.0.1:2379",
+    __metrics_path__ = "/metrics",
+    instance         = "{{ inventory_hostname }}",
+    job              = "etcd",
+    environment      = "{{ monitoring_environment }}",
+    role             = "{{ node_role | default('unknown') }}",
+    expected_up      = "{{ (monitoring_expected_up | bool) | ternary('true', 'false') }}",
+  }]
+  scheme          = "https"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.central.receiver]
+
+  tls_config {
+    ca_file   = "{{ monitoring_kubernetes_etcd_ca_file }}"
+    cert_file = "{{ monitoring_kubernetes_etcd_cert_file }}"
+    key_file  = "{{ monitoring_kubernetes_etcd_key_file }}"
+  }
+}
+{% endif %}
+
+prometheus.remote_write "central" {
+  endpoint {
+    url = "{{ monitoring_prometheus_remote_write_url }}"
+  }
+  external_labels = {
+    environment = "{{ monitoring_environment }}",
+    expected_up = "{{ (monitoring_expected_up | bool) | ternary('true', 'false') }}",
+  }
+}
+
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+}
+
+loki.source.journal "system" {
+  forward_to    = [loki.write.central.receiver]
+  relabel_rules = loki.relabel.journal.rules
+  max_age       = "24h"
+  labels = {
+    job         = "journald",
+    environment = "{{ monitoring_environment }}",
+    host        = "{{ inventory_hostname }}",
+    role        = "{{ node_role | default('unknown') }}",
+  }
+}
+
+{% if monitoring_oracle_enabled | bool %}
+local.file_match "service_logs" {
+  path_targets = [
+{% for cdb in monitoring_oracle_cdbs %}
+    {
+      __path__ = "/u01/app/oracle/diag/rdbms/*/{{ cdb.sid | lower }}/trace/alert_*.log",
+      job = "oracle_alert",
+      environment = "{{ monitoring_environment }}",
+      host = "{{ inventory_hostname }}",
+      role = "{{ node_role | default('unknown') }}",
+      cdb = "{{ cdb.sid | upper }}",
+    },
+{% endfor %}
+    {
+      __path__ = "/u01/app/oracle/diag/tnslsnr/*/*/trace/listener.log",
+      job = "oracle_listener",
+      environment = "{{ monitoring_environment }}",
+      host = "{{ inventory_hostname }}",
+      role = "{{ node_role | default('unknown') }}",
+    },
+  ]
+}
+
+loki.source.file "service_logs" {
+  targets    = local.file_match.service_logs.targets
+  forward_to = [loki.write.central.receiver]
+}
+{% elif monitoring_weblogic_enabled | bool %}
+local.file_match "service_logs" {
+  path_targets = [
+{% for jvm in monitoring_weblogic_jvms %}
+    {
+      __path__ = "{{ (monitoring_weblogic_domains | selectattr('domain_name', 'equalto', jvm.domain) | map(attribute='domain_home') | first) }}/servers/{{ jvm.server }}/logs/*.log",
+      job = "weblogic",
+      environment = "{{ monitoring_environment }}",
+      host = "{{ inventory_hostname }}",
+      role = "{{ node_role | default('unknown') }}",
+      domain = "{{ jvm.domain }}",
+      server = "{{ jvm.server }}",
+    },
+{% endfor %}
+  ]
+}
+
+loki.source.file "service_logs" {
+  targets    = local.file_match.service_logs.targets
+  forward_to = [loki.write.central.receiver]
+}
+{% elif monitoring_kubernetes_log_access_enabled | bool %}
+local.file_match "service_logs" {
+  path_targets = [
+{% for path in monitoring_profile_effective.log_paths %}
+    {
+      __path__ = "{{ path }}",
+      job = "kubernetes",
+      environment = "{{ monitoring_environment }}",
+      host = "{{ inventory_hostname }}",
+      role = "{{ node_role | default('unknown') }}",
+    },
+{% endfor %}
+  ]
+}
+
+discovery.relabel "kubernetes_logs" {
+  targets = local.file_match.service_logs.targets
+
+  rule {
+    source_labels = ["__path__"]
+    regex         = "/var/log/containers/(.+)_([^_]+)_(.+)-([a-f0-9]{64})\\.log"
+    target_label  = "pod"
+    replacement   = "$1"
+  }
+
+  rule {
+    source_labels = ["__path__"]
+    regex         = "/var/log/containers/(.+)_([^_]+)_(.+)-([a-f0-9]{64})\\.log"
+    target_label  = "namespace"
+    replacement   = "$2"
+  }
+
+  rule {
+    source_labels = ["__path__"]
+    regex         = "/var/log/containers/(.+)_([^_]+)_(.+)-([a-f0-9]{64})\\.log"
+    target_label  = "container"
+    replacement   = "$3"
+  }
+}
+
+loki.source.file "service_logs" {
+  targets    = discovery.relabel.kubernetes_logs.output
+  forward_to = [loki.process.kubernetes_logs.receiver]
+}
+
+loki.process "kubernetes_logs" {
+  forward_to = [loki.write.central.receiver]
+
+  stage.label_drop {
+    values = ["filename"]
+  }
+}
+{% else %}
+local.file_match "service_logs" {
+  path_targets = [
+{% for path in monitoring_profile_effective.log_paths %}
+    {
+      __path__ = "{{ path }}",
+      job = "service",
+      environment = "{{ monitoring_environment }}",
+      host = "{{ inventory_hostname }}",
+      role = "{{ node_role | default('unknown') }}",
+    },
+{% endfor %}
+  ]
+}
+
+loki.source.file "service_logs" {
+  targets    = local.file_match.service_logs.targets
+  forward_to = [loki.write.central.receiver]
+}
+{% endif %}
+
+loki.write "central" {
+  endpoint {
+    url = "{{ monitoring_loki_write_url }}"
+  }
+}

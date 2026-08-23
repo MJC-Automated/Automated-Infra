@@ -83,9 +83,9 @@ backup_defaults = {
   max_backup_age_hours = 36
   retention = {
     keep_last    = 2
-    keep_daily   = 7
-    keep_weekly  = 4
-    keep_monthly = 3
+    keep_daily   = 3
+    keep_weekly  = 2
+    keep_monthly = 1
     keep_yearly  = 0
   }
 }
@@ -123,7 +123,7 @@ node_groups = {
       name           = "public-weblogic14c-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.14"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.15"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -159,7 +159,7 @@ node_groups = {
       name           = "public-weblogic12c-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.14"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.15"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -186,7 +186,7 @@ node_groups = {
       name           = "public-database19c-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.14"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.15"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -204,14 +204,14 @@ node_groups = {
     }
   }
 
-  // Oracle Linux 9.7: Database 19c
+  // Oracle Linux 9.8: Database 19c
   "database19c_ol9" = {
     "public-ol9-01" = {
       vmid           = 10009
       name           = "public-database19c-ol9-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.14"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.15"
       os_profile     = "oracle9"
       cores          = 6
       memory         = 10240
@@ -237,7 +237,7 @@ node_groups = {
       name           = "public-database21c-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.14"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.15"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -258,16 +258,17 @@ node_groups = {
   // Ubuntu 24.04: Zabbix
   "zabbix" = {
     "zabbix-dot84" = {
-      vmid           = 10004
-      name           = "public-zabbix-01"
-      backup         = true
-      backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
-      cores          = 6
-      memory         = 10240
-      disk_size      = "50G"
-      tags           = "zabbix"
-      data_disk      = { size = "8G" }
+      vmid                   = 10004
+      name                   = "public-zabbix-01"
+      backup                 = true
+      backup_storage         = "backups"
+      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.51"
+      cores                  = 6
+      memory                 = 10240
+      disk_size              = "50G"
+      tags                   = "zabbix"
+      monitoring_expected_up = true
+      data_disk              = { size = "8G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -286,7 +287,7 @@ node_groups = {
       name           = "public-freeipa-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
       os_profile     = "oracle9"
       cores          = 4
       memory         = 8192
@@ -313,7 +314,7 @@ node_groups = {
       name           = "public-keycloak-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 8192
@@ -336,17 +337,18 @@ node_groups = {
   // Ubuntu 24.04: Unified observability core (Prometheus, Loki, Grafana)
   "observability" = {
     "observability-dot87" = {
-      vmid           = 10007
-      name           = "public-observability-01"
-      backup         = true
-      backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
-      os_profile     = "ubuntu2404"
-      cores          = 6
-      memory         = 16384
-      disk_size      = "50G"
-      tags           = "observability,monitoring"
-      data_disk      = { size = "30G" }
+      vmid                   = 10007
+      name                   = "public-observability-01"
+      backup                 = true
+      backup_storage         = "backups"
+      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.51"
+      os_profile             = "ubuntu2404"
+      cores                  = 6
+      memory                 = 16384
+      disk_size              = "50G"
+      tags                   = "observability,monitoring"
+      monitoring_expected_up = true
+      data_disk              = { size = "30G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -368,7 +370,7 @@ node_groups = {
       name           = "public-zimbra-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
       os_profile     = "oracle9"
       cores          = 6
       memory         = 16384
@@ -393,7 +395,7 @@ node_groups = {
       name           = "public-jenkins-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -418,7 +420,7 @@ node_groups = {
       name           = "public-gitlab-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -443,7 +445,7 @@ node_groups = {
       name           = "public-jenkins-agent-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -468,7 +470,7 @@ node_groups = {
       name           = "public-gitlab-runner-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -500,7 +502,7 @@ node_groups = {
       name           = "public-k8s-cp-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 4096
@@ -528,7 +530,7 @@ node_groups = {
       name           = "public-k8s-etcd-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096
@@ -553,7 +555,7 @@ node_groups = {
       name           = "public-k8s-worker-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096
@@ -575,7 +577,7 @@ node_groups = {
       name           = "public-k8s-worker-02"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.46"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.51"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096

@@ -1,0 +1,433 @@
+---
+- name: Verify monitoring client service state
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+  loop:
+    - zabbix-agent2
+    - alloy
+  register: monitoring_client_services
+  failed_when: >-
+    monitoring_client_services.status.ActiveState != 'active' or
+    monitoring_client_services.status.UnitFileState not in ['enabled', 'enabled-runtime']
+
+- name: Test Zabbix Agent 2 base key locally
+  ansible.builtin.command:
+    argv:
+      - zabbix_agent2
+      - -t
+      - agent.ping
+  register: monitoring_zabbix_agent_test
+  changed_when: false
+  failed_when: >-
+    monitoring_zabbix_agent_test.rc != 0 or
+    not (
+      '[s|1]' in monitoring_zabbix_agent_test.stdout or
+      '[u|1]' in monitoring_zabbix_agent_test.stdout
+    )
+
+- name: Test license-safe Oracle Agent 2 keys locally
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/zabbix_agent2
+      - -t
+      - "oracle.ping[oracle_{{ item.sid | lower }}]"
+  become: true
+  become_user: zabbix
+  environment:
+    ORACLE_HOME: "{{ monitoring_oracle_home }}"
+    LD_LIBRARY_PATH: "{{ monitoring_oracle_home }}/lib"
+    PATH: "{{ monitoring_oracle_home }}/bin:/usr/bin:/bin"
+  loop: "{{ monitoring_oracle_cdbs }}"
+  register: monitoring_oracle_agent_tests
+  changed_when: false
+  failed_when: >-
+    monitoring_oracle_agent_tests.rc != 0 or
+    not (
+      '[s|1]' in monitoring_oracle_agent_tests.stdout or
+      '[u|1]' in monitoring_oracle_agent_tests.stdout
+    )
+  when:
+    - monitoring_oracle_enabled | bool
+    - monitoring_oracle_software_present | default(false) | bool
+  no_log: true
+
+- name: Verify execute-only Alloy ACLs on Oracle log ancestors
+  ansible.builtin.command:
+    argv:
+      - getfacl
+      - --absolute-names
+      - --omit-header
+      - "{{ item }}"
+  loop: "{{ monitoring_oracle_log_traversal_directories | default([]) }}"
+  register: monitoring_oracle_traversal_acl_verify
+  changed_when: false
+  failed_when: "'user:alloy:--x' not in monitoring_oracle_traversal_acl_verify.stdout_lines"
+  when:
+    - monitoring_oracle_enabled | bool
+    - monitoring_oracle_software_present | default(false) | bool
+
+- name: Verify read-list Alloy ACLs only on Oracle log directories
+  ansible.builtin.command:
+    argv:
+      - getfacl
+      - --absolute-names
+      - --omit-header
+      - "{{ item }}"
+  loop: "{{ monitoring_oracle_log_directories | default([]) }}"
+  register: monitoring_oracle_log_directory_acl_verify
+  changed_when: false
+  failed_when: "'user:alloy:r-x' not in monitoring_oracle_log_directory_acl_verify.stdout_lines"
+  when:
+    - monitoring_oracle_enabled | bool
+    - monitoring_oracle_software_present | default(false) | bool
+
+- name: Verify read-only Alloy ACLs on allowlisted Oracle logs
+  ansible.builtin.command:
+    argv:
+      - getfacl
+      - --absolute-names
+      - --omit-header
+      - "{{ item.path }}"
+  loop: "{{ monitoring_oracle_diag_logs.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: monitoring_oracle_log_file_acl_verify
+  changed_when: false
+  failed_when: "'user:alloy:r--' not in monitoring_oracle_log_file_acl_verify.stdout_lines"
+  when:
+    - monitoring_oracle_enabled | bool
+    - monitoring_oracle_software_present | default(false) | bool
+
+- name: Verify unrelated Oracle diagnostic directories have no Alloy ACL
+  ansible.builtin.command:
+    argv:
+      - getfacl
+      - --absolute-names
+      - --omit-header
+      - "{{ item }}"
+  loop: "{{ monitoring_oracle_unrelated_diag_directories | default([]) }}"
+  register: monitoring_oracle_unrelated_acl_verify
+  changed_when: false
+  failed_when: >-
+    monitoring_oracle_unrelated_acl_verify.stdout_lines
+    | select('match', '^user:alloy:')
+    | list
+    | length > 0
+  when:
+    - monitoring_oracle_enabled | bool
+    - monitoring_oracle_software_present | default(false) | bool
+
+- name: Check Grafana Alloy local readiness
+  ansible.builtin.uri:
+    url: "http://{{ monitoring_alloy_http_address }}/-/ready"
+    method: GET
+    status_code: 200
+  register: monitoring_alloy_ready
+  until: monitoring_alloy_ready.status == 200
+  retries: 12
+  delay: 5
+
+- name: Verify Alloy ACLs on Kubernetes log roots
+  ansible.builtin.command:
+    argv:
+      - getfacl
+      - --absolute-names
+      - --omit-header
+      - "{{ item }}"
+  loop:
+    - /var/log/containers
+    - /var/log/pods
+  register: monitoring_kubernetes_log_root_acl_verify
+  changed_when: false
+  failed_when: "'user:alloy:r-x' not in monitoring_kubernetes_log_root_acl_verify.stdout_lines"
+  when: monitoring_kubernetes_log_access_enabled | bool
+
+- name: Discover Kubernetes pod-log directories for ACL verification
+  ansible.builtin.find:
+    paths: /var/log/pods
+    recurse: true
+    file_type: directory
+  register: monitoring_kubernetes_pod_log_directories_verified
+  changed_when: false
+  when: monitoring_kubernetes_log_access_enabled | bool
+
+- name: Verify default Alloy ACLs on future Kubernetes pod logs
+  ansible.builtin.command:
+    argv:
+      - getfacl
+      - --absolute-names
+      - --omit-header
+      - "{{ item }}"
+  loop: >-
+    {{ ['/var/log/pods']
+       + (monitoring_kubernetes_pod_log_directories_verified.files
+          | map(attribute='path')
+          | list) }}
+  register: monitoring_kubernetes_log_default_acl_verify
+  changed_when: false
+  failed_when: >-
+    'default:user:alloy:r-x'
+    not in monitoring_kubernetes_log_default_acl_verify.stdout_lines
+  when: monitoring_kubernetes_log_access_enabled | bool
+
+- name: Find one resolved Kubernetes container log
+  ansible.builtin.command:
+    argv:
+      - find
+      - -L
+      - /var/log/containers
+      - -maxdepth
+      - "1"
+      - -type
+      - f
+      - -name
+      - "*.log"
+      - -print
+      - -quit
+  register: monitoring_kubernetes_log_sample
+  changed_when: false
+  when: monitoring_kubernetes_log_access_enabled | bool
+
+- name: Verify Alloy can read a resolved Kubernetes container log
+  ansible.builtin.command:
+    argv:
+      - test
+      - -r
+      - "{{ monitoring_kubernetes_log_sample.stdout }}"
+  become: true
+  become_user: alloy
+  changed_when: false
+  when:
+    - monitoring_kubernetes_log_access_enabled | bool
+    - monitoring_kubernetes_log_sample.stdout | length > 0
+
+- name: Inspect Alloy groups after WebLogic ACL reconciliation
+  ansible.builtin.command:
+    argv:
+      - id
+      - -nG
+      - alloy
+  register: monitoring_weblogic_alloy_groups_verified
+  changed_when: false
+  failed_when: >-
+    weblogic_user in monitoring_weblogic_alloy_groups_verified.stdout.split()
+  when: monitoring_weblogic_enabled | bool
+
+- name: Verify Alloy cannot write declared WebLogic domain roots
+  ansible.builtin.command:
+    argv:
+      - test
+      - "!"
+      - -w
+      - "{{ item.domain_home }}"
+  become: true
+  become_user: alloy
+  loop: "{{ monitoring_weblogic_domains | default([]) }}"
+  loop_control:
+    label: "{{ item.domain_name }}"
+  changed_when: false
+  when: monitoring_weblogic_enabled | bool
+
+- name: Verify firewalld remains inactive on Kubernetes profiles
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - firewalld.service
+  register: monitoring_kubernetes_firewalld_state
+  changed_when: false
+  failed_when: monitoring_kubernetes_firewalld_state.stdout | trim == 'active'
+  when: monitoring_firewall_policy == 'disabled'
+
+- name: Query reconciled UFW rules
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - show
+      - added
+  register: monitoring_ufw_rules_verified
+  changed_when: false
+  when:
+    - monitoring_manage_firewall | bool
+    - ansible_facts.os_family == 'Debian'
+
+- name: Verify exact-source Zabbix Agent 2 UFW state
+  vars:
+    monitoring_ufw_agent_rules: >-
+      {{ monitoring_ufw_rules_verified.stdout_lines
+         | map('trim')
+         | select(
+             'match',
+             '^ufw allow from [^ ]+ to any port '
+             ~ (monitoring_zabbix_agent_port | string)
+             ~ ' proto tcp$'
+           )
+         | list }}
+    monitoring_ufw_expected_agent_rules:
+      - >-
+        ufw allow from {{ monitoring_zabbix_server_host }}/32 to any port
+        {{ monitoring_zabbix_agent_port }} proto tcp
+      - >-
+        ufw allow from {{ monitoring_zabbix_server_host }} to any port
+        {{ monitoring_zabbix_agent_port }} proto tcp
+  ansible.builtin.assert:
+    that:
+      - monitoring_ufw_agent_rules | length == 1
+      - monitoring_ufw_agent_rules[0] in monitoring_ufw_expected_agent_rules
+    fail_msg: >-
+      TCP/{{ monitoring_zabbix_agent_port }} must have exactly one UFW accept
+      rule restricted to {{ monitoring_zabbix_server_host }}/32.
+    quiet: true
+  when:
+    - monitoring_manage_firewall | bool
+    - ansible_facts.os_family == 'Debian'
+
+- name: Verify UFW active and firewalld inactive on Ubuntu
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "{{ item }}"
+  loop:
+    - ufw.service
+    - firewalld.service
+  register: monitoring_ubuntu_firewall_services
+  changed_when: false
+  failed_when: >-
+    (item == 'ufw.service' and monitoring_ubuntu_firewall_services.stdout | trim != 'active') or
+    (item == 'firewalld.service' and monitoring_ubuntu_firewall_services.stdout | trim == 'active')
+  when:
+    - monitoring_manage_firewall | bool
+    - ansible_facts.os_family == 'Debian'
+
+- name: Query reconciled permanent Zabbix Agent 2 rich rules
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - "--zone={{ monitoring_firewall_zone }}"
+      - --permanent
+      - --list-rich-rules
+  register: monitoring_firewall_permanent_rules_verified
+  changed_when: false
+  when:
+    - monitoring_manage_firewall | bool
+    - ansible_facts.os_family == 'RedHat'
+
+- name: Query reconciled runtime Zabbix Agent 2 rich rules
+  ansible.builtin.command:
+    argv:
+      - firewall-cmd
+      - "--zone={{ monitoring_firewall_zone }}"
+      - --list-rich-rules
+  register: monitoring_firewall_runtime_rules_verified
+  changed_when: false
+  when:
+    - monitoring_manage_firewall | bool
+    - ansible_facts.os_family == 'RedHat'
+
+- name: Verify exact-source Zabbix Agent 2 firewall state
+  vars:
+    monitoring_firewall_permanent_agent_rules: >-
+      {{ monitoring_firewall_permanent_rules_verified.stdout_lines
+         | select(
+             'search',
+             'port port="' ~ (monitoring_zabbix_agent_port | string)
+             ~ '" protocol="tcp"'
+           )
+         | select('search', ' accept$')
+         | list }}
+    monitoring_firewall_runtime_agent_rules: >-
+      {{ monitoring_firewall_runtime_rules_verified.stdout_lines
+         | select(
+             'search',
+             'port port="' ~ (monitoring_zabbix_agent_port | string)
+             ~ '" protocol="tcp"'
+           )
+         | select('search', ' accept$')
+         | list }}
+  ansible.builtin.assert:
+    that:
+      - >-
+        monitoring_firewall_permanent_agent_rules
+        == [monitoring_zabbix_agent_rich_rule | trim]
+      - >-
+        monitoring_firewall_runtime_agent_rules
+        == [monitoring_zabbix_agent_rich_rule | trim]
+    fail_msg: >-
+      TCP/{{ monitoring_zabbix_agent_port }} must have exactly one permanent
+      and runtime accept rule, restricted to
+      {{ monitoring_zabbix_server_host }}/32.
+    quiet: true
+  when:
+    - monitoring_manage_firewall | bool
+    - ansible_facts.os_family == 'RedHat'
+
+- name: Verify Kubernetes API live endpoint
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}:6443/livez"
+    method: GET
+    validate_certs: false
+    status_code: 200
+  register: monitoring_kubernetes_api_live
+  until: monitoring_kubernetes_api_live.status == 200
+  retries: 12
+  delay: 5
+  when: monitoring_profile == 'k8s_control_plane'
+
+- name: Verify external etcd client listener
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 2379
+    state: started
+    connect_timeout: 3
+    timeout: 15
+  when: monitoring_profile == 'k8s_etcd'
+
+- name: Verify Alloy apiserver metrics token is readable
+  ansible.builtin.stat:
+    path: "{{ monitoring_kubernetes_metrics_token_path }}"
+  register: monitoring_kubernetes_metrics_token_stat
+  when: monitoring_kubernetes_apiserver_scrape_enabled | bool
+
+- name: Require Alloy apiserver metrics token
+  ansible.builtin.assert:
+    that:
+      - monitoring_kubernetes_metrics_token_stat.stat.exists
+      - monitoring_kubernetes_metrics_token_stat.stat.isreg
+      - monitoring_kubernetes_metrics_token_stat.stat.size | int > 0
+    fail_msg: >-
+      {{ monitoring_kubernetes_metrics_token_path }} must exist for the
+      kube-apiserver Alloy scrape on {{ inventory_hostname }}.
+  when: monitoring_kubernetes_apiserver_scrape_enabled | bool
+
+- name: Verify Alloy can read etcd TLS material
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - alloy
+      - test
+      - -r
+      - "{{ item }}"
+  loop:
+    - "{{ monitoring_kubernetes_etcd_ca_file }}"
+    - "{{ monitoring_kubernetes_etcd_cert_file }}"
+    - "{{ monitoring_kubernetes_etcd_key_file }}"
+  changed_when: false
+  when: monitoring_kubernetes_etcd_scrape_enabled | bool
+
+- name: Verify WebLogic exporter endpoints locally
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ item.listen_port }}/wls-exporter/metrics"
+    method: GET
+    force_basic_auth: true
+    url_username: "{{ monitoring_weblogic_monitor_user }}"
+    url_password: "{{ monitoring_weblogic_monitor_password }}"
+    status_code: 200
+  loop: "{{ monitoring_weblogic_jvms | default([]) }}"
+  register: monitoring_weblogic_exporter_ready
+  until: monitoring_weblogic_exporter_ready.status == 200
+  retries: 18
+  delay: 10
+  when: monitoring_weblogic_enabled | bool
+  no_log: true

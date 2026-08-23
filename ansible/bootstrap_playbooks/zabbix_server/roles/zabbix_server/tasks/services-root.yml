@@ -1,0 +1,85 @@
+---
+- name: Query one IaC Zabbix service root
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: service.get
+      params:
+        output:
+          - serviceid
+          - name
+        filter:
+          name:
+            - "IaC {{ zabbix_service_environment }} monitored services"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_service_root_lookup
+  changed_when: false
+  failed_when: >-
+    zabbix_service_root_lookup.json.error is defined or
+    zabbix_service_root_lookup.json.result | length > 1
+
+- name: Build one IaC Zabbix service root definition
+  ansible.builtin.set_fact:
+    zabbix_service_root_definition:
+      name: "IaC {{ zabbix_service_environment }} monitored services"
+      algorithm: "2"
+      sortorder: "0"
+      tags:
+        - tag: iac_managed
+          value: "true"
+        - tag: environment
+          value: "{{ zabbix_service_environment }}"
+        - tag: service_tree
+          value: root
+
+- name: Create missing IaC Zabbix service root
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: service.create
+      params: "{{ zabbix_service_root_definition }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_service_root_create
+  when: zabbix_service_root_lookup.json.result | length == 0
+  changed_when: true
+  failed_when: zabbix_service_root_create.json.error is defined
+
+- name: Update IaC Zabbix service root
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: service.update
+      params: >-
+        {{ zabbix_service_root_definition
+           | combine({'serviceid': zabbix_service_root_lookup.json.result[0].serviceid}) }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_service_root_update
+  when: zabbix_service_root_lookup.json.result | length == 1
+  changed_when: false
+  failed_when: zabbix_service_root_update.json.error is defined
+
+- name: Record IaC Zabbix service root ID
+  ansible.builtin.set_fact:
+    zabbix_service_root_ids: >-
+      {{ zabbix_service_root_ids | combine({
+           zabbix_service_environment: (
+             zabbix_service_root_lookup.json.result[0].serviceid
+             if zabbix_service_root_lookup.json.result | length == 1
+             else zabbix_service_root_create.json.result.serviceids[0]
+           )
+         }) }}

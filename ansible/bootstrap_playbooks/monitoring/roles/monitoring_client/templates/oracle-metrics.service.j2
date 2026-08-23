@@ -1,0 +1,18 @@
+[Unit]
+Description=Collect license-safe Oracle CDB and PDB metrics for Alloy
+After=network-online.target
+
+[Service]
+Type=oneshot
+User={{ monitoring_oracle_os_user }}
+Group=oinstall
+# Preserve OS authentication only for the existing Oracle owner. Alloy itself
+# remains outside OSDBA and can read only the completed non-secret snapshot.
+SupplementaryGroups=dba alloy
+UMask=0027
+ExecStart={{ monitoring_oracle_metrics_script }}
+TimeoutStartSec=45
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

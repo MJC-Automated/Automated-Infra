@@ -37,21 +37,36 @@
     enabled: true
     state: started
 
-- name: Ensure firewalld is running
-  ansible.builtin.systemd:
-    name: firewalld
-    enabled: true
-    state: started
+- name: Gather firewall service facts
+  ansible.builtin.service_facts:
   when: keycloak_manage_firewall | bool
 
-- name: Open Keycloak firewall ports
-  ansible.posix.firewalld:
-    port: "{{ item }}/tcp"
-    permanent: true
-    state: enabled
-    immediate: true
+- name: Preserve OpenSSH access before enabling UFW
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+  when: keycloak_manage_firewall | bool
+
+- name: Open Keycloak firewall ports in UFW
+  community.general.ufw:
+    rule: allow
+    to_port: "{{ item | string }}"
+    proto: tcp
   loop:
     - "{{ keycloak_http_port }}"
     - "{{ keycloak_health_port }}"
-    - "{{ keycloak_zabbix_agent_port }}"
+  when: keycloak_manage_firewall | bool
+
+- name: Stop and disable firewalld before enabling UFW
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: false
+    state: stopped
+  when:
+    - keycloak_manage_firewall | bool
+    - "'firewalld.service' in ansible_facts.services"
+
+- name: Enable UFW after the Keycloak ingress contract is staged
+  community.general.ufw:
+    state: enabled
   when: keycloak_manage_firewall | bool

@@ -1,0 +1,131 @@
+---
+- name: Discover the IaC Homelab Grafana folder
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:3000/api/folders?limit=1000"
+    method: GET
+    force_basic_auth: true
+    url_username: "{{ observability_grafana_admin_user }}"
+    url_password: "{{ observability_grafana_admin_password }}"
+    status_code: 200
+  register: observability_grafana_folders
+  changed_when: false
+  no_log: true
+  when: observability_grafana_library_panels | length > 0
+
+- name: Resolve the IaC Homelab Grafana folder UID
+  ansible.builtin.set_fact:
+    observability_grafana_folder_uid: >-
+      {{
+        (
+          observability_grafana_folders.json
+          | selectattr('title', 'equalto', 'IaC Homelab')
+          | map(attribute='uid')
+          | list
+          | first
+        ) | default('', true)
+      }}
+  when: observability_grafana_library_panels | length > 0
+  no_log: true
+
+- name: Fail when the managed Grafana folder is absent
+  ansible.builtin.assert:
+    that:
+      - observability_grafana_folder_uid | length > 0
+    fail_msg: >-
+      Grafana folder "IaC Homelab" was not available for library-panel
+      reconciliation.
+  when: observability_grafana_library_panels | length > 0
+
+- name: Read managed Grafana library panels
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:3000/api/library-elements/{{ item.uid }}"
+    method: GET
+    force_basic_auth: true
+    url_username: "{{ observability_grafana_admin_user }}"
+    url_password: "{{ observability_grafana_admin_password }}"
+    status_code: [200, 404]
+  loop: "{{ observability_grafana_library_panels }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: observability_grafana_library_current
+  changed_when: false
+  no_log: true
+  when: observability_grafana_library_panels | length > 0
+
+- name: Create missing managed Grafana library panels
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:3000/api/library-elements"
+    method: POST
+    force_basic_auth: true
+    url_username: "{{ observability_grafana_admin_user }}"
+    url_password: "{{ observability_grafana_admin_password }}"
+    body_format: json
+    body:
+      uid: "{{ item.item.uid }}"
+      folderUid: "{{ observability_grafana_folder_uid }}"
+      name: "{{ item.item.name }}"
+      kind: 1
+      model: "{{ item.item.model }}"
+    status_code: 200
+  loop: "{{ observability_grafana_library_current.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when:
+    - observability_grafana_library_panels | length > 0
+    - item.status == 404
+  no_log: true
+
+- name: Update changed managed Grafana library panels
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:3000/api/library-elements/{{ item.item.uid }}"
+    method: PATCH
+    force_basic_auth: true
+    url_username: "{{ observability_grafana_admin_user }}"
+    url_password: "{{ observability_grafana_admin_password }}"
+    body_format: json
+    body:
+      uid: "{{ item.item.uid }}"
+      folderUid: "{{ observability_grafana_folder_uid }}"
+      name: "{{ item.item.name }}"
+      kind: 1
+      version: "{{ item.json.result.version | int }}"
+      model: "{{ item.item.model }}"
+    status_code: 200
+  loop: "{{ observability_grafana_library_current.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when:
+    - observability_grafana_library_panels | length > 0
+    - item.status == 200
+    - >-
+      item.json.result.meta.folderUid != observability_grafana_folder_uid or
+      item.json.result.name != item.item.name or
+      item.json.result.model.description != item.item.model.description
+  no_log: true
+
+- name: Verify managed Grafana library panels
+  ansible.builtin.uri:
+    url: >-
+      http://127.0.0.1:3000/api/library-elements?folderUID={{
+        observability_grafana_folder_uid
+      }}&perPage=100
+    method: GET
+    force_basic_auth: true
+    url_username: "{{ observability_grafana_admin_user }}"
+    url_password: "{{ observability_grafana_admin_password }}"
+    status_code: 200
+  register: observability_grafana_library_verify
+  changed_when: false
+  failed_when: >-
+    observability_grafana_library_verify.json.result.totalCount <
+    (observability_grafana_library_panels | length)
+    or
+    (
+      observability_grafana_library_verify.json.result.elements
+      | map(attribute='uid')
+      | list
+      | intersect(observability_grafana_library_panels | map(attribute='uid') | list)
+      | length
+    ) != (observability_grafana_library_panels | length)
+  no_log: true
+  when: observability_grafana_library_panels | length > 0

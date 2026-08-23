@@ -1,0 +1,79 @@
+---
+- name: Query one IaC Zabbix SLA
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: sla.get
+      params:
+        output:
+          - slaid
+          - name
+        filter:
+          name:
+            - "IaC {{ zabbix_service_environment }} expected service availability"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_service_sla_lookup
+  changed_when: false
+  failed_when: >-
+    zabbix_service_sla_lookup.json.error is defined or
+    zabbix_service_sla_lookup.json.result | length > 1
+
+- name: Build one IaC Zabbix SLA definition
+  ansible.builtin.set_fact:
+    zabbix_service_sla_definition:
+      name: "IaC {{ zabbix_service_environment }} expected service availability"
+      period: "{{ zabbix_service_sla_period }}"
+      slo: "{{ zabbix_service_slo }}"
+      effective_date: 1577836800
+      timezone: "{{ zabbix_service_sla_timezone }}"
+      status: "1"
+      description: >-
+        Inventory-driven SLA for services whose Terraform monitoring policy
+        declares expected_up=true. Planned downtime belongs in tracked SLA
+        excluded_downtimes, never in ad-hoc service deletion.
+      schedule: []
+      service_tags:
+        - tag: sla_scope
+          operator: "0"
+          value: "{{ zabbix_service_environment }}-expected"
+
+- name: Create missing IaC Zabbix SLA
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: sla.create
+      params: "{{ zabbix_service_sla_definition }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_service_sla_create
+  when: zabbix_service_sla_lookup.json.result | length == 0
+  changed_when: true
+  failed_when: zabbix_service_sla_create.json.error is defined
+
+- name: Update IaC Zabbix SLA
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: sla.update
+      params: >-
+        {{ zabbix_service_sla_definition
+           | combine({'slaid': zabbix_service_sla_lookup.json.result[0].slaid}) }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_service_sla_update
+  when: zabbix_service_sla_lookup.json.result | length == 1
+  changed_when: false
+  failed_when: zabbix_service_sla_update.json.error is defined

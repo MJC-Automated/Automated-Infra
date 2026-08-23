@@ -11,6 +11,7 @@ BACKUP_VMIDS="${BACKUP_VMIDS:-}"
 CONFIRM="${CONFIRM:-}"
 DRY_RUN="${DRY_RUN:-false}"
 PROTECTED="${PROTECTED:-false}"
+MAX_STORAGE_PERCENT="${VM_BACKUP_MAX_STORAGE_PERCENT:-80}"
 SSH_STRICT_HOST_KEY_CHECKING="${SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
 
 usage() {
@@ -86,6 +87,10 @@ fi
   echo "Error: PROTECTED must be true or false." >&2
   exit 1
 }
+[[ "${MAX_STORAGE_PERCENT}" =~ ^[1-9][0-9]?$ ]] || {
+  echo "Error: VM_BACKUP_MAX_STORAGE_PERCENT must be an integer from 1 to 99." >&2
+  exit 1
+}
 protected_flag=0
 [[ "${PROTECTED}" == "true" ]] && protected_flag=1
 
@@ -143,8 +148,43 @@ for row in "${rows[@]}"; do
   }
 
   remote="${PROXMOX_USER}@${PROXMOX_HOST}"
-  ssh "${ssh_opts[@]}" "${remote}" \
-    "qm status '${vmid}' >/dev/null && pvesm status --content backup | awk 'NR > 1 {print \$1}' | grep -Fxq '${storage}'"
+  ssh "${ssh_opts[@]}" "${remote}" bash -s -- \
+    "${vmid}" "${storage}" "${MAX_STORAGE_PERCENT}" <<'REMOTE'
+set -euo pipefail
+vmid="$1"
+storage="$2"
+max_storage_percent="$3"
+qm status "${vmid}" >/dev/null
+pvesm status --content backup | awk 'NR > 1 {print $1}' | grep -Fxq "${storage}"
+storage_percent="$({
+  pvesm status --content backup |
+    awk -v storage="${storage}" '$1 == storage && $3 == "active" {gsub(/%/, "", $NF); print $NF}'
+} | tail -n 1)"
+[[ "${storage_percent}" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+  echo "Error: could not resolve active utilization for backup storage ${storage}." >&2
+  exit 1
+}
+if awk -v used="${storage_percent}" -v limit="${max_storage_percent}" \
+  'BEGIN {exit !(used >= limit)}'; then
+  echo "Error: backup storage ${storage} is ${storage_percent}% used; limit is below ${max_storage_percent}%." >&2
+  exit 1
+fi
+echo "Capacity guard: storage=${storage} used=${storage_percent}% limit=<${max_storage_percent}%"
+mapfile -t data_disks < <(
+  qm config "${vmid}" |
+    awk '/^(scsi|virtio|sata|ide)[0-9]+:/ && $0 !~ /media=cdrom/ {print}'
+)
+if [[ ${#data_disks[@]} -eq 0 ]]; then
+  echo "Error: VMID ${vmid} has no backup-eligible data disk." >&2
+  exit 1
+fi
+for disk in "${data_disks[@]}"; do
+  if [[ "${disk}" == *',backup=0'* ]]; then
+    echo "Error: enabled VMID ${vmid} excludes a real disk from backup: ${disk%%,*}" >&2
+    exit 1
+  fi
+done
+REMOTE
 
   if [[ "${DRY_RUN}" == "true" ]]; then
     printf 'DRY-RUN: %s VMID=%s name=%s storage=%s protected=%s\n' \

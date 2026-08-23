@@ -1,0 +1,237 @@
+groups:
+  - name: kubernetes-workloads
+    interval: 1m
+    rules:
+      - record: inventory:kubernetes:desired_pods
+        expr: sum by (environment, cluster, namespace) (kube_deployment_spec_replicas)
+      - record: inventory:kubernetes:ready_pods
+        expr: sum by (environment, cluster, namespace) (kube_deployment_status_replicas_available)
+      - alert: KubernetesStateMetricsDown
+        expr: up{job="kube-state-metrics",expected_up="true"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "kube-state-metrics is unavailable for {{ "{{" }} $labels.cluster {{ "}}" }}"
+      - alert: KubernetesDeploymentReplicasUnavailable
+        expr: (kube_deployment_spec_replicas - kube_deployment_status_replicas_available) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deployment {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.deployment {{ "}}" }} has unavailable replicas"
+      - alert: KubernetesPodCrashLooping
+        expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.pod {{ "}}" }} is restarting"
+      - alert: KubernetesApiServerDown
+        expr: up{job="kube-apiserver"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "kube-apiserver metrics scrape is down on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: EtcdDown
+        expr: up{job="etcd"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "etcd metrics scrape is down on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: EtcdNoLeader
+        expr: etcd_server_has_leader{job="etcd"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "etcd has no leader on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: AlloyLokiWriteDrops
+        expr: increase(loki_write_dropped_entries_total{job="alloy",reason="ingester_error"}[15m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alloy on {{ "{{" }} $labels.instance {{ "}}" }} is dropping Loki writes (ingester_error)"
+
+  # Availability is calculated from blackbox probes, which keeps powered-off
+  # guests visible even after their pushed series go stale.  The expected_up
+  # label excludes hosts/services intentionally placed in maintenance from
+  # SLA percentages while preserving their raw probe telemetry.
+  - name: availability-recording
+    interval: 1m
+    rules:
+      - record: inventory:host_availability:ratio24h
+        expr: avg by (environment) (avg_over_time(probe_success{job="blackbox-host",expected_up="true"}[24h]))
+      - record: inventory:host_availability:ratio7d
+        expr: avg by (environment) (avg_over_time(probe_success{job="blackbox-host",expected_up="true"}[7d]))
+      - record: inventory:service_availability:ratio24h
+        expr: avg by (environment,service) (avg_over_time(probe_success{job=~"blackbox-http|blackbox-http-insecure|blackbox-weblogic-managed|blackbox-oracle-listener|blackbox-kubernetes-api|blackbox-kubernetes-etcd",expected_up="true"}[24h]))
+      - record: inventory:service_availability:ratio7d
+        expr: avg by (environment,service) (avg_over_time(probe_success{job=~"blackbox-http|blackbox-http-insecure|blackbox-weblogic-managed|blackbox-oracle-listener|blackbox-kubernetes-api|blackbox-kubernetes-etcd",expected_up="true"}[7d]))
+
+  - name: inventory-hosts
+    rules:
+      - alert: HostDown
+        expr: probe_success{job="blackbox-host",expected_up="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Inventory host {{ "{{" }} $labels.instance {{ "}}" }} is unreachable"
+      - alert: HostMetricsMissing
+        expr: probe_success{job="blackbox-host",expected_up="true"} == 1 unless on(environment, instance) node_uname_info{job="node",expected_up="true"}
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node metrics are missing for {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: HostCpuPressure
+        expr: 100 - (avg by (environment, instance) (rate(node_cpu_seconds_total{job="node",mode="idle",expected_up="true"}[5m])) * 100) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU pressure is high on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: HostMemoryPressure
+        expr: (node_memory_MemAvailable_bytes{job="node",expected_up="true"} / node_memory_MemTotal_bytes{job="node",expected_up="true"}) * 100 < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Available memory is below 10% on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: HostDiskCapacityLow
+        expr: (node_filesystem_avail_bytes{job="node",expected_up="true",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node",expected_up="true",fstype!~"tmpfs|overlay"}) * 100 < 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem {{ "{{" }} $labels.mountpoint {{ "}}" }} is below 10% free on {{ "{{" }} $labels.instance {{ "}}" }}"
+
+  - name: exporters-and-services
+    rules:
+      - alert: AlloyExporterDown
+        expr: up{job="alloy",expected_up="true"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alloy self-scrape is failing on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: AlloyMetricsMissing
+        expr: probe_success{job="blackbox-host",expected_up="true"} == 1 unless on(environment, instance) up{job="alloy",expected_up="true"}
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alloy has stopped forwarding metrics from {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: WebLogicExporterDown
+        expr: up{job="weblogic",expected_up="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "WebLogic exporter is down for {{ "{{" }} $labels.domain {{ "}}" }}/{{ "{{" }} $labels.server {{ "}}" }}"
+      - alert: WebLogicStuckThreads
+        expr: wls_threadpool_stuck_thread_count{expected_up="true"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "WebLogic stuck threads detected on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: InventoryServiceProbeFailed
+        expr: probe_success{job=~"blackbox-http|blackbox-http-insecure|blackbox-weblogic-managed|blackbox-oracle-listener|blackbox-kubernetes-api|blackbox-kubernetes-etcd",expected_up="true"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ "{{" }} $labels.service {{ "}}" }} probe failed on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: OracleCdbUnavailable
+        expr: iac_oracle_cdb_up{expected_up="true"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Oracle CDB {{ "{{" }} $labels.cdb {{ "}}" }} is unavailable on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: OraclePdbUnavailable
+        expr: iac_oracle_pdb_up{expected_up="true"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Oracle PDB {{ "{{" }} $labels.pdb {{ "}}" }} is not open read-write on {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: OracleMetricsMissing
+        expr: node_uname_info{job="node",profile=~"database.*",expected_up="true"} unless on(environment, instance) iac_oracle_cdb_up{expected_up="true"}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dynamic Oracle CDB/PDB metrics are missing from {{ "{{" }} $labels.instance {{ "}}" }}"
+      - alert: OracleMetricsStale
+        expr: time() - node_textfile_mtime_seconds{job="node",expected_up="true",file=~".*oracle[.]prom"} > 180
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dynamic Oracle CDB/PDB metrics are stale on {{ "{{" }} $labels.instance {{ "}}" }}"
+
+  - name: public-stack
+    interval: 1m
+    rules:
+      # Keep a bounded, queryable growth model for capacity dashboards.  A
+      # positive value is bytes/day consumed; zero/negative means no growth.
+      - record: observability:storage_consumption_bytes_per_day
+        expr: clamp_min(-deriv(node_filesystem_avail_bytes{job="node",role="observability",mountpoint=~"/var/lib/(prometheus|loki|grafana|tempo)"}[{{ observability_storage_forecast_window }}]) * 86400, 0)
+      - record: observability:storage_days_remaining
+        expr: (node_filesystem_avail_bytes{job="node",role="observability",mountpoint=~"/var/lib/(prometheus|loki|grafana|tempo)"} / clamp_min(observability:storage_consumption_bytes_per_day, 1))
+      - alert: ObservabilityComponentDown
+        expr: up{job=~"prometheus|alertmanager|loki|tempo|otel-collector|blackbox-exporter|kube-state-metrics"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Observability component {{ "{{" }} $labels.job {{ "}}" }} is down"
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus rule evaluation failures detected"
+      - alert: LokiDiscardingLogs
+        expr: sum(rate(loki_discarded_samples_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki is discarding log samples"
+      - alert: ObservabilityStorageLow
+        expr: (node_filesystem_avail_bytes{job="node",role="observability",mountpoint=~"/var/lib/(prometheus|loki|grafana|tempo)"} / node_filesystem_size_bytes{job="node",role="observability",mountpoint=~"/var/lib/(prometheus|loki|grafana|tempo)"}) * 100 < 20
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Observability storage {{ "{{" }} $labels.mountpoint {{ "}}" }} is below 20% free"
+      - alert: ObservabilityStorageExhaustionForecast
+        expr: predict_linear(node_filesystem_avail_bytes{job="node",role="observability",mountpoint=~"/var/lib/(prometheus|loki|grafana|tempo)"}[{{ observability_storage_forecast_window }}], {{ observability_storage_forecast_horizon_seconds }}) < 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Observability storage {{ "{{" }} $labels.mountpoint {{ "}}" }} is forecast to fill within seven days"
+      - alert: ObservabilityStorageCriticalForecast
+        expr: observability:storage_days_remaining < {{ observability_storage_forecast_critical_seconds }} / 86400
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Observability storage {{ "{{" }} $labels.mountpoint {{ "}}" }} has less than 48h remaining"
+          description: "Free-space slope predicts exhaustion in {{ "{{" }} printf \"%.1f\" $value {{ "}}" }} days; reduce ingest/retention or expand the data disk."
+      - alert: OtelTraceExportFailures
+        expr: increase(otelcol_exporter_send_failed_spans_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenTelemetry Collector cannot export traces to Tempo"

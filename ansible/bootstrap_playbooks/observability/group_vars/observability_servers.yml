@@ -4,12 +4,16 @@ observability_manage_firewall: true
 
 observability_grafana_admin_user: "admin"
 observability_prometheus_retention: "15d"
+observability_loki_retention: "168h"
+observability_tempo_retention: "24h"
 observability_required_password_length: 20
 
+# Grafana UI only. Ingest ports are reconciled as source-restricted UFW rules
+# against monitoring_clients (see role defaults).
 observability_ports:
   - 3000
+observability_ingest_ports:
   - 9090
   - 3100
   - 4317
   - 4318
-  - 10050

@@ -3,7 +3,7 @@ allowed_unmanaged_accounts:
   - oracle
 
 # Oracle 19c Database configuration for dev environment
-oracle_allow_destructive: true
+oracle_allow_destructive: false
 
 oracle_servers:
   public-database19c-ol9-01:

@@ -15,7 +15,7 @@ ingester:
 
 compactor:
   compaction:
-    block_retention: 24h
+    block_retention: {{ observability_tempo_retention }}
 
 storage:
   trace:

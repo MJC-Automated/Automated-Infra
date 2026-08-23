@@ -1,5 +1,6 @@
 # Host-group overrides for WebLogic 14c nodes in dev.
 # Keep domain-specific runtime configuration here instead of role defaults.
+domain_base: /u02/domains
 
 # ==============================================================================
 # 1. Primary Domain Configuration (WLS14C_DOMAIN)

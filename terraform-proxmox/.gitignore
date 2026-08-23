@@ -36,6 +36,7 @@ backups/
 inventories/
 summaries/
 snippets/*-partitioning.yaml
+snippets/*-first-access-user.yaml
 IMPROVEMENTS.md
 vault.log
 kubespray/

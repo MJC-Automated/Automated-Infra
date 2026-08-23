@@ -27,10 +27,12 @@ RemainAfterExit={{ _service_remain_after_exit | ternary('yes', 'no') }}
 ExecStart=/bin/bash -c "{{ service_exec_start | default(scripts_dir + '/' + start_script_name) }}"
 ExecStop=/bin/bash -c "{{ service_exec_stop | default(scripts_dir + '/' + stop_script_name) }}"
 Restart={{ _service_restart }}
+TimeoutStartSec={{ service_timeout_start_sec | default(300) }}
+TimeoutStopSec={{ service_timeout_stop_sec | default(300) }}
 {% if _service_restart != 'no' %}
 RestartSec={{ service_restart_sec | default(10) }}
 {% endif %}
-KillMode={{ service_kill_mode | default('process') }}
+KillMode={{ service_kill_mode | default('control-group') }}
 
 [Install]
 WantedBy=multi-user.target

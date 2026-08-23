@@ -1,0 +1,296 @@
+---
+- name: Initialize exact IaC-managed Zabbix host model
+  ansible.builtin.set_fact:
+    zabbix_inventory_desired_hosts: []
+  run_once: true
+
+- name: Add physical inventory hosts to exact Zabbix model
+  ansible.builtin.set_fact:
+    zabbix_inventory_desired_hosts: >-
+      {{ zabbix_inventory_desired_hosts + [{
+           'host_name': item,
+           'visible_name': item,
+           'ip': hostvars[item].ansible_host,
+           'port': zabbix_agent_port | string,
+           'environment': hostvars[item].monitoring_environment,
+           'expected_up': hostvars[item].monitoring_expected_up | bool,
+           'groups': [
+             'IaC managed',
+             'Linux servers',
+             'IaC/' ~ hostvars[item].monitoring_environment,
+             'IaC/role/' ~ (hostvars[item].node_role | default('unknown'))
+           ],
+           'templates': zabbix_inventory_profile_templates[
+             hostvars[item].monitoring_profile | default(hostvars[item].node_role | default('default'))
+           ] | default(zabbix_inventory_profile_templates.default),
+           'tags': [
+             {'tag': zabbix_inventory_managed_tag, 'value': zabbix_inventory_managed_value},
+             {'tag': 'environment', 'value': hostvars[item].monitoring_environment},
+             {'tag': 'role', 'value': hostvars[item].node_role | default('unknown')},
+             {'tag': 'monitoring_profile', 'value': hostvars[item].monitoring_profile | default(hostvars[item].node_role | default('default'))},
+             {'tag': 'expected_up', 'value': (hostvars[item].monitoring_expected_up | bool) | ternary('true', 'false')},
+             {'tag': 'alert_owner', 'value': 'zabbix'},
+             {'tag': 'retention_days', 'value': zabbix_inventory_retention_days | string}
+           ],
+           'interface_type': 'agent',
+           'autoregister': true,
+           'autoreg_action_name': 'IaC active registration - ' ~ hostvars[item].monitoring_environment ~ ' - ' ~ item,
+           'macros': []
+         }] }}
+  loop: "{{ groups.monitoring_clients | default([]) }}"
+  when: hostvars[item].monitoring_enabled | default(true) | bool
+  run_once: true
+  no_log: true
+
+- name: Add logical WebLogic JVM hosts to exact Zabbix model
+  ansible.builtin.include_tasks: inventory-weblogic.yml
+  loop: "{{ groups.monitoring_clients | default([]) }}"
+  loop_control:
+    loop_var: zabbix_inventory_weblogic_host
+  when:
+    - hostvars[zabbix_inventory_weblogic_host].monitoring_enabled | default(true) | bool
+    - hostvars[zabbix_inventory_weblogic_host].monitoring_profile | default(hostvars[zabbix_inventory_weblogic_host].node_role | default('default')) in ['weblogic12c', 'weblogic14c']
+  run_once: true
+
+- name: Add logical Oracle CDB hosts to exact Zabbix model
+  ansible.builtin.include_tasks: inventory-oracle.yml
+  loop: "{{ groups.monitoring_clients | default([]) }}"
+  loop_control:
+    loop_var: zabbix_inventory_oracle_host
+  when:
+    - hostvars[zabbix_inventory_oracle_host].monitoring_enabled | default(true) | bool
+    - hostvars[zabbix_inventory_oracle_host].monitoring_profile | default(hostvars[zabbix_inventory_oracle_host].node_role | default('default')) in ['database19c', 'database19c_ol9', 'database21c']
+  run_once: true
+
+- name: Import repo-owned Zabbix templates
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: zabbix
+    ansible_host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    ansible_user: "{{ zabbix_api_user }}"
+    ansible_httpapi_pass: "{{ zabbix_api_password }}"
+  community.zabbix.zabbix_template:
+    template_yaml: "{{ lookup('ansible.builtin.file', role_path ~ '/files/templates/' ~ item) }}"
+    state: present
+  loop: "{{ zabbix_inventory_custom_templates }}"
+  run_once: true
+  # The Zabbix configuration-import endpoint does not return an object-level
+  # diff and the collection reports every replay as changed. Treat a successful
+  # declarative import as reconciliation; template behavior is verified later.
+  changed_when: false
+  no_log: true
+
+- name: Ensure exact IaC Zabbix host groups exist
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: zabbix
+    ansible_host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    ansible_user: "{{ zabbix_api_user }}"
+    ansible_httpapi_pass: "{{ zabbix_api_password }}"
+  community.zabbix.zabbix_group:
+    host_groups: >-
+      {{ zabbix_inventory_desired_hosts | map(attribute='groups') | flatten | unique | sort }}
+    state: present
+  run_once: true
+  no_log: true
+
+- name: Resolve IaC-managed group ID for active autoregistration
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: hostgroup.get
+      params:
+        output:
+          - groupid
+        filter:
+          name:
+            - IaC managed
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_autoreg_group
+  run_once: true
+  changed_when: false
+  failed_when: >-
+    zabbix_inventory_autoreg_group.json.error is defined or
+    zabbix_inventory_autoreg_group.json.result | length != 1
+  no_log: true
+
+- name: Resolve active Linux template ID for active autoregistration
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: template.get
+      params:
+        output:
+          - templateid
+        filter:
+          host:
+            - Linux by Zabbix agent active
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_autoreg_template
+  run_once: true
+  changed_when: false
+  failed_when: >-
+    zabbix_inventory_autoreg_template.json.error is defined or
+    zabbix_inventory_autoreg_template.json.result | length != 1
+  no_log: true
+
+# Zabbix 7 permits contains/regexp operators, but not equals, for
+# autoregistration host-name conditions. The collection module also currently
+# dereferences an absent escalation field for this event type. Reconcile this
+# compatibility-sensitive model directly through the supported API instead.
+- name: Configure bounded active-agent autoregistration fallbacks
+  ansible.builtin.include_tasks: inventory-autoregistration.yml
+  loop: >-
+    {{ zabbix_inventory_desired_hosts
+       | selectattr('autoregister', 'defined')
+       | selectattr('autoregister', 'equalto', true)
+       | list }}
+  loop_control:
+    loop_var: zabbix_inventory_autoreg_host
+  run_once: true
+  no_log: true
+
+- name: Query IaC active-autoregistration actions for retirement
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: action.get
+      params:
+        output:
+          - actionid
+          - name
+        eventsource: "2"
+        search:
+          name: "IaC active registration - "
+        startSearch: true
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_autoreg_actions
+  run_once: true
+  changed_when: false
+  failed_when: zabbix_inventory_autoreg_actions.json.error is defined
+  no_log: true
+
+- name: Build desired IaC active-autoregistration action names
+  ansible.builtin.set_fact:
+    zabbix_inventory_autoreg_desired_names: >-
+      {{ (zabbix_inventory_desired_hosts
+          | selectattr('autoregister', 'defined')
+          | selectattr('autoregister', 'equalto', true)
+          | map(attribute='autoreg_action_name')
+          | list) }}
+  run_once: true
+
+- name: Remove obsolete IaC active-autoregistration actions
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: action.delete
+      params:
+        - "{{ item.actionid }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: >-
+    {{ zabbix_inventory_autoreg_actions.json.result
+       | rejectattr(
+           'name',
+           'in',
+           zabbix_inventory_autoreg_desired_names
+         )
+       | list }}
+  register: zabbix_inventory_autoreg_retire
+  run_once: true
+  changed_when: true
+  failed_when: zabbix_inventory_autoreg_retire.json.error is defined
+  no_log: true
+
+- name: Reconcile exact Zabbix hosts, groups, interfaces, tags, and templates
+  ansible.builtin.include_tasks: inventory-host.yml
+  loop: "{{ zabbix_inventory_desired_hosts }}"
+  loop_control:
+    loop_var: zabbix_inventory_host
+  run_once: true
+  no_log: true
+
+- name: Reconcile expected-down maintenance with data collection
+  ansible.builtin.include_tasks: inventory-maintenance.yml
+  run_once: true
+  no_log: true
+
+- name: Query all Zabbix hosts marked as IaC-managed
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: host.get
+      params:
+        output:
+          - hostid
+          - host
+          - status
+        evaltype: 0
+        tags:
+          - tag: "{{ zabbix_inventory_managed_tag }}"
+            value: "{{ zabbix_inventory_managed_value }}"
+            operator: 1
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_managed_hosts
+  run_once: true
+  changed_when: false
+  failed_when: zabbix_inventory_managed_hosts.json.error is defined
+  no_log: true
+
+- name: Disable removed IaC-managed hosts without deleting history
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: host.update
+      params:
+        hostid: "{{ item.hostid }}"
+        status: 1
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: >-
+    {{ zabbix_inventory_managed_hosts.json.result | default([])
+       | rejectattr('host', 'in', zabbix_inventory_desired_hosts | map(attribute='host_name') | list)
+       | rejectattr('status', 'equalto', '1')
+       | list }}
+  register: zabbix_inventory_host_retire
+  run_once: true
+  changed_when: true
+  failed_when: zabbix_inventory_host_retire.json.error is defined
+  no_log: true

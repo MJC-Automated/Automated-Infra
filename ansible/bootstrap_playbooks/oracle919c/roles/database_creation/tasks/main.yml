@@ -64,6 +64,7 @@
   register: cdb_delete
   changed_when: cdb_delete.rc == 0
   failed_when: cdb_delete.rc != 0
+  no_log: true
   loop: "{{ oracle_cdbs_delete | default([]) }}"
   loop_control:
     index_var: cdb_delete_index
@@ -169,6 +170,159 @@
   tags: [oracle_db_creation, discovery]
 
 - name: DBCA | Check system datafile presence
+  ansible.builtin.stat:
+    path: "{{ item.cdb_data_dir | default(item.data_dir ~ '/' ~ (item.sid | upper), true) }}/system01.dbf"
+  register: cdb_systemfile
+  loop: "{{ oracle_cdbs }}"
+  tags: [oracle_db_creation, discovery]
+
+- name: DBCA | Check PMON before partial-build recovery
+  ansible.builtin.command:
+    argv:
+      - pgrep
+      - -f
+      - "ora_pmon_{{ item.sid }}$"
+  register: cdb_recovery_pmon
+  changed_when: false
+  failed_when: false
+  loop: "{{ oracle_cdbs }}"
+  tags: [oracle_db_creation, discovery]
+
+- name: DBCA | Check parameter files before partial-build recovery
+  ansible.builtin.shell: |
+    set -o pipefail
+    shopt -s nullglob
+    sid_lower="{{ item.sid | lower }}"
+    sid_upper="{{ item.sid | upper }}"
+    cdb_dir="{{ item.cdb_data_dir | default(item.data_dir ~ '/' ~ (item.sid | upper), true) }}"
+    candidates=(
+      "{{ oracle_home }}/dbs/init${sid_lower}.ora"
+      "{{ oracle_home }}/dbs/init${sid_upper}.ora"
+      "{{ oracle_home }}/dbs/spfile${sid_lower}.ora"
+      "{{ oracle_home }}/dbs/spfile${sid_upper}.ora"
+      "{{ oracle_base }}/dbs/init${sid_lower}.ora"
+      "{{ oracle_base }}/dbs/init${sid_upper}.ora"
+      "{{ oracle_base }}/dbs/spfile${sid_lower}.ora"
+      "{{ oracle_base }}/dbs/spfile${sid_upper}.ora"
+      "${cdb_dir}"/spfile*.ora
+    )
+    for candidate in "${candidates[@]}"; do
+      if [ -f "$candidate" ]; then
+        echo present
+        exit 0
+      fi
+    done
+    echo missing
+  args:
+    executable: /bin/bash
+  register: cdb_parameter_files
+  changed_when: false
+  loop: "{{ oracle_cdbs }}"
+  tags: [oracle_db_creation, discovery]
+
+- name: DBCA | Require approval to recover an interrupted partial build
+  ansible.builtin.assert:
+    that:
+      - oracle_allow_destructive | bool
+    fail_msg: >-
+      Interrupted DBCA state detected for {{ item.sid }}: control and system
+      datafiles exist, PMON is down, and no init/spfile exists. Set
+      oracle_allow_destructive=true to remove only this incomplete CDB and retry.
+  loop: "{{ oracle_cdbs }}"
+  loop_control:
+    index_var: cdb_index
+  when:
+    - cdb_controlfile.results[cdb_index].stat.exists
+    - cdb_systemfile.results[cdb_index].stat.exists
+    - cdb_recovery_pmon.results[cdb_index].rc != 0
+    - cdb_parameter_files.results[cdb_index].stdout | trim == 'missing'
+  tags: [oracle_db_creation, recovery]
+
+- name: DBCA | Remove interrupted partial CDB data directory
+  ansible.builtin.file:
+    path: "{{ item.cdb_data_dir | default(item.data_dir ~ '/' ~ (item.sid | upper), true) }}"
+    state: absent
+  loop: "{{ oracle_cdbs }}"
+  loop_control:
+    index_var: cdb_index
+  when:
+    - oracle_allow_destructive | bool
+    - cdb_controlfile.results[cdb_index].stat.exists
+    - cdb_systemfile.results[cdb_index].stat.exists
+    - cdb_recovery_pmon.results[cdb_index].rc != 0
+    - cdb_parameter_files.results[cdb_index].stdout | trim == 'missing'
+  tags: [oracle_db_creation, recovery]
+
+- name: DBCA | Remove interrupted partial CDB lock file
+  ansible.builtin.file:
+    path: "{{ oracle_home }}/dbs/lk{{ item.sid | upper }}"
+    state: absent
+  loop: "{{ oracle_cdbs }}"
+  loop_control:
+    index_var: cdb_index
+  when:
+    - oracle_allow_destructive | bool
+    - cdb_controlfile.results[cdb_index].stat.exists
+    - cdb_systemfile.results[cdb_index].stat.exists
+    - cdb_recovery_pmon.results[cdb_index].rc != 0
+    - cdb_parameter_files.results[cdb_index].stdout | trim == 'missing'
+  tags: [oracle_db_creation, recovery]
+
+- name: DBCA | Remove interrupted partial CDB health file
+  ansible.builtin.file:
+    path: "{{ oracle_home }}/dbs/hc_{{ item.sid | lower }}.dat"
+    state: absent
+  loop: "{{ oracle_cdbs }}"
+  loop_control:
+    index_var: cdb_index
+  when:
+    - oracle_allow_destructive | bool
+    - cdb_controlfile.results[cdb_index].stat.exists
+    - cdb_systemfile.results[cdb_index].stat.exists
+    - cdb_recovery_pmon.results[cdb_index].rc != 0
+    - cdb_parameter_files.results[cdb_index].stdout | trim == 'missing'
+  tags: [oracle_db_creation, recovery]
+
+- name: DBCA | Remove interrupted partial CDB password file
+  ansible.builtin.file:
+    path: "{{ oracle_home }}/dbs/orapw{{ item.sid | lower }}"
+    state: absent
+  loop: "{{ oracle_cdbs }}"
+  loop_control:
+    index_var: cdb_index
+  when:
+    - oracle_allow_destructive | bool
+    - cdb_controlfile.results[cdb_index].stat.exists
+    - cdb_systemfile.results[cdb_index].stat.exists
+    - cdb_recovery_pmon.results[cdb_index].rc != 0
+    - cdb_parameter_files.results[cdb_index].stdout | trim == 'missing'
+  tags: [oracle_db_creation, recovery]
+
+- name: DBCA | Remove interrupted partial CDB oratab entry
+  ansible.builtin.lineinfile:
+    path: /etc/oratab
+    regexp: "^{{ item.sid }}:"
+    state: absent
+    backup: false
+  loop: "{{ oracle_cdbs }}"
+  loop_control:
+    index_var: cdb_index
+  when:
+    - oracle_allow_destructive | bool
+    - cdb_controlfile.results[cdb_index].stat.exists
+    - cdb_systemfile.results[cdb_index].stat.exists
+    - cdb_recovery_pmon.results[cdb_index].rc != 0
+    - cdb_parameter_files.results[cdb_index].stdout | trim == 'missing'
+  tags: [oracle_db_creation, recovery]
+
+- name: DBCA | Recheck control file after partial-build recovery
+  ansible.builtin.stat:
+    path: "{{ item.cdb_data_dir | default(item.data_dir ~ '/' ~ (item.sid | upper), true) }}/control01.ctl"
+  register: cdb_controlfile
+  loop: "{{ oracle_cdbs }}"
+  tags: [oracle_db_creation, discovery]
+
+- name: DBCA | Recheck system datafile after partial-build recovery
   ansible.builtin.stat:
     path: "{{ item.cdb_data_dir | default(item.data_dir ~ '/' ~ (item.sid | upper), true) }}/system01.dbf"
   register: cdb_systemfile

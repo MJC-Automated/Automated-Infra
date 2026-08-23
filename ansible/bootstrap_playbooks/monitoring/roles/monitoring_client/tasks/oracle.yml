@@ -1,0 +1,369 @@
+---
+- name: Ensure Oracle monitoring configuration directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ monitoring_oracle_custom_query_dir }}"
+      owner: zabbix
+      group: zabbix
+      mode: "0750"
+    - path: /etc/systemd/system/zabbix-agent2.service.d
+      owner: root
+      group: root
+      mode: "0755"
+    - path: /var/lib/zabbix/oracle-monitoring
+      owner: root
+      group: root
+      mode: "0700"
+
+- name: Query Alloy supplementary groups
+  ansible.builtin.command:
+    argv:
+      - id
+      - -nG
+      - alloy
+  register: monitoring_alloy_groups
+  changed_when: false
+
+- name: Remove unsafe Oracle OSDBA membership from Alloy
+  ansible.builtin.command:
+    argv:
+      - gpasswd
+      - --delete
+      - alloy
+      - dba
+  when: "'dba' in monitoring_alloy_groups.stdout.split()"
+  changed_when: true
+  notify: Restart Grafana Alloy
+
+- name: Discover Oracle diagnostic directory hierarchy
+  ansible.builtin.find:
+    paths:
+      - /u01/app/oracle/diag/rdbms
+      - /u01/app/oracle/diag/tnslsnr
+    file_type: directory
+    recurse: true
+    hidden: true
+  register: monitoring_oracle_diag_directories
+
+- name: Discover allowlisted Oracle diagnostic logs
+  ansible.builtin.find:
+    paths:
+      - /u01/app/oracle/diag/rdbms
+      - /u01/app/oracle/diag/tnslsnr
+    file_type: file
+    patterns:
+      - alert_*.log
+      - listener.log
+    recurse: true
+    hidden: true
+  register: monitoring_oracle_diag_logs
+
+- name: Assert allowlisted Oracle diagnostic logs exist
+  ansible.builtin.assert:
+    that:
+      - monitoring_oracle_diag_logs.matched | int > 0
+    fail_msg: >-
+      No Oracle alert or listener logs were found below the tracked ADR paths.
+
+- name: Initialize exact Oracle log ACL model
+  ansible.builtin.set_fact:
+    monitoring_oracle_log_directories: >-
+      {{ monitoring_oracle_diag_logs.files
+         | map(attribute='path')
+         | map('dirname')
+         | unique
+         | sort }}
+    monitoring_oracle_log_traversal_directories: []
+
+- name: Derive execute-only Oracle log ancestors
+  vars:
+    monitoring_oracle_logs_below_directory: >-
+      {{ monitoring_oracle_diag_logs.files
+         | map(attribute='path')
+         | select('match', '^' ~ (item.path | regex_escape) ~ '/')
+         | list }}
+  ansible.builtin.set_fact:
+    monitoring_oracle_log_traversal_directories: >-
+      {{ monitoring_oracle_log_traversal_directories + [item.path] }}
+  loop: "{{ monitoring_oracle_diag_directories.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when:
+    - monitoring_oracle_logs_below_directory | length > 0
+    - item.path not in monitoring_oracle_log_directories
+
+- name: Add fixed Oracle diagnostic ancestors to exact ACL model
+  ansible.builtin.set_fact:
+    monitoring_oracle_log_traversal_directories: >-
+      {{ (['/u01', '/u01/app', '/u01/app/oracle', '/u01/app/oracle/diag']
+          + monitoring_oracle_log_traversal_directories)
+         | unique
+         | sort }}
+    monitoring_oracle_unrelated_diag_directories: >-
+      {{ monitoring_oracle_diag_directories.files
+         | map(attribute='path')
+         | difference(monitoring_oracle_log_traversal_directories)
+         | difference(monitoring_oracle_log_directories)
+         | sort }}
+
+- name: Remove stale Alloy ACLs from unrelated Oracle diagnostic directories
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    state: absent
+  loop: "{{ monitoring_oracle_unrelated_diag_directories }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Grant Alloy execute-only traversal to Oracle log ancestors
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: x
+    state: present
+  loop: "{{ monitoring_oracle_log_traversal_directories }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Grant Alloy list access only to allowlisted Oracle log directories
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: rx
+    state: present
+  loop: "{{ monitoring_oracle_log_directories }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Grant Alloy read access only to allowlisted Oracle logs
+  ansible.posix.acl:
+    path: "{{ item.path }}"
+    entity: alloy
+    etype: user
+    permissions: r
+    state: present
+  loop: "{{ monitoring_oracle_diag_logs.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  notify: Restart Grafana Alloy
+
+- name: Check Oracle monitoring password reconciliation markers
+  ansible.builtin.stat:
+    path: >-
+      /var/lib/zabbix/oracle-monitoring/{{ item.sid | lower }}.password.sha256
+  loop: "{{ monitoring_oracle_cdbs }}"
+  register: monitoring_oracle_password_markers
+
+- name: Read Oracle monitoring password reconciliation markers
+  ansible.builtin.slurp:
+    path: >-
+      /var/lib/zabbix/oracle-monitoring/{{ item.item.sid | lower }}.password.sha256
+  loop: "{{ monitoring_oracle_password_markers.results }}"
+  when: item.stat.exists
+  register: monitoring_oracle_password_marker_content
+  no_log: true
+
+- name: Reconcile license-safe Oracle monitoring user and grants
+  ansible.builtin.command:
+    argv:
+      - "{{ monitoring_oracle_home }}/bin/sqlplus"
+      - -s
+      - /
+      - as
+      - sysdba
+    stdin: "{{ lookup('ansible.builtin.template', 'oracle-monitor-user.sql.j2') }}"
+  become: true
+  become_user: "{{ monitoring_oracle_os_user }}"
+  environment:
+    ORACLE_HOME: "{{ monitoring_oracle_home }}"
+    ORACLE_SID: "{{ item.sid }}"
+    PATH: "{{ monitoring_oracle_home }}/bin:/usr/bin:/bin"
+  vars:
+    monitoring_oracle_password_hash: >-
+      {{ monitoring_oracle_password | hash('sha256') }}
+    monitoring_oracle_marker_record: >-
+      {{ monitoring_oracle_password_marker_content.results
+         | default([])
+         | selectattr('item.item.sid', 'defined')
+         | selectattr('item.item.sid', 'equalto', item.sid)
+         | selectattr('content', 'defined')
+         | list
+         | first
+         | default({}) }}
+    monitoring_oracle_password_reconcile: >-
+      {{ monitoring_oracle_marker_record.content | default('') | b64decode
+         | trim != monitoring_oracle_password_hash }}
+  loop: "{{ monitoring_oracle_cdbs }}"
+  register: monitoring_oracle_user_reconcile
+  failed_when: false
+  changed_when: >-
+    'MONITORING_USER_CREATED' in monitoring_oracle_user_reconcile.stdout or
+    'MONITORING_PASSWORD_RECONCILED' in monitoring_oracle_user_reconcile.stdout
+  no_log: true
+
+- name: Extract non-secret Oracle reconciliation error codes
+  ansible.builtin.set_fact:
+    monitoring_oracle_reconcile_error_codes: >-
+      {{ monitoring_oracle_user_reconcile.results
+         | map(attribute='stdout', default='')
+         | join('\n')
+         | regex_findall('(?:ORA|SP2)-[0-9]+')
+         | unique
+         | list }}
+  changed_when: false
+
+- name: Assert Oracle monitoring user reconciliation succeeded
+  ansible.builtin.assert:
+    that:
+      - >-
+        monitoring_oracle_user_reconcile.results
+        | selectattr('rc', 'ne', 0)
+        | list
+        | length == 0
+    fail_msg: >-
+      Oracle monitoring-user reconciliation failed with non-secret error codes:
+      {{ monitoring_oracle_reconcile_error_codes | default(['unclassified']) }}
+
+- name: Persist Oracle monitoring password reconciliation markers
+  ansible.builtin.copy:
+    content: "{{ monitoring_oracle_password | hash('sha256') }}\n"
+    dest: >-
+      /var/lib/zabbix/oracle-monitoring/{{ item.sid | lower }}.password.sha256
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ monitoring_oracle_cdbs }}"
+  no_log: true
+
+- name: Render license-safe Oracle session query
+  ansible.builtin.template:
+    src: oracle-sessions-safe.sql.j2
+    dest: "{{ monitoring_oracle_custom_query_dir }}/sessions_safe.sql"
+    owner: zabbix
+    group: zabbix
+    mode: "0640"
+  notify: Restart Zabbix Agent 2
+
+- name: Render named Oracle Agent 2 sessions
+  ansible.builtin.template:
+    src: oracle-agent2.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.d/91-iac-oracle.conf
+    owner: root
+    group: zabbix
+    mode: "0640"
+  notify: Restart Zabbix Agent 2
+  no_log: true
+
+- name: Configure Oracle client library for Agent 2
+  ansible.builtin.template:
+    src: zabbix-agent2-oracle.conf.j2
+    dest: /etc/systemd/system/zabbix-agent2.service.d/oracle.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Zabbix Agent 2
+
+- name: Remove the obsolete Alloy-nested Oracle metric handoff
+  ansible.builtin.file:
+    path: /var/lib/alloy/textfile
+    state: absent
+
+- name: Ensure the Alloy Oracle textfile directory exists
+  ansible.builtin.file:
+    path: "{{ monitoring_oracle_metrics_directory }}"
+    state: directory
+    owner: "{{ monitoring_oracle_os_user }}"
+    group: alloy
+    mode: "0750"
+
+- name: Render license-safe Oracle Prometheus metric collector
+  ansible.builtin.template:
+    src: oracle-prometheus-metrics.sh.j2
+    dest: "{{ monitoring_oracle_metrics_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  register: monitoring_oracle_metrics_script_asset
+
+- name: Render Oracle Prometheus metric systemd units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: oracle-metrics.service.j2
+      dest: "{{ monitoring_oracle_metrics_service }}"
+    - src: oracle-metrics.timer.j2
+      dest: "{{ monitoring_oracle_metrics_timer }}"
+  register: monitoring_oracle_metrics_unit_assets
+
+- name: Reload systemd after Oracle metric collector changes
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: >-
+    monitoring_oracle_metrics_script_asset.changed or
+    monitoring_oracle_metrics_unit_assets.results
+    | selectattr('changed')
+    | list
+    | length > 0
+
+- name: Enable the Oracle metric collection timer
+  ansible.builtin.systemd:
+    name: "{{ monitoring_oracle_metrics_timer }}"
+    enabled: true
+    state: started
+
+- name: Inspect the current Oracle Prometheus metric snapshot
+  ansible.builtin.stat:
+    path: "{{ monitoring_oracle_metrics_file }}"
+  register: monitoring_oracle_metrics_snapshot
+
+- name: Generate the initial Oracle Prometheus metric snapshot
+  ansible.builtin.systemd:
+    name: "{{ monitoring_oracle_metrics_service }}"
+    state: started
+  when: >-
+    monitoring_oracle_metrics_script_asset.changed or
+    monitoring_oracle_metrics_unit_assets.results
+    | selectattr('changed')
+    | list
+    | length > 0 or
+    not monitoring_oracle_metrics_snapshot.stat.exists
+
+- name: Verify the Oracle Prometheus metric snapshot is non-secret
+  ansible.builtin.shell: |
+    set -euo pipefail
+    test -s {{ monitoring_oracle_metrics_file | quote }}
+    grep -q '^iac_oracle_cdb_up{' {{ monitoring_oracle_metrics_file | quote }}
+    if grep -Eis 'password|credential|connect[[:space:]]+[^/]|V[$]ACTIVE_SESSION_HISTORY|DBA_HIST|(^|[^A-Z])AWR([^A-Z]|$)' \
+      {{ monitoring_oracle_metrics_file | quote }}; then
+      echo "Sensitive or forbidden content found in Oracle metric snapshot" >&2
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Prove Oracle monitoring files exclude licensed query families
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if grep -Eis 'V[$]ACTIVE_SESSION_HISTORY|DBA_HIST|(^|[^A-Z])AWR([^A-Z]|$)' \
+      /etc/zabbix/zabbix_agent2.d/91-iac-oracle.conf \
+      {{ monitoring_oracle_custom_query_dir }}/sessions_safe.sql \
+      {{ monitoring_oracle_metrics_script }}; then
+      echo "Forbidden Oracle query family found" >&2
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false

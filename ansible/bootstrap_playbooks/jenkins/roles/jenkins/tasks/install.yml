@@ -91,11 +91,33 @@
     mode: "0644"
   when: jenkins_package_path | length == 0
 
-- name: Add Jenkins repository source list
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] {{ jenkins_repo_url }} binary/"
+- name: Install Jenkins apt helper packages
+  ansible.builtin.apt:
+    name:
+      - python3-debian
     state: present
-    filename: jenkins
+    update_cache: true
+  register: jenkins_deb822_helper_install
+  until: jenkins_deb822_helper_install is succeeded
+  retries: 3
+  delay: 10
+  when: jenkins_package_path | length == 0
+
+- name: Add Jenkins repository source list
+  ansible.builtin.deb822_repository:
+    name: jenkins
+    types: [deb]
+    uris: "{{ jenkins_repo_url }}"
+    suites: binary
+    components: ['']
+    signed_by: /usr/share/keyrings/jenkins-keyring.gpg
+    state: present
+  when: jenkins_package_path | length == 0
+
+- name: Remove legacy Jenkins apt_repository list file
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/jenkins.list
+    state: absent
   when: jenkins_package_path | length == 0
 
 - name: Install Jenkins LTS package

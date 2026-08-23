@@ -124,13 +124,17 @@
               zimbra_dotenv.get('ZIMBRA_FIREWALL_ALLOWED_PORTS', '')
               | trim
               | length
-            )
+              )
             | ternary(
                 zimbra_dotenv.get('ZIMBRA_FIREWALL_ALLOWED_PORTS', '').split(',')
                 | map('trim')
                 | reject('equalto', '')
                 | list,
-                zimbra_firewall_allowed_ports
+                zimbra_firewall_base_ports
+                + zimbra_firewall_web_ports_by_mode[
+                    zimbra_dotenv.ZIMBRA_SERVICE_MODE
+                    | default(zimbra_service_mode, true)
+                  ]
               )
           }}
         zimbra_required_packages: >-

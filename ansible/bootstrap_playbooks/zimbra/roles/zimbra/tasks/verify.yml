@@ -109,6 +109,69 @@
   delay: 20
   until: zimbra_status_after.rc == 0
 
+- name: Read effective Zimbra reverse-proxy web mode
+  ansible.builtin.command:
+    argv:
+      - su
+      - "-"
+      - zimbra
+      - -c
+      - >-
+        host=$(zmhostname);
+        zmprov gs "$host" zimbraReverseProxyMailMode
+  register: zimbra_reverse_proxy_mode
+  changed_when: false
+
+- name: Reconcile effective Zimbra web mode
+  ansible.builtin.command:
+    argv:
+      - su
+      - "-"
+      - zimbra
+      - -c
+      - "/opt/zimbra/bin/zmtlsctl {{ zimbra_service_mode }}"
+  register: zimbra_tls_mode_update
+  changed_when: true
+  notify: Restart Zimbra services
+  when: >-
+    'zimbraReverseProxyMailMode: ' ~ zimbra_service_mode
+    not in zimbra_reverse_proxy_mode.stdout
+
+- name: Apply pending Zimbra web-mode handler
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Zimbra status after web-mode reconciliation
+  ansible.builtin.command: su - zimbra -c "zmcontrol status"
+  register: zimbra_status_final
+  changed_when: false
+  retries: 12
+  delay: 20
+  until: zimbra_status_final.rc == 0
+
+- name: Verify effective Zimbra reverse-proxy web mode
+  ansible.builtin.command:
+    argv:
+      - su
+      - "-"
+      - zimbra
+      - -c
+      - >-
+        host=$(zmhostname);
+        zmprov gs "$host" zimbraReverseProxyMailMode
+  register: zimbra_reverse_proxy_mode_final
+  changed_when: false
+  failed_when: >-
+    'zimbraReverseProxyMailMode: ' ~ zimbra_service_mode
+    not in zimbra_reverse_proxy_mode_final.stdout
+
+- name: Wait for selected Zimbra web listeners
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ item | regex_replace('/tcp$', '') | int }}"
+    state: started
+    timeout: "{{ zimbra_verify_timeout }}"
+  loop: "{{ zimbra_firewall_web_ports_by_mode[zimbra_service_mode] }}"
+
 - name: Read default domain from Zimbra config
   ansible.builtin.command: su - zimbra -c "zmprov gacf zimbraDefaultDomainName"
   register: zimbra_default_domain
@@ -121,4 +184,5 @@
       - "Zimbra hostname: {{ zimbra_hostname }}"
       - "Zimbra admin account: {{ zimbra_admin_email }}"
       - "Zimbra default domain output: {{ zimbra_default_domain.stdout | default('unavailable') }}"
-      - "Status command: {{ zimbra_status_after.stdout_lines | default([]) }}"
+      - "Web mode: {{ zimbra_service_mode }}"
+      - "Status command: {{ zimbra_status_final.stdout_lines | default([]) }}"

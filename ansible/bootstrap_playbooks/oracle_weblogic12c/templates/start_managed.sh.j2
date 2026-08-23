@@ -21,6 +21,19 @@ echo "INFO: Admin URL: {{ wlst_admin_url | default(admin_url) }}"
 
 cd "{{ wlst_domain_home | default(domain_home) }}/bin" || { echo "ERROR: Could not change to domain bin directory."; exit 1; }
 
-exec ./startManagedWebLogic.sh "{{ managed_server_name }}" "{{ wlst_admin_url | default(admin_url) }}" > "{{ managed_server_logs_dir }}/startManaged_{{ managed_server_name }}_$TIME.log" 2>&1
+START_LOG="{{ managed_server_logs_dir }}/startManaged_{{ managed_server_name }}_$TIME.log"
+LISTEN_PORT={{ managed_server_listen_port }}
+START_TIMEOUT={{ managed_server_start_timeout_seconds | default(600) }}
 
-echo "INFO: Managed Server start command issued."
+nohup ./startManagedWebLogic.sh "{{ managed_server_name }}" "{{ wlst_admin_url | default(admin_url) }}" > "$START_LOG" 2>&1 &
+
+for ((elapsed = 0; elapsed < START_TIMEOUT; elapsed += 5)); do
+  if /usr/sbin/ss -H -lnt "sport = :$LISTEN_PORT" | /usr/bin/grep -q LISTEN; then
+    echo "INFO: Managed server {{ managed_server_name }} is listening on port $LISTEN_PORT."
+    exit 0
+  fi
+  /usr/bin/sleep 5
+done
+
+echo "ERROR: Managed server {{ managed_server_name }} did not listen on port $LISTEN_PORT within ${START_TIMEOUT}s." >&2
+exit 1

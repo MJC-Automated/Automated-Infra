@@ -116,6 +116,13 @@
   when: oracle_ru_enabled | bool
   tags: [oracle_install, oracle_patch]
 
+- name: PATCH | Check extracted RU apply directory before staging archive
+  ansible.builtin.stat:
+    path: "{{ oracle_ru_patch_apply_dir }}"
+  register: oracle_ru_apply_dir_pre_stage
+  when: oracle_ru_enabled | bool
+  tags: [oracle_install, oracle_patch]
+
 - name: PATCH | Copy RU patch zip to stage
   ansible.builtin.copy:
     src: "/resources/{{ oracle_ru_patch_zip_filename }}"
@@ -123,7 +130,9 @@
     owner: "{{ oracle_user }}"
     group: "{{ oracle_group_inventory }}"
     mode: "0644"
-  when: oracle_ru_enabled | bool
+  when:
+    - oracle_ru_enabled | bool
+    - not oracle_ru_apply_dir_pre_stage.stat.exists
   tags: [oracle_install, oracle_patch]
 
 - name: PATCH | Unzip RU patch before installer
@@ -134,7 +143,9 @@
     owner: "{{ oracle_user }}"
     group: "{{ oracle_group_inventory }}"
     creates: "{{ oracle_ru_patch_apply_dir }}"
-  when: oracle_ru_enabled | bool
+  when:
+    - oracle_ru_enabled | bool
+    - not oracle_ru_apply_dir_pre_stage.stat.exists
   tags: [oracle_install, oracle_patch]
 
 - name: PATCH | Verify installer RU apply directory
@@ -154,16 +165,6 @@
       {{ oracle_ru_patch_zip_filename }}. Set ORACLE_RU_PATCH_APPLY_DIR to the DB RU
       directory inside the extracted patch bundle.
   when: oracle_ru_enabled | bool
-  tags: [oracle_install, oracle_patch]
-
-- name: PATCH | Copy OPatch zip to stage when provided
-  ansible.builtin.copy:
-    src: "/resources/{{ oracle_opatch_zip_filename }}"
-    dest: "{{ oracle_stage_dir }}/{{ oracle_opatch_zip_filename }}"
-    owner: "{{ oracle_user }}"
-    group: "{{ oracle_group_inventory }}"
-    mode: "0644"
-  when: oracle_opatch_enabled | bool
   tags: [oracle_install, oracle_patch]
 
 - name: PATCH | Read OPatch version from provided zip
@@ -202,6 +203,21 @@
   changed_when: false
   failed_when: false
   when: oracle_opatch_enabled | bool
+  tags: [oracle_install, oracle_patch]
+
+- name: PATCH | Copy OPatch zip to stage when upgrade is required
+  ansible.builtin.copy:
+    src: "/resources/{{ oracle_opatch_zip_filename }}"
+    dest: "{{ oracle_stage_dir }}/{{ oracle_opatch_zip_filename }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group_inventory }}"
+    mode: "0644"
+  when:
+    - oracle_opatch_enabled | bool
+    - >-
+      (oracle_opatch_installed_version.stdout | default('', true) | trim | length == 0)
+      or
+      (oracle_opatch_installed_version.stdout | trim is version(oracle_opatch_zip_version.stdout | trim, '<'))
   tags: [oracle_install, oracle_patch]
 
 - name: PATCH | Install latest OPatch into ORACLE_HOME when provided

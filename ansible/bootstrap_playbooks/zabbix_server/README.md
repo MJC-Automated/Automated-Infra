@@ -80,6 +80,7 @@ Important keys:
 - `ZABBIX_BACKUP_SCHEDULE_HOUR=2`
 - `ZABBIX_BACKUP_SCHEDULE_MINUTE=15`
 - `ZABBIX_BACKUP_REQUIRE_MOUNT=true|false`
+- `ZABBIX_BACKUP_LOG_ROTATE_COUNT=12`
 
 ## Backup and Retention Policy
 
@@ -91,6 +92,10 @@ and a daily cron job. The script:
 - Compresses older dumps into `archive/` as `.sql.gz`.
 - Keeps only the latest `6` archived dumps.
 - Enforces a global max of `7` total backups (raw + archived).
+- Creates dumps atomically with owner-only permissions, repairs retained dump
+  ownership/modes, and removes partial dumps after failure.
+- Rejects overlapping executions with a per-backup-directory `flock` lock.
+- Rotates the root-only cron log weekly, keeping `12` compressed rotations.
 
 Default path is `/var/backups/zabbix-data`, but you can point this to a custom
 mount point with `ZABBIX_BACKUP_MOUNT_POINT` and/or `ZABBIX_BACKUP_DIR`.
@@ -122,6 +127,29 @@ Add your hosts to `zabbix_servers` in:
 
 - `inventories/aliases.ini`
 - and ensure real host definitions exist in `inventories/<env>/inventory.ini`
+
+Inventory-derived web scenarios and their `IaC service unavailable` triggers
+are an exact managed set. A central run first proves that its inventory contains
+the declared authoritative environment union, then disables IaC-managed web
+objects that are no longer desired. Disabling preserves history while stopping
+obsolete probes and alerts; reintroducing an endpoint enables and reconciles
+the same object. Set `zabbix_web_retire_absent_enabled=false` only for an
+intentional partial-inventory run, which leaves absent objects untouched.
+
+Setting `zabbix_web_monitoring_enabled=false` is also an active reconciliation
+state: the role builds an empty desired web model and disables every managed
+scenario and outage trigger after the same authoritative-union guard. It does
+not bypass retirement. Inventory service leaves are retained when only
+`monitoring_expected_up` changes; their IDs remain stable while `expected_up`
+and `sla_scope` tags move them into or out of the environment SLA. A leaf is
+deleted only when its source endpoint or logical Oracle/WebLogic host is absent
+from authoritative desired state.
+
+On UFW hosts, reconciliation removes both the historical unqualified
+`allow 10050/tcp` rule and the historical broad-CIDR form before adding the
+exact Zabbix-server source. On Oracle Linux, reporting defaults off because the
+Zabbix Web Service/browser automation is Ubuntu-only; enable it explicitly
+only on a supported Ubuntu server.
 
 ## Usage
 
@@ -161,3 +189,35 @@ Package/repository commands are aligned with Zabbix official 7.0 package instruc
 
 - Ubuntu 24.04 + PostgreSQL + Apache
 - Oracle Linux 9 + PostgreSQL + Apache
+
+### Scheduled reports
+
+The role installs and validates the Zabbix Web Service and pinned Chrome
+runtime needed for PDF reports. To reconcile daily or weekday reports, enable
+`zabbix_scheduled_reports_enabled` and define
+`zabbix_scheduled_reports` in environment group vars. Each entry follows the
+Zabbix 7 `report.create` shape (`name`, `dashboardid`, `period`, `cycle`,
+`start_time`, `weekdays`, `subject`, `message`, and `users`). Report names are
+looked up before create/update, and configured reports are reconciled with API
+status `0` (enabled). Keep recipient user IDs and dashboard IDs
+environment-specific; do not hard-code them in the role.
+
+Managed report names must begin with `zabbix_scheduled_report_name_prefix`
+(default `"IaC "` including the trailing space). Reports under that namespace but absent from the desired set
+are disabled, including when scheduled reporting is turned off. Every report,
+host-retirement, and recipient-media API write fails the play on a JSON-RPC
+`error`, even when Zabbix returns HTTP 200. The SMTP media stays enabled for
+scheduled reports and explicit media tests; the
+`zabbix_email_trigger_notifications_enabled` switch controls the trigger
+action, which prevents Alertmanager-owner mode from breaking reports.
+The guarded acceptance message is submitted to the local Zabbix server with
+the reconciled media-type ID through its `alert.send` media-test protocol. It
+does not open a separate controller-managed SMTP connection, so the test
+exercises the media type's configured transport security, HELO,
+authentication, and certificate-verification behavior.
+
+Disabling `zabbix_java_gateway_enabled` or `zabbix_reporting_enabled` is an
+active lifecycle transition: an installed optional service is stopped and
+disabled, and its active Zabbix server directives are removed. Packages and
+the pinned browser remain installed so a later enable can converge without a
+separate restore workflow.

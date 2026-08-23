@@ -13,11 +13,21 @@
       changed_when: false
 
     - name: Create Zabbix DB role (internal)
-      ansible.builtin.shell: >-
-        sudo -u postgres psql -v ON_ERROR_STOP=1 -c
-        "CREATE USER \"{{ zabbix_db_user }}\" WITH PASSWORD '{{ zabbix_db_password }}';"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        sudo -u postgres env \
+          ZABBIX_DB_USER="${ZABBIX_DB_USER}" \
+          ZABBIX_DB_PASSWORD="${ZABBIX_DB_PASSWORD}" \
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+        \getenv zuser ZABBIX_DB_USER
+        \getenv zpass ZABBIX_DB_PASSWORD
+        CREATE USER :"zuser" WITH PASSWORD :'zpass';
+        SQL
       args:
         executable: /bin/bash
+      environment:
+        ZABBIX_DB_USER: "{{ zabbix_db_user }}"
+        ZABBIX_DB_PASSWORD: "{{ zabbix_db_password }}"
       when: (zabbix_internal_role.stdout | trim) != '1'
       changed_when: true
       no_log: true
@@ -57,13 +67,20 @@
       no_log: true
 
     - name: Create Zabbix DB role (external)
-      ansible.builtin.shell: >-
-        psql -h {{ zabbix_db_host }} -p {{ zabbix_db_port }} -U {{ zabbix_db_admin_user }} -d postgres
-        -v ON_ERROR_STOP=1 -c "CREATE USER \"{{ zabbix_db_user }}\" WITH PASSWORD '{{ zabbix_db_password }}';"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        psql -h "{{ zabbix_db_host }}" -p "{{ zabbix_db_port }}" -U "{{ zabbix_db_admin_user }}" -d postgres \
+          -v ON_ERROR_STOP=1 <<'SQL'
+        \getenv zuser ZABBIX_DB_USER
+        \getenv zpass ZABBIX_DB_PASSWORD
+        CREATE USER :"zuser" WITH PASSWORD :'zpass';
+        SQL
       args:
         executable: /bin/bash
       environment:
         PGPASSWORD: "{{ zabbix_db_admin_password }}"
+        ZABBIX_DB_USER: "{{ zabbix_db_user }}"
+        ZABBIX_DB_PASSWORD: "{{ zabbix_db_password }}"
       when: (zabbix_external_role.stdout | trim) != '1'
       changed_when: true
       no_log: true

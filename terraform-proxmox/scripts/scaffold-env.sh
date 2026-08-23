@@ -15,6 +15,7 @@ ANSIBLE_HOST="${ANSIBLE_HOST:-}"
 NETWORK_CIDR="${NETWORK_CIDR:-}"
 NETWORK_GW="${NETWORK_GW:-}"
 NETWORK_BRIDGE="${NETWORK_BRIDGE:-}"
+NETWORK_VLAN="${NETWORK_VLAN:-0}"
 STORAGE_POOL="${STORAGE_POOL:-}"
 DATA_STORAGE="${DATA_STORAGE:-}"
 BASE_VM_OS_STORAGE="${BASE_VM_OS_STORAGE:-}"
@@ -51,6 +52,7 @@ Options:
   --network-cidr <cidr>  CIDR used to rewrite ipconfig0 IP/prefix (optional).
   --network-gw <ip>      Gateway used to rewrite ipconfig0 gw= (optional).
   --network-bridge <br>  Terraform network_bridge value (optional).
+  --network-vlan <id>    VLAN ID (1-4094) for primary NICs; 0 leaves them untagged.
   --storage-pool <name>  Terraform storage_pool value (optional).
   --data-storage <name>  Terraform data_disk_defaults.storage value (optional).
   --auto-discover        Discover node/storage/network defaults from Proxmox over SSH.
@@ -59,7 +61,7 @@ Options:
 
 Environment variable equivalents are also supported:
   ENVIRONMENT, TEMPLATE_ENV, PROXMOX_HOST, PROXMOX_USER, PROXMOX_NODE, ANSIBLE_HOST, NETWORK_CIDR, NETWORK_GW
-  NETWORK_BRIDGE, STORAGE_POOL, DATA_STORAGE, BASE_VM_OS_STORAGE, BASE_VM_DATA_STORAGE
+  NETWORK_BRIDGE, NETWORK_VLAN, STORAGE_POOL, DATA_STORAGE, BASE_VM_VLAN, BASE_VM_OS_STORAGE, BASE_VM_DATA_STORAGE
   BASE_VM_EFI_STORAGE, BASE_VM_CI_STORAGE, BASE_VM_SNIPPET_STORAGE, AUTO_DISCOVER
 EOF
 }
@@ -100,6 +102,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --network-bridge)
       NETWORK_BRIDGE="${2:-}"
+      shift 2
+      ;;
+    --network-vlan)
+      NETWORK_VLAN="${2:-}"
       shift 2
       ;;
     --storage-pool)
@@ -268,6 +274,30 @@ set_string_tfvar() {
   mv "${tmp}" "${file}"
 }
 
+set_number_tfvar() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local tmp
+
+  tmp="$(mktemp)"
+  awk -v tf_key="${key}" -v tf_value="${value}" '
+    BEGIN { updated = 0 }
+    $0 ~ "^[[:space:]]*" tf_key "[[:space:]]*=" {
+      print tf_key " = " tf_value
+      updated = 1
+      next
+    }
+    { print }
+    END {
+      if (updated == 0) {
+        print tf_key " = " tf_value
+      }
+    }
+  ' "${file}" > "${tmp}"
+  mv "${tmp}" "${file}"
+}
+
 derive_network_cidr_from_host_cidr() {
   local host_cidr="$1"
   local host_ip prefix
@@ -332,6 +362,11 @@ if [[ ! "${ENVIRONMENT}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   exit 1
 fi
 
+if ! [[ "${NETWORK_VLAN}" =~ ^[0-9]+$ ]] || (( NETWORK_VLAN > 4094 )); then
+  echo "Error: NETWORK_VLAN must be 0 (untagged) or an integer VLAN ID from 1 through 4094." >&2
+  exit 1
+fi
+
 template_tfvars="${REPO_ROOT}/environments/${TEMPLATE_ENV}.tfvars"
 target_tfvars="${REPO_ROOT}/environments/${ENVIRONMENT}.tfvars"
 bootstrap_env="${REPO_ROOT}/environments/${ENVIRONMENT}.bootstrap.env"
@@ -374,6 +409,7 @@ if [[ -n "${NETWORK_BRIDGE}" ]]; then
   bridge_escaped="$(escape_sed_repl "${NETWORK_BRIDGE}")"
   sed -i -E "s#^(network_bridge[[:space:]]*=[[:space:]]*\").*(\"[[:space:]]*)\$#\\1${bridge_escaped}\\2#" "${target_tfvars}"
 fi
+set_number_tfvar "${target_tfvars}" "network_vlan" "${NETWORK_VLAN}"
 if [[ -n "${STORAGE_POOL}" ]]; then
   storage_escaped="$(escape_sed_repl "${STORAGE_POOL}")"
   sed -i -E "s#^(storage_pool[[:space:]]*=[[:space:]]*\").*(\"[[:space:]]*)\$#\\1${storage_escaped}\\2#" "${target_tfvars}"
@@ -481,6 +517,12 @@ fi
 if [[ -n "${NETWORK_GW}" ]]; then
   upsert_env_key "${env_file}" "NETWORK_GW_${env_upper}" "${NETWORK_GW}"
 fi
+if [[ -n "${NETWORK_BRIDGE}" ]]; then
+  upsert_env_key "${env_file}" "NETWORK_BRIDGE_${env_upper}" "${NETWORK_BRIDGE}"
+fi
+if [[ -n "${NETWORK_VLAN}" ]]; then
+  upsert_env_key "${env_file}" "NETWORK_VLAN_${env_upper}" "${NETWORK_VLAN}"
+fi
 if [[ -n "${STORAGE_POOL}" ]]; then
   upsert_env_key "${env_file}" "STORAGE_POOL_${env_upper}" "${STORAGE_POOL}"
 fi
@@ -503,12 +545,14 @@ fi
   echo "NETWORK_CIDR=${NETWORK_CIDR:-CHANGE_ME_NETWORK_CIDR}"
   echo "NETWORK_GW=${NETWORK_GW:-CHANGE_ME_NETWORK_GW}"
   echo "NETWORK_BRIDGE=${NETWORK_BRIDGE:-vmbr0}"
+  echo "NETWORK_VLAN=${NETWORK_VLAN:-0}"
   echo "STORAGE_POOL=${STORAGE_POOL:-local-lvm}"
   echo "DATA_STORAGE=${DATA_STORAGE:-${STORAGE_POOL:-local-lvm}}"
   echo "VAULT_LAN_IP=${ANSIBLE_HOST:-CHANGE_ME_ANSIBLE_HOST}"
   echo "VAULT_LAN_HOST=${ANSIBLE_HOST:-CHANGE_ME_ANSIBLE_HOST}"
   echo
   echo "BASE_VM_BRIDGE=${NETWORK_BRIDGE:-vmbr0}"
+  echo "BASE_VM_VLAN=${BASE_VM_VLAN:-${NETWORK_VLAN:-0}}"
   echo "AUTO_DOWNLOAD_IMAGE=true"
   echo "BASE_VM_IPCIDR=dhcp"
   echo "BASE_VM_GATEWAY=${NETWORK_GW:-}"

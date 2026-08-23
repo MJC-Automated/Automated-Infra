@@ -24,10 +24,110 @@
     username: "{{ zabbix_email_smtp_username if zabbix_email_smtp_authentication | bool else omit }}"
     password: "{{ zabbix_email_smtp_password if zabbix_email_smtp_authentication | bool else omit }}"
     message_format: html
+    # Scheduled reports and one-shot media tests share this media type. Keep it
+    # available and apply the paging-owner flag to the trigger action below.
     status: enabled
     state: present
   run_once: true
   no_log: true
+  tags: [alerts]
+
+- name: Resolve configured SMTP media type ID
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: mediatype.get
+      params:
+        output:
+          - mediatypeid
+        filter:
+          name:
+            - "{{ zabbix_email_media_type_name }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_email_media_type_lookup
+  run_once: true
+  changed_when: false
+  failed_when: >-
+    zabbix_email_media_type_lookup.json.error is defined or
+    zabbix_email_media_type_lookup.json.result | default([]) | length != 1
+  no_log: true
+  tags: [alerts]
+
+- name: Resolve Zabbix alert recipient users and existing media
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: user.get
+      params:
+        output:
+          - userid
+          - username
+        selectMedias: extend
+        filter:
+          username: "{{ zabbix_email_recipient_users }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_email_recipient_lookup
+  run_once: true
+  changed_when: false
+  failed_when: >-
+    zabbix_email_recipient_lookup.json.error is defined or
+    zabbix_email_recipient_lookup.json.result | default([]) | length
+    != zabbix_email_recipient_users | length
+  no_log: true
+  tags: [alerts]
+
+- name: Configure exact IaC SMTP media on recipient users
+  vars:
+    zabbix_current_iac_media: >-
+      {{ item.medias | default([])
+         | selectattr('mediatypeid', 'equalto', zabbix_email_media_type_lookup.json.result[0].mediatypeid)
+         | list }}
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: user.update
+      params:
+        userid: "{{ item.userid }}"
+        medias: >-
+          {{ item.medias
+             | default([])
+             | rejectattr('mediatypeid', 'equalto', zabbix_email_media_type_lookup.json.result[0].mediatypeid)
+             | list
+             + [{
+               'mediatypeid': zabbix_email_media_type_lookup.json.result[0].mediatypeid,
+               'sendto': [zabbix_email_recipient_address],
+               'active': 0,
+               'severity': 63,
+               'period': '1-7,00:00-24:00'
+             }] }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: "{{ zabbix_email_recipient_lookup.json.result }}"
+  register: zabbix_email_recipient_media_update
+  run_once: true
+  changed_when: true
+  when: >-
+    zabbix_current_iac_media | length != 1 or
+    zabbix_current_iac_media[0].sendto | default([]) != [zabbix_email_recipient_address] or
+    zabbix_current_iac_media[0].active | default(1) | string != '0' or
+    zabbix_current_iac_media[0].severity | default(0) | string != '63' or
+    zabbix_current_iac_media[0].period | default('') != '1-7,00:00-24:00'
+  no_log: true
+  failed_when: zabbix_email_recipient_media_update.json.error is defined
   tags: [alerts]
 
 - name: Configure trigger email action
@@ -45,8 +145,11 @@
     name: "{{ zabbix_email_action_name }}"
     event_source: trigger
     state: present
-    status: enabled
+    status: >-
+      {{ zabbix_email_trigger_notifications_enabled | bool
+         | ternary('enabled', 'disabled') }}
     esc_period: 1h
+    pause_in_maintenance: true
     conditions:
       - type: trigger_severity
         operator: ">="
@@ -62,3 +165,59 @@
   run_once: true
   no_log: true
   tags: [alerts]
+
+- name: Send the single Zabbix media-type acceptance message
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "-"
+    stdin: |
+      import json
+      import socket
+      import struct
+
+      def read_exact(sock, length):
+          chunks = []
+          remaining = length
+          while remaining:
+              chunk = sock.recv(remaining)
+              if not chunk:
+                  raise RuntimeError("Zabbix server closed the media-test connection.")
+              chunks.append(chunk)
+              remaining -= len(chunk)
+          return b"".join(chunks)
+
+      request = {
+          "request": "alert.send",
+          "sid": {{ zabbix_reconciled_login.json.result | to_json }},
+          "data": {
+              "mediatypeid": {{ zabbix_email_media_type_lookup.json.result[0].mediatypeid | to_json }},
+              "sendto": {{ zabbix_email_test_recipient | to_json }},
+              "subject": "IaC Zabbix SMTP Acceptance Test",
+              "message": "Timestamped Zabbix media-type acceptance test from homelab."
+          }
+      }
+      payload = json.dumps(request, separators=(",", ":")).encode("utf-8")
+
+      with socket.create_connection(("127.0.0.1", {{ zabbix_server_port | int }}), timeout=10) as sock:
+          sock.settimeout(60)
+          sock.sendall(b"ZBXD\x01" + struct.pack("<Q", len(payload)) + payload)
+          header = read_exact(sock, 13)
+          if header[:5] != b"ZBXD\x01":
+              raise RuntimeError("Invalid Zabbix media-test response header.")
+          response_length = struct.unpack("<Q", header[5:])[0]
+          if response_length > 1048576:
+              raise RuntimeError("Zabbix media-test response exceeded 1 MiB.")
+          response = json.loads(read_exact(sock, response_length).decode("utf-8"))
+
+      if response.get("response") != "success":
+          raise RuntimeError(response.get("info", "Zabbix media-type test failed."))
+      print("Zabbix media-type test successful.")
+  when:
+    - monitoring_send_test_alerts | default(false) | bool
+    - monitoring_test_alerts_confirm | default('') == 'SEND_EXACTLY_TWO'
+  register: zabbix_email_test_result
+  run_once: true
+  changed_when: true
+  no_log: true
+  tags: [alerts, test_alerts]

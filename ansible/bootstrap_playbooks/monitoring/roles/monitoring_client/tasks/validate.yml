@@ -1,0 +1,73 @@
+---
+- name: Validate supported monitoring client platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture in ['x86_64', 'amd64']
+      - ansible_facts.distribution in monitoring_supported_platforms
+      - >-
+        ansible_facts.distribution_major_version | string
+        in monitoring_supported_platforms.get(ansible_facts.distribution, [])
+    fail_msg: >-
+      Monitoring clients support x86_64 Ubuntu 24.04 and Oracle Linux 8/9.
+      Refusing to install a repository package for unsupported platform
+      {{ ansible_facts.distribution }}
+      {{ ansible_facts.distribution_version | default('unknown') }}.
+
+- name: Validate central monitoring topology
+  ansible.builtin.assert:
+    that:
+      - monitoring_zabbix_server_host | string | length > 0
+      - monitoring_observability_host | string | length > 0
+      - monitoring_zabbix_server_host is match('^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$')
+      - monitoring_observability_host is match('^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$')
+    fail_msg: >-
+      The generated inventory must contain one zabbix_servers host and one
+      observability_servers host with ansible_host addresses.
+
+- name: Validate inventory-derived monitoring profile name
+  ansible.builtin.assert:
+    that:
+      - (monitoring_profile | string) is match('^[a-z0-9][a-z0-9_-]*$')
+      - monitoring_firewall_policy in ['managed', 'service_owned', 'disabled']
+    fail_msg: "Invalid monitoring_profile: {{ monitoring_profile }}"
+
+- name: Validate Zimbra web-mode firewall input
+  ansible.builtin.assert:
+    that:
+      - monitoring_zimbra_web_mode in ['http', 'https', 'both', 'mixed', 'redirect']
+    fail_msg: >-
+      monitoring_zimbra_web_mode must be http, https, both, mixed, or redirect.
+    quiet: true
+  when: monitoring_profile == 'zimbra'
+
+- name: Validate Oracle monitoring inputs
+  ansible.builtin.assert:
+    that:
+      - monitoring_oracle_password | string | length >= 20
+      - monitoring_oracle_password | string | length <= 30
+      - >-
+        monitoring_oracle_password | string
+        is match('^[A-Za-z0-9._#-]+$')
+      - monitoring_oracle_cdbs | length > 0
+      - monitoring_oracle_home | length > 0
+    fail_msg: >-
+      Oracle profiles require an encrypted vault_monitoring_oracle_password,
+      an oracle_servers host definition with at least one CDB, and a tracked
+      Oracle home mapping.
+  when: monitoring_oracle_enabled | bool
+  no_log: true
+
+- name: Validate WebLogic monitoring inputs
+  ansible.builtin.assert:
+    that:
+      - monitoring_weblogic_monitor_password | string | length >= 20
+      - monitoring_weblogic_admin_password | string | length >= 12
+      - domain_name | default('') | length > 0
+      - domain_home | default('') | length > 0
+      - admin_port | int > 0
+    fail_msg: >-
+      WebLogic profiles require encrypted monitoring and existing administrator
+      credentials plus the tracked domain definition.
+  when: monitoring_weblogic_enabled | bool
+  no_log: true

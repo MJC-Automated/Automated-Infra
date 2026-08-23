@@ -146,9 +146,9 @@ variable "backup_defaults" {
     max_backup_age_hours = optional(number, 36)
     retention = optional(object({
       keep_last    = optional(number, 2)
-      keep_daily   = optional(number, 7)
-      keep_weekly  = optional(number, 4)
-      keep_monthly = optional(number, 3)
+      keep_daily   = optional(number, 3)
+      keep_weekly  = optional(number, 2)
+      keep_monthly = optional(number, 1)
       keep_yearly  = optional(number, 0)
     }), {})
   })
@@ -366,6 +366,9 @@ variable "node_groups" {
     nameserver                  = optional(string, "")
     searchdomain                = optional(string, "")
     skip_ipv6                   = optional(bool)
+    monitoring_enabled          = optional(bool, true)
+    monitoring_profile          = optional(string, "")
+    monitoring_expected_up      = optional(bool)
     force_recreate_on_change_of = optional(string, "")
     data_disk = optional(object({
       size    = string
@@ -396,6 +399,17 @@ variable "node_groups" {
   validation {
     condition     = length(var.node_groups) > 0
     error_message = "At least one node group must be defined."
+  }
+  validation {
+    condition = alltrue(flatten([
+      for _, group in var.node_groups : [
+        for _, vm in group : (
+          trimspace(try(vm.monitoring_profile, "")) == "" ||
+          can(regex("^[a-z0-9][a-z0-9_-]*$", trimspace(vm.monitoring_profile)))
+        )
+      ]
+    ]))
+    error_message = "node_groups.*.*.monitoring_profile must be empty or contain only lowercase letters, numbers, underscores, and hyphens."
   }
   validation {
     condition = alltrue(flatten([
@@ -696,6 +710,20 @@ variable "snippet_storage" {
 variable "network_bridge" {
   description = "The Proxmox network bridge to attach VMs to."
   type        = string
+}
+
+variable "network_vlan" {
+  description = "Optional VLAN tag for primary workload NICs. Set 0 to leave NICs untagged."
+  type        = number
+  default     = 0
+
+  validation {
+    condition = (
+      var.network_vlan == floor(var.network_vlan) &&
+      (var.network_vlan == 0 || (var.network_vlan >= 1 && var.network_vlan <= 4094))
+    )
+    error_message = "network_vlan must be 0 (untagged) or an integer VLAN ID from 1 through 4094."
+  }
 }
 
 variable "timeout" {

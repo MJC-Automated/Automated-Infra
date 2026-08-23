@@ -1,0 +1,31 @@
+---
+- name: Configure common monitoring clients and deep service profiles
+  hosts: monitoring_clients
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Bootstrap Python 3 on monitored host
+      ansible.builtin.raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          exit 0
+        fi
+        if command -v dnf >/dev/null 2>&1; then
+          dnf install -y python3 python3-dnf
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update -y && apt-get install -y python3 python3-apt
+        else
+          echo "No supported package manager found" >&2
+          exit 1
+        fi
+      changed_when: false
+      tags: [always]
+
+    - name: Gather monitored host facts
+      ansible.builtin.setup:
+      tags: [always]
+
+  roles:
+    - role: monitoring_client

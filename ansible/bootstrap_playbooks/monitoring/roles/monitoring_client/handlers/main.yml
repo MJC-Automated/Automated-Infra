@@ -1,0 +1,25 @@
+---
+- name: Restart Zabbix Agent 2
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    state: restarted
+  listen: Restart Zabbix Agent 2
+
+- name: Restart Grafana Alloy
+  ansible.builtin.systemd:
+    name: alloy
+    state: restarted
+  listen: Restart Grafana Alloy
+
+- name: Reload systemd for WebLogic monitoring
+  ansible.builtin.systemd:
+    daemon_reload: true
+  listen: Apply WebLogic JMX configuration
+
+- name: Restart WebLogic JVMs for JMX monitoring
+  ansible.builtin.systemd:
+    name: "{{ item.service }}"
+    state: restarted
+  loop: "{{ monitoring_weblogic_jvms | default([]) }}"
+  when: monitoring_weblogic_restart_for_jmx | bool
+  listen: Apply WebLogic JMX configuration

@@ -64,6 +64,7 @@
   register: cdb_delete
   changed_when: cdb_delete.rc == 0
   failed_when: cdb_delete.rc != 0
+  no_log: true
   loop: "{{ oracle_cdbs_delete | default([]) }}"
   loop_control:
     index_var: cdb_delete_index

@@ -1,0 +1,11 @@
+# Managed by Ansible from Terraform-generated inventory.
+Hostname={{ monitoring_zabbix_hostname }}
+Server={{ monitoring_zabbix_server_host }}
+ServerActive={{ monitoring_zabbix_server_host }}:{{ monitoring_zabbix_server_port }}
+ListenPort={{ monitoring_zabbix_agent_port }}
+Timeout={{ monitoring_zabbix_timeout }}
+HostMetadata=iac_managed=true environment={{ monitoring_environment }} role={{ node_role | default('unknown') }} os={{ ansible_facts.distribution | lower }} os_version={{ ansible_facts.distribution_version }} profile={{ monitoring_profile }}
+{% if monitoring_weblogic_enabled | bool %}
+UserParameter=weblogic.jvm.discovery,cat /etc/zabbix/weblogic-jvms.json
+UserParameter=weblogic.jvm.status[*],/usr/local/libexec/zabbix-weblogic-status "$1"
+{% endif %}

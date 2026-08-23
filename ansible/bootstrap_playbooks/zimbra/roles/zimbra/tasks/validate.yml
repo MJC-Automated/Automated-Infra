@@ -40,6 +40,27 @@
       - zimbra_mta_lmtp_host_lookup in ['dns', 'native']
     fail_msg: "zimbra_mta_lmtp_host_lookup must be dns or native."
 
+- name: Validate Zimbra web mode and managed firewall ports
+  ansible.builtin.assert:
+    that:
+      - zimbra_service_mode in ['http', 'https', 'both', 'mixed', 'redirect']
+      - >-
+        (
+          zimbra_firewall_web_ports_by_mode[zimbra_service_mode]
+          | difference(zimbra_firewall_allowed_ports)
+          | length
+        ) == 0
+      - >-
+        (
+          zimbra_firewall_allowed_ports
+          | intersect(zimbra_firewall_managed_web_ports)
+          | difference(zimbra_firewall_web_ports_by_mode[zimbra_service_mode])
+          | length
+        ) == 0
+    fail_msg: >-
+      zimbra_service_mode must be a supported zmtlsctl mode and its managed
+      HTTP/HTTPS firewall ports must exactly match that mode.
+
 - name: Validate Zimbra credential values
   ansible.builtin.assert:
     that:

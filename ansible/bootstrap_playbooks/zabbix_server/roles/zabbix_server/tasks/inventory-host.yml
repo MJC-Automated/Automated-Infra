@@ -1,0 +1,53 @@
+---
+- name: Reconcile one exact inventory host in Zabbix
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: zabbix
+    ansible_host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    ansible_user: "{{ zabbix_api_user }}"
+    ansible_httpapi_pass: "{{ zabbix_api_password }}"
+  community.zabbix.zabbix_host:
+    host_name: "{{ zabbix_inventory_host.host_name }}"
+    visible_name: "{{ zabbix_inventory_host.visible_name }}"
+    status: enabled
+    state: present
+    force: true
+    monitored_by: zabbix_server
+    host_groups: "{{ zabbix_inventory_host.groups }}"
+    link_templates: "{{ zabbix_inventory_host.templates }}"
+    interfaces:
+      - type: "{{ zabbix_inventory_host.interface_type | default('agent') }}"
+        main: 1
+        useip: 1
+        ip: "{{ zabbix_inventory_host.ip }}"
+        dns: ""
+        port: "{{ zabbix_inventory_host.port }}"
+    tags: "{{ zabbix_inventory_host.tags }}"
+    # Hosts containing secret macros delegate macro reconciliation to the
+    # local API task so write-only values remain outside collection logging.
+    macros: >-
+      {{ zabbix_inventory_host.macros
+         if zabbix_inventory_host.secret_macros | default([]) | length == 0
+         else omit }}
+    inventory_mode: disabled
+  register: zabbix_inventory_host_reconcile
+  no_log: true
+
+- name: Report inventory host requiring reconciliation  # noqa no-handler
+  ansible.builtin.debug:
+    msg: "Reconciled Zabbix host {{ zabbix_inventory_host.host_name }}"
+  when: zabbix_inventory_host_reconcile.changed
+
+- name: Reconcile macros outside the HTTPAPI connection logger for secret-bearing hosts
+  ansible.builtin.include_tasks: inventory-host-secret-macro.yml
+  loop: >-
+    {{ (zabbix_inventory_host.macros | default([]))
+       + (zabbix_inventory_host.secret_macros | default([])) }}
+  loop_control:
+    loop_var: zabbix_inventory_secret_macro
+  when: zabbix_inventory_host.secret_macros | default([]) | length > 0
+  no_log: true

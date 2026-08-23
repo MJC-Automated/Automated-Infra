@@ -742,7 +742,7 @@
             dest: "{{ rcu_response_file_path }}"
             owner: "{{ weblogic_user }}"
             group: "{{ weblogic_group }}"
-            mode: "0644"
+            mode: "0600"
           tags:
             - rcu
           no_log: true
@@ -780,7 +780,7 @@
           tags:
             - rcu
           no_log: true
-
+      always:
         - name: Clean up RCU response file, password file, and expect script
           ansible.builtin.file:
             path: "{{ item }}"
@@ -791,6 +791,7 @@
             - "/tmp/run_rcu_expect.exp" # Ensure expect script is removed
           tags:
             - rcu
+          when: rcu_enabled | default(false) | bool
     - name: "Create WebLogic domains with temporary WLST scripts"
       tags:
         - domain_create
@@ -1306,6 +1307,7 @@
       when: managed_server_enable | bool
       vars:
         managed_server_name: "{{ item.name }}"
+        managed_server_listen_port: "{{ item.listen_port }}"
         managed_server_logs_dir: "{{ item.logs_dir | default(managed_logs_dir_base + '/' + item.name) }}"
         admin_url: "{{ item.admin_url | default('t3://' + (ansible_host | default(inventory_hostname)) + ':' + (admin_port | string)) }}"
       tags:
@@ -1322,6 +1324,7 @@
       when: managed_server_enable | bool
       vars:
         managed_server_name: "{{ item.name }}"
+        managed_server_listen_port: "{{ item.listen_port }}"
         managed_server_logs_dir: "{{ item.logs_dir | default(managed_logs_dir_base + '/' + item.name) }}"
         admin_url: "{{ item.admin_url | default('t3://' + (ansible_host | default(inventory_hostname)) + ':' + (admin_port | string)) }}"
       tags:
@@ -1344,8 +1347,10 @@
         service_working_dir: "{{ domain_home }}/bin"
         service_after: "{{ systemd_service_name }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
         service_wants: "{{ systemd_service_name }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
-        service_type: "simple"
-        service_remain_after_exit: false
+        service_type: "oneshot"
+        service_remain_after_exit: true
+        service_timeout_start_sec: 1800
+        service_timeout_stop_sec: 600
       notify:
         - "reload systemd"
       tags:
@@ -1561,6 +1566,7 @@
         wlst_domain_name: "{{ item.0.domain_name }}"
         wlst_domain_home: "{{ item.0.domain_home }}"
         managed_server_name: "{{ item.1.name }}"
+        managed_server_listen_port: "{{ item.1.listen_port }}"
         managed_server_logs_dir: "{{ item.1.logs_dir | default((item.0.managed_logs_dir_base | default(logs_base_dir + '/' + (item.0.domain_name | upper) + '_LOGS/managed'))
           + '/' + item.1.name) }}"
         wlst_admin_url: "{{ item.0.admin_url | default('t3://' + (item.0.admin_listen_address | default(ansible_host | default(inventory_hostname), true)) + ':' +
@@ -1589,6 +1595,7 @@
         wlst_domain_name: "{{ item.0.domain_name }}"
         wlst_domain_home: "{{ item.0.domain_home }}"
         managed_server_name: "{{ item.1.name }}"
+        managed_server_listen_port: "{{ item.1.listen_port }}"
         managed_server_logs_dir: "{{ item.1.logs_dir | default((item.0.managed_logs_dir_base | default(logs_base_dir + '/' + (item.0.domain_name | upper) + '_LOGS/managed'))
           + '/' + item.1.name) }}"
         wlst_admin_url: "{{ item.0.admin_url | default('t3://' + (item.0.admin_listen_address | default(ansible_host | default(inventory_hostname), true)) + ':' +
@@ -1647,8 +1654,10 @@
         service_after: "{{ _additional_admin_service }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
         service_wants: "{{ _additional_admin_service }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
         wlst_domain_home: "{{ item.0.domain_home }}"
-        service_type: "simple"
-        service_remain_after_exit: false
+        service_type: "oneshot"
+        service_remain_after_exit: true
+        service_timeout_start_sec: 1800
+        service_timeout_stop_sec: 600
       notify:
         - "reload systemd"
       tags:

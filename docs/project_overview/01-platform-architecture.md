@@ -4,8 +4,7 @@
 
 - [README.md](../../README.md)
 - [terraform-proxmox/Makefile](../../terraform-proxmox/Makefile)
-- [terraform-proxmox/main.tf](../../terraform-proxmox/main.tf)
-- [terraform-proxmox/templates/inventory.tpl](../../terraform-proxmox/templates/inventory.tpl)
+- [terraform-proxmox/main.tf](../../terraform-proxmox/main.tf) (inventory locals)
 - [inventories/aliases.ini](../../inventories/aliases.ini)
 - [ansible/bootstrap_playbooks/README.md](../../ansible/bootstrap_playbooks/README.md)
 - [ansible/user-man/README.md](../../ansible/user-man/README.md)
@@ -29,7 +28,7 @@ This monorepo is a layered automation platform with distinct ownership boundarie
 | Secret and infrastructure control plane | `terraform-proxmox/`, Vault helper scripts | Vault auth, Proxmox API access, Terraform workspaces, Packer vars |
 | Image and template substrate | `terraform-proxmox/scripts/`, `terraform-proxmox/packer/` | cloud images, base VMs, clone-based templates |
 | Environment state model | `terraform-proxmox/environments/*.tfvars`, `terraform-proxmox/main.tf` | node groups, OS profiles, tags, networking, disks, snippets |
-| Inventory bridge | `terraform-proxmox/templates/inventory.tpl`, `inventories/aliases.ini` | generated host map plus stable semantic groups |
+| Inventory bridge | `terraform-proxmox/main.tf`, `inventories/aliases.ini` | generated host map plus stable semantic groups |
 | Host enablement | `ansible/user-man/`, `ansible/time_sync/` | account access, SSH baseline, sudo posture, Chrony baseline |
 | Service bootstrap | `ansible/bootstrap_playbooks/*` | app, DB, identity, monitoring, and mail installation/configuration |
 | Execution and verification | `terraform-proxmox/Makefile`, playbook `main.yml`, role `validate.yml` and `verify.yml` files | guardrails, prechecks, workflow entrypoints, generated logs and summaries |
@@ -155,7 +154,9 @@ Both are valid views of the same codebase. The first explains how machines appea
 
 The tracked files do not fully define:
 
-- a full VLAN architecture
+- a full VLAN architecture: workload and base-VM VLAN tags are supported, but
+  bridge VLAN-awareness, upstream switching, and allowed VLAN policy remain
+  site-owned prerequisites outside this repository
 - HA cluster behavior for every service
 - detailed capacity planning math
 - one global orchestration script that drives every project

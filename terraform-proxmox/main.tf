@@ -26,7 +26,7 @@ locals {
   }
 
   log_config = {
-    file   = "${var.log_file_prefix}-${local.environment}.log"
+    file   = "logs/${replace(var.log_file_prefix, "^logs/", "")}-${local.environment}.log"
     level  = var.log_level
     format = "json"
   }
@@ -141,6 +141,29 @@ locals {
     key => format("vendor=%s:snippets/%s", var.snippet_storage, basename(path))
   }
 
+  first_access_snippet_enabled = trimspace(var.cloudinit_first_access_ssh_public_key) != ""
+  first_access_snippet_paths = {
+    for key, vm in local.flattened_vms :
+    key => "snippets/${local.environment}-${vm.config.vmid}-${vm.config.name}-first-access-user.yaml"
+    if local.first_access_snippet_enabled
+  }
+  first_access_snippet_content = {
+    for key, vm in local.flattened_vms :
+    key => templatefile("${path.module}/templates/cloud-init-first-access.yaml.tpl", {
+      hostname = vm.config.name
+      username = var.cloudinit_first_access_user
+      ssh_public_keys = [
+        for public_key in split("\n", replace(trimspace(var.cloudinit_first_access_ssh_public_key), "\r", "")) : trimspace(public_key)
+        if trimspace(public_key) != ""
+      ]
+    })
+    if local.first_access_snippet_enabled
+  }
+  first_access_cicustom = {
+    for key, path in local.first_access_snippet_paths :
+    key => format("user=%s:snippets/%s", var.snippet_storage, basename(path))
+  }
+
   partitioning_snippet_content = {
     for key, vm in local.partitioned_vms :
     key => templatefile("${path.module}/templates/cloud-init-partition.yaml.tpl", {
@@ -163,7 +186,10 @@ locals {
   vm_cicustom = {
     for key, vm in local.flattened_vms :
     key => (
-      trimspace(try(vm.config.cicustom, "")) != "" ? vm.config.cicustom : lookup(local.partitioning_cicustom, key, "")
+      trimspace(try(vm.config.cicustom, "")) != "" ? vm.config.cicustom : join(",", compact([
+        lookup(local.first_access_cicustom, key, ""),
+        lookup(local.partitioning_cicustom, key, "")
+      ]))
     )
   }
 
@@ -193,6 +219,29 @@ locals {
       trimspace(try(vm.config.backup_storage, "")),
       trimspace(var.backup_defaults.storage)
     ])
+  }
+
+  vm_monitoring_enabled = {
+    for key, vm in local.flattened_vms : key => try(vm.config.monitoring_enabled, true)
+  }
+
+  vm_monitoring_profile = {
+    for key, vm in local.flattened_vms : key => (
+      trimspace(try(vm.config.monitoring_profile, "")) != "" ?
+      trimspace(vm.config.monitoring_profile) :
+      vm.group
+    )
+  }
+
+  vm_monitoring_expected_up = {
+    for key, vm in local.flattened_vms : key => coalesce(
+      try(vm.config.monitoring_expected_up, null),
+      (
+        trimspace(try(vm.config.power_state, "")) != "" ?
+        trimspace(vm.config.power_state) :
+        trimspace(var.vm_defaults.power_state)
+      ) == "running"
+    )
   }
 
   vm_force_recreate_trigger = {
@@ -246,7 +295,7 @@ locals {
     ["# All hosts", "[all_nodes]"],
     [
       for vm_key in sort(keys(local.flattened_vms)) : format(
-        "%s ansible_host=%s vmid=%s node_role=%s os_profile=%s os_family=%s ansible_python_interpreter=%s cores=%s memory_mb=%s disk_size=%s backup_enabled=%s backup_storage=%s",
+        "%s ansible_host=%s vmid=%s node_role=%s os_profile=%s os_family=%s ansible_python_interpreter=%s cores=%s memory_mb=%s disk_size=%s backup_enabled=%s backup_storage=%s monitoring_enabled=%s monitoring_profile=%s monitoring_environment=%s monitoring_expected_up=%s",
         local.flattened_vms[vm_key].config.name,
         split("/", split("=", split(",", local.flattened_vms[vm_key].config.ipconfig0)[0])[1])[0],
         local.flattened_vms[vm_key].config.vmid,
@@ -258,7 +307,11 @@ locals {
         local.flattened_vms[vm_key].config.memory,
         local.flattened_vms[vm_key].config.disk_size,
         tostring(local.vm_backup_enabled[vm_key]),
-        length(local.vm_backup_storage[vm_key]) > 0 ? local.vm_backup_storage[vm_key][0] : "none"
+        length(local.vm_backup_storage[vm_key]) > 0 ? local.vm_backup_storage[vm_key][0] : "none",
+        tostring(local.vm_monitoring_enabled[vm_key]),
+        local.vm_monitoring_profile[vm_key],
+        local.environment,
+        tostring(local.vm_monitoring_expected_up[vm_key])
       )
     ],
     [""]
@@ -272,10 +325,20 @@ locals {
     )
   ])
 
+  inventory_monitoring_lines = concat(
+    ["# Hosts managed by the common monitoring client", "[monitoring_clients]"],
+    [
+      for vm_key in sort(keys(local.flattened_vms)) : local.flattened_vms[vm_key].config.name
+      if local.vm_monitoring_enabled[vm_key]
+    ],
+    [""]
+  )
+
   inventory_lines = concat(
     local.inventory_header_lines,
     local.inventory_tag_lines,
     local.inventory_all_nodes_lines,
+    local.inventory_monitoring_lines,
     ["# Dynamic groups based on 'group' property"],
     local.inventory_group_lines
   )
@@ -401,6 +464,9 @@ module "proxmox_vms" {
     "Data Disk Size: ${try(each.value.config.data_disk.size, "none")}",
     "Backup Enabled: ${local.vm_backup_enabled[each.key]}",
     "Backup Storage: ${length(local.vm_backup_storage[each.key]) > 0 ? local.vm_backup_storage[each.key][0] : "none"}",
+    "Monitoring Enabled: ${local.vm_monitoring_enabled[each.key]}",
+    "Monitoring Profile: ${local.vm_monitoring_profile[each.key]}",
+    "Monitoring Expected Up: ${local.vm_monitoring_expected_up[each.key]}",
     "IP Configuration: ${each.value.config.ipconfig0}",
     "",
     "--- Partitions (Logical Volumes) ---",
@@ -447,6 +513,7 @@ module "proxmox_vms" {
   boot_order            = var.vm_defaults.boot_order
   boot_disk_device      = var.vm_defaults.boot_disk_device
   network_bridge        = var.network_bridge
+  network_vlan          = var.network_vlan
   network_model         = var.vm_defaults.network_model
   ha_state = (
     trimspace(try(each.value.config.ha_state, "")) != "" ?
@@ -499,6 +566,14 @@ resource "local_file" "partitioning_snippet" {
   file_permission = "0600"
 }
 
+resource "local_file" "cloudinit_first_access_snippet" {
+  for_each = local.first_access_snippet_content
+
+  filename        = local.first_access_snippet_paths[each.key]
+  content         = each.value
+  file_permission = "0600"
+}
+
 resource "local_file" "ansible_inventory" {
   content         = join("\n", local.inventory_lines)
   filename        = "${local.inventory_dir}/inventory.ini"
@@ -511,8 +586,8 @@ resource "local_file" "deployment_summary" {
     workspace    = terraform.workspace
     cluster_name = var.cluster_name
     deployment_info = merge({
-      terraform_version = ">=1.0.0"
-      provider_version  = "3.0.2-rc08"
+      terraform_version = ">= 1.10.0"
+      provider_version  = "3.0.2-rc09"
       }, local.creation_timestamp != "" ? {
       timestamp = local.creation_timestamp
     } : {})
@@ -525,6 +600,16 @@ resource "local_file" "deployment_summary" {
           name    = vm.config.name
           enabled = local.vm_backup_enabled[key]
           storage = length(local.vm_backup_storage[key]) > 0 ? local.vm_backup_storage[key][0] : null
+        }
+      }
+      monitoring_policy = {
+        for key, vm in local.flattened_vms : key => {
+          vmid        = vm.config.vmid
+          name        = vm.config.name
+          enabled     = local.vm_monitoring_enabled[key]
+          profile     = local.vm_monitoring_profile[key]
+          environment = local.environment
+          expected_up = local.vm_monitoring_expected_up[key]
         }
       }
     }

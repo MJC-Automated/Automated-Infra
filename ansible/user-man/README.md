@@ -210,6 +210,8 @@ For a team of five managed users:
 - Keep `automation_account_hardening_enabled: true` and `automation_account_usernames: [ansible]`.
 - Do not define a reusable password for `ansible` in `users:`/vault data.
 - The role locks the `ansible` account password and enforces SSH key-only auth for that account to prevent password-based backdoor logins.
+- The role ensures `/etc/ssh/sshd_config` loads `/etc/ssh/sshd_config.d/*.conf`; Oracle Linux 8 does not include that directory by default.
+- The managed key-only `Match User` block ends with `Match all` so subsequent main-config directives keep global scope.
 - Keep `managed_accounts_key_only: true`, `enforce_sshd_allowlist: true`, and `password_history_enforcement_enabled: true`.
 - Keep `account_enforcement_enabled: true` with `account_enforcement_mode: fail` to detect unmanaged interactive accounts.
 - Explicitly approve unavoidable host-local users (for example `oracle`, `ubuntu`) via:
@@ -379,6 +381,7 @@ Execution results:
   - `ansible` account password locked
   - key-only hardening drop-in active at `/etc/ssh/sshd_config.d/99-key-only-account-hardening.conf`
   - SSH allowlist drop-in active at `/etc/ssh/sshd_config.d/98-account-allowlist.conf`
+  - `sshd -T -C user=<managed-user>,host=localhost,addr=127.0.0.1` reports the intended effective policy; drop-in file presence alone is insufficient
   - PAM password-history entries present in platform-appropriate PAM files
 
 ## Troubleshooting
@@ -387,6 +390,7 @@ Execution results:
 
 - **Python interpreter not found:** Ensure Python 3.9+ is installed, or set `ansible_python_interpreter=/usr/bin/python3` in the Terraform inventory output if you must override.
 - **SSH connection issues:** Adjust `ansible_ssh_common_args` via Terraform inventory inputs or in `ansible.cfg` if you need legacy SSH algorithms.
+- **SSH drop-ins exist but are ineffective:** Check the main config for `Include /etc/ssh/sshd_config.d/*.conf`, run `sshd -t`, and inspect the per-user result with `sshd -T -C`; Oracle Linux 8 lacks the include in its stock main config.
 - **Permission denied:** Ensure the `ansible_user` has `sudo` privileges and that `ansible_become=true` is set.
 - **`Refusing key-only hardening because authorized_keys is missing/empty`:**
   - pre-seed user keys, or
@@ -445,7 +449,7 @@ ansible-playbook main.yml --tags "users" --skip-tags "remove_users"
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
 
 ## Author
 

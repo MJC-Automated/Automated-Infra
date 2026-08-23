@@ -197,7 +197,7 @@ End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `TQ_*`
 - Admin Console validation should target AdminServer ports.
 - Managed-server `/console` endpoints returning HTTP `404` are expected.
 
-- [`../../docs/oracle-db-weblogic-crud-scenario.md`](../../docs/oracle-db-weblogic-crud-scenario.md)
+- [`../../../docs/oracle-db-weblogic-crud-scenario.md`](../../../docs/oracle-db-weblogic-crud-scenario.md)
 
 ## Storage Cleanup
 
@@ -223,6 +223,9 @@ RU patching is natively integrated and can be enabled or disabled:
 - Before applying the patch, any running database instances and listener processes are gracefully stopped (using `/home/oracle/scripts/stop_all.sh` or immediate shutdown commands) to avoid file-in-use errors.
 - `set -o pipefail` ensures OPatch command failures are properly reported to Ansible.
 - On OL9, Oracle 19c requires an RU patch for compatibility. By default, `oracle_ol9_require_ru_patch: true` enforces this. For PoC/lab use without patch files, pass `-e oracle_ol9_allow_unpatched_poc=true` to bypass enforcement.
+- An already extracted RU apply directory suppresses repeat archive
+  copy/extraction. The OPatch archive is staged only when the installed OPatch
+  version is missing or older than the validated archive version.
 
 ## Automated Time Zone Upgrades
 
@@ -239,6 +242,19 @@ Daily operation crontabs are deployed for the `oracle` user:
 
 - **Daily Backups**: Scheduled at `0 0 * * *` (midnight), running owner-only mode-`0700` `/home/oracle/scripts/backup_database.sh` to perform concurrent pluggable database exports via local `ORACLE_PDB_SID` OS authentication and rotate old backups. No database password is stored in the script or process arguments. The retention period is controlled by `oracle_backup_retention_days` (default: 7 days).
 - **Daily Restarts**: Scheduled at `0 4 * * *` (4:00 AM) via `/home/oracle/scripts/restart_databases.sh` to gracefully recycle the databases and listeners.
+- **Boot lifecycle**: `oracle_manage_systemd: true` keeps
+  `oracle19c.service` enabled and started, so listeners and configured
+  databases return after a guest reboot instead of waiting for the daily cron.
+
+## Interrupted DBCA Recovery
+
+The playbook recognizes an interrupted CDB build only when PMON is stopped,
+both the control and system files exist, and no init/spfile exists. It fails
+closed unless `oracle_allow_destructive=true` is supplied for that reviewed
+recovery (inventory defaults keep the flag `false`; do not leave it enabled in
+committed environment group vars). With approval, it removes only the incomplete CDB data directory and
+its exact lock, health, password, and `oratab` artifacts before allowing DBCA
+to retry. Do not enable the destructive flag for a healthy or ambiguous CDB.
 
 ## Important Behavior
 

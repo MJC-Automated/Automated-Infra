@@ -12,6 +12,7 @@ RESTORE_VMID="${RESTORE_VMID:-}"
 RESTORE_STORAGE="${RESTORE_STORAGE:-}"
 CONFIRM="${CONFIRM:-}"
 CLEANUP="${CLEANUP:-false}"
+MIN_BACKUP_BYTES="${VM_BACKUP_MIN_BYTES:-1048576}"
 
 usage() {
   cat <<'EOF'
@@ -68,6 +69,10 @@ done
   echo "Error: restore drills require CONFIRM=YES." >&2
   exit 1
 }
+[[ "${MIN_BACKUP_BYTES}" =~ ^[1-9][0-9]*$ ]] || {
+  echo "Error: VM_BACKUP_MIN_BYTES must be a positive integer." >&2
+  exit 1
+}
 
 cd "${REPO_ROOT}"
 [[ "$(terraform workspace show)" == "${ENVIRONMENT}" ]] || {
@@ -102,13 +107,14 @@ fi
 
 remote="${PROXMOX_USER}@${PROXMOX_HOST}"
 ssh -o BatchMode=yes "${remote}" bash -s -- \
-  "${SOURCE_VMID}" "${RESTORE_VMID}" "${backup_storage}" "${RESTORE_STORAGE}" "${CLEANUP}" <<'REMOTE'
+  "${SOURCE_VMID}" "${RESTORE_VMID}" "${backup_storage}" "${RESTORE_STORAGE}" "${CLEANUP}" "${MIN_BACKUP_BYTES}" <<'REMOTE'
 set -euo pipefail
 source_vmid="$1"
 restore_vmid="$2"
 backup_storage="$3"
 restore_storage="$4"
 cleanup="$5"
+min_backup_bytes="$6"
 
 if qm status "${restore_vmid}" >/dev/null 2>&1; then
   echo "Error: restore VMID ${restore_vmid} already exists." >&2
@@ -119,7 +125,7 @@ backup_path="$(pvesh get "/storage/${backup_storage}" --output-format json | jq 
   echo "Error: backup storage ${backup_storage} is not a path-backed datastore." >&2
   exit 1
 }
-archive="$(find "${backup_path}/dump" -maxdepth 1 -type f -size +0c \
+archive="$(find "${backup_path}/dump" -maxdepth 1 -type f -size "+${min_backup_bytes}c" \
   \( -name "vzdump-qemu-${source_vmid}-*.vma" \
      -o -name "vzdump-qemu-${source_vmid}-*.vma.gz" \
      -o -name "vzdump-qemu-${source_vmid}-*.vma.lzo" \
@@ -127,7 +133,7 @@ archive="$(find "${backup_path}/dump" -maxdepth 1 -type f -size +0c \
   -printf '%T@ %p\n' \
   | sort -nr | head -n 1 | cut -d' ' -f2-)"
 [[ -n "${archive}" ]] || {
-  echo "Error: no backup archive found for source VMID ${source_vmid}." >&2
+  echo "Error: no backup archive larger than ${min_backup_bytes} bytes found for source VMID ${source_vmid}." >&2
   exit 1
 }
 

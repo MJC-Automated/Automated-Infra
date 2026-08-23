@@ -191,7 +191,7 @@ End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `APP_*
 - Admin Console validation should target AdminServer ports.
 - Managed-server `/console` endpoints returning HTTP `404` are expected.
 
-- [`../../docs/oracle-db-weblogic-crud-scenario.md`](../../docs/oracle-db-weblogic-crud-scenario.md)
+- [`../../../docs/oracle-db-weblogic-crud-scenario.md`](../../../docs/oracle-db-weblogic-crud-scenario.md)
 
 ## Storage Cleanup
 
@@ -232,6 +232,9 @@ Daily operation crontabs are deployed for the `oracle` user:
 
 - **Daily Backups**: Scheduled at `0 0 * * *` (midnight), running owner-only mode-`0700` `/home/oracle/scripts/backup_database.sh` to perform concurrent pluggable database exports via local `ORACLE_PDB_SID` OS authentication and rotate old backups. No database password is stored in the script or process arguments. The retention period is controlled by `oracle_backup_retention_days` (default: 7 days).
 - **Daily Restarts**: Scheduled at `0 4 * * *` (4:00 AM) via `/home/oracle/scripts/restart_databases.sh` to gracefully recycle the databases and listeners.
+- **Boot lifecycle**: `oracle_manage_systemd: true` keeps
+  `oracle19c.service` enabled and started, so listeners and configured
+  databases return after a guest reboot instead of waiting for the daily cron.
 
 ## Important Behavior
 

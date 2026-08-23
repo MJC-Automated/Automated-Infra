@@ -1,0 +1,12 @@
+[Unit]
+Description=Send the IaC observability report Friday at 16:00 Nairobi time
+
+[Timer]
+OnCalendar={{ observability_weekly_report_schedule }}
+Persistent=true
+AccuracySec=1min
+RandomizedDelaySec=0
+Unit={{ observability_weekly_report_service_name }}
+
+[Install]
+WantedBy=timers.target

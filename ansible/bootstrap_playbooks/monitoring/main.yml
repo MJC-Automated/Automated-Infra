@@ -1,0 +1,9 @@
+---
+- name: Configure inventory-managed monitoring clients
+  ansible.builtin.import_playbook: clients.yml
+
+- name: Reconcile Zabbix server and inventory hosts
+  ansible.builtin.import_playbook: ../zabbix_server/main.yml
+
+- name: Reconcile central observability services
+  ansible.builtin.import_playbook: ../observability/main.yml

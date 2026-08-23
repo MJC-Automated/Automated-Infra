@@ -180,6 +180,9 @@ for script in \
   "${REPO_ROOT}/scripts/render-packer-vault-vars.sh" \
   "${REPO_ROOT}/scripts/rotate-proxmox-creds.sh" \
   "${REPO_ROOT}/scripts/with-vault-token.sh" \
+  "${REPO_ROOT}/scripts/vault-runtime-verify.sh" \
+  "${REPO_ROOT}/scripts/vault-audit-check.sh" \
+  "${REPO_ROOT}/scripts/vault-audit-enable-file.sh" \
   "${REPO_ROOT}/scripts/resolve-ansible-host.sh" \
   "${REPO_ROOT}/scripts/discover-proxmox-core.sh" \
   "${REPO_ROOT}/scripts/scaffold-env.sh" \
@@ -228,6 +231,9 @@ if [[ -f "${ENV_FILE}" ]]; then
 
   if [[ -n "${vault_token}" ]]; then
     log_ok "VAULT_TOKEN is set in ${ENV_FILE}"
+    if [[ -n "${vault_role_id}" && -n "${vault_secret_id}" ]]; then
+      log_warn "Both VAULT_TOKEN and AppRole credentials are set; token mode takes precedence in helper flows unless explicitly cleared."
+    fi
   elif [[ -n "${vault_role_id}" && -n "${vault_secret_id}" ]]; then
     log_ok "AppRole credentials are set in ${ENV_FILE} (VAULT_ROLE_ID + VAULT_SECRET_ID)"
   elif [[ -s "${vault_token_file}" ]]; then

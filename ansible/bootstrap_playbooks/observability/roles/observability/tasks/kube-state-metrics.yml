@@ -1,0 +1,269 @@
+---
+# When enabled, materialize a least-privilege kubeconfig for the non-root
+# kube-state-metrics identity on this observability host. The control-plane
+# admin kubeconfig is never copied as mode 0600 root-only.
+- name: Require a Kubernetes control-plane host for managed kubeconfig
+  ansible.builtin.assert:
+    that:
+      - groups['k8s_control_plane'] | default([]) | length > 0
+    fail_msg: >-
+      observability_kube_state_metrics_manage_kubeconfig requires at least one
+      host in the k8s_control_plane inventory group.
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+
+- name: Select Kubernetes control-plane host for kube-state-metrics credentials
+  ansible.builtin.set_fact:
+    observability_ksm_control_plane_host: "{{ groups['k8s_control_plane'][0] }}"
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+
+- name: Render kube-state-metrics ServiceAccount and ClusterRole on the control plane
+  ansible.builtin.copy:
+    dest: /etc/kubernetes/iac-kube-state-metrics-rbac.yaml
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: {{ observability_kube_state_metrics_service_account }}
+        namespace: {{ observability_kube_state_metrics_namespace }}
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: iac-kube-state-metrics
+      rules:
+        - apiGroups: [""]
+          resources:
+            - configmaps
+            - endpoints
+            - limitranges
+            - namespaces
+            - nodes
+            - persistentvolumeclaims
+            - persistentvolumes
+            - pods
+            - replicationcontrollers
+            - resourcequotas
+            - secrets
+            - services
+          verbs: ["list", "watch"]
+        - apiGroups: ["apps"]
+          resources:
+            - daemonsets
+            - deployments
+            - replicasets
+            - statefulsets
+          verbs: ["list", "watch"]
+        - apiGroups: ["batch"]
+          resources:
+            - cronjobs
+            - jobs
+          verbs: ["list", "watch"]
+        - apiGroups: ["autoscaling"]
+          resources:
+            - horizontalpodautoscalers
+          verbs: ["list", "watch"]
+        - apiGroups: ["policy"]
+          resources:
+            - poddisruptionbudgets
+          verbs: ["list", "watch"]
+        - apiGroups: ["certificates.k8s.io"]
+          resources:
+            - certificatesigningrequests
+          verbs: ["list", "watch"]
+        - apiGroups: ["discovery.k8s.io"]
+          resources:
+            - endpointslices
+          verbs: ["list", "watch"]
+        - apiGroups: ["storage.k8s.io"]
+          resources:
+            - storageclasses
+            - volumeattachments
+          verbs: ["list", "watch"]
+        - apiGroups: ["admissionregistration.k8s.io"]
+          resources:
+            - mutatingwebhookconfigurations
+            - validatingwebhookconfigurations
+          verbs: ["list", "watch"]
+        - apiGroups: ["networking.k8s.io"]
+          resources:
+            - networkpolicies
+            - ingresses
+          verbs: ["list", "watch"]
+        - apiGroups: ["coordination.k8s.io"]
+          resources:
+            - leases
+          verbs: ["list", "watch"]
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: iac-kube-state-metrics
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: iac-kube-state-metrics
+      subjects:
+        - kind: ServiceAccount
+          name: {{ observability_kube_state_metrics_service_account }}
+          namespace: {{ observability_kube_state_metrics_namespace }}
+  delegate_to: "{{ observability_ksm_control_plane_host }}"
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+
+- name: Apply kube-state-metrics RBAC on the control plane
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - /etc/kubernetes/admin.conf
+      - apply
+      - -f
+      - /etc/kubernetes/iac-kube-state-metrics-rbac.yaml
+  register: observability_ksm_rbac_apply
+  changed_when: >-
+    'created' in (observability_ksm_rbac_apply.stdout | default(''))
+    or 'configured' in (observability_ksm_rbac_apply.stdout | default(''))
+  delegate_to: "{{ observability_ksm_control_plane_host }}"
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+
+- name: Stat existing kube-state-metrics kubeconfig
+  ansible.builtin.stat:
+    path: "{{ observability_kubeconfig_path }}"
+  register: observability_ksm_kubeconfig_stat
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+
+- name: Probe Kubernetes API with the existing kube-state-metrics kubeconfig
+  ansible.builtin.shell: |
+    set -euo pipefail
+    server="$(awk '/server:/ {print $2; exit}' "{{ observability_kubeconfig_path }}")"
+    token="$(awk '/token:/ {print $2; exit}' "{{ observability_kubeconfig_path }}")"
+    curl -fsS -o /dev/null --connect-timeout 5 --max-time 15 \
+      -H "Authorization: Bearer ${token}" \
+      --insecure \
+      "${server}/readyz"
+  args:
+    executable: /bin/bash
+  register: observability_ksm_kubeconfig_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+    - observability_ksm_kubeconfig_stat.stat.exists | default(false)
+    - observability_ksm_kubeconfig_stat.stat.size | default(0) | int > 0
+
+- name: Read Kubernetes cluster endpoint for kube-state-metrics
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - /etc/kubernetes/admin.conf
+      - config
+      - view
+      - --minify
+      - --raw
+      - -o
+      - jsonpath={.clusters[0].cluster.server}
+  register: observability_ksm_api_server
+  changed_when: false
+  delegate_to: "{{ observability_ksm_control_plane_host }}"
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+    - >-
+      (not (observability_ksm_kubeconfig_stat.stat.exists | default(false)))
+      or ((observability_ksm_kubeconfig_stat.stat.size | default(0) | int) == 0)
+      or ((observability_ksm_kubeconfig_probe.rc | default(1) | int) != 0)
+
+- name: Read Kubernetes cluster CA for kube-state-metrics
+  ansible.builtin.slurp:
+    src: /etc/kubernetes/pki/ca.crt
+  register: observability_ksm_ca_crt
+  delegate_to: "{{ observability_ksm_control_plane_host }}"
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+    - >-
+      (not (observability_ksm_kubeconfig_stat.stat.exists | default(false)))
+      or ((observability_ksm_kubeconfig_stat.stat.size | default(0) | int) == 0)
+      or ((observability_ksm_kubeconfig_probe.rc | default(1) | int) != 0)
+
+- name: Issue kube-state-metrics ServiceAccount token
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - /etc/kubernetes/admin.conf
+      - --namespace
+      - "{{ observability_kube_state_metrics_namespace }}"
+      - create
+      - token
+      - "{{ observability_kube_state_metrics_service_account }}"
+      - --duration={{ observability_kube_state_metrics_token_duration }}
+  register: observability_ksm_token
+  changed_when: false
+  no_log: true
+  delegate_to: "{{ observability_ksm_control_plane_host }}"
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+    - >-
+      (not (observability_ksm_kubeconfig_stat.stat.exists | default(false)))
+      or ((observability_ksm_kubeconfig_stat.stat.size | default(0) | int) == 0)
+      or ((observability_ksm_kubeconfig_probe.rc | default(1) | int) != 0)
+
+- name: Ensure kube-state-metrics credential directory exists
+  ansible.builtin.file:
+    path: "{{ observability_kubeconfig_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+
+- name: Install least-privilege kube-state-metrics kubeconfig
+  ansible.builtin.copy:
+    dest: "{{ observability_kubeconfig_path }}"
+    owner: "{{ observability_kube_state_metrics_uid }}"
+    group: "{{ observability_kube_state_metrics_gid }}"
+    mode: "0400"
+    content: |
+      apiVersion: v1
+      kind: Config
+      clusters:
+        - name: {{ observability_kube_state_metrics_cluster }}
+          cluster:
+            server: {{ observability_ksm_api_server.stdout | trim }}
+            certificate-authority-data: {{ observability_ksm_ca_crt.content }}
+      users:
+        - name: {{ observability_kube_state_metrics_service_account }}
+          user:
+            token: {{ observability_ksm_token.stdout | trim }}
+      contexts:
+        - name: {{ observability_kube_state_metrics_cluster }}
+          context:
+            cluster: {{ observability_kube_state_metrics_cluster }}
+            user: {{ observability_kube_state_metrics_service_account }}
+      current-context: {{ observability_kube_state_metrics_cluster }}
+  no_log: true
+  when:
+    - observability_kube_state_metrics_enabled | bool
+    - observability_kube_state_metrics_manage_kubeconfig | bool
+    - observability_ksm_token is defined
+    - observability_ksm_token.stdout is defined
+    - (observability_ksm_token.stdout | trim | length) > 0

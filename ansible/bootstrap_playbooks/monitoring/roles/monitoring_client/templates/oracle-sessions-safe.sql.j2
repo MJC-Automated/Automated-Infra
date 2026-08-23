@@ -1,0 +1,6 @@
+SELECT
+  COUNT(*) AS "total",
+  SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) AS "active",
+  SUM(CASE WHEN status = 'INACTIVE' THEN 1 ELSE 0 END) AS "inactive",
+  SUM(CASE WHEN blocking_session IS NOT NULL THEN 1 ELSE 0 END) AS "blocked"
+FROM V$SESSION

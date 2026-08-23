@@ -20,6 +20,30 @@
     - "{{ zabbix_backup_dir }}/archive"
   when: zabbix_backup_enabled | bool
 
+- name: Discover retained Zabbix DB backup files
+  ansible.builtin.find:
+    paths:
+      - "{{ zabbix_backup_dir }}"
+      - "{{ zabbix_backup_dir }}/archive"
+    patterns:
+      - "zabbix-db-*.sql"
+      - "zabbix-db-*.sql.gz"
+    file_type: file
+    recurse: false
+  register: zabbix_retained_backup_files
+  when: zabbix_backup_enabled | bool
+
+- name: Protect retained Zabbix DB backup files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ zabbix_retained_backup_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: zabbix_backup_enabled | bool
+
 - name: Ensure backup log file exists
   ansible.builtin.copy:
     content: ""
@@ -39,9 +63,24 @@
     mode: "0700"
   when: zabbix_backup_enabled | bool
 
+- name: Configure Zabbix DB backup log retention
+  ansible.builtin.template:
+    src: zabbix-db-backup.logrotate.j2
+    dest: /etc/logrotate.d/zabbix-db-backup
+    owner: root
+    group: root
+    mode: "0644"
+  when: zabbix_backup_enabled | bool
+
 - name: Remove Zabbix DB backup script when backups are disabled
   ansible.builtin.file:
     path: "{{ zabbix_backup_script_path }}"
+    state: absent
+  when: not (zabbix_backup_enabled | bool)
+
+- name: Remove Zabbix DB backup log retention when backups are disabled
+  ansible.builtin.file:
+    path: /etc/logrotate.d/zabbix-db-backup
     state: absent
   when: not (zabbix_backup_enabled | bool)
 

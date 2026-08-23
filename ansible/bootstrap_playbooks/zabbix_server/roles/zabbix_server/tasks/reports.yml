@@ -1,0 +1,138 @@
+---
+- name: Build exact desired Zabbix scheduled-report model
+  ansible.builtin.set_fact:
+    zabbix_scheduled_reports_effective: >-
+      {{ zabbix_scheduled_reports
+         if zabbix_scheduled_reports_enabled | bool
+         else [] }}
+    zabbix_scheduled_report_desired_names: >-
+      {{ (zabbix_scheduled_reports
+          if zabbix_scheduled_reports_enabled | bool
+          else [])
+         | map(attribute='name')
+         | list }}
+  run_once: true
+
+- name: Validate exact managed scheduled-report names
+  ansible.builtin.assert:
+    that:
+      - zabbix_scheduled_report_name_prefix | string | length > 0
+      - >-
+        zabbix_scheduled_report_desired_names | unique | length
+        == zabbix_scheduled_report_desired_names | length
+      - >-
+        zabbix_scheduled_report_desired_names
+        | reject('match', '^' ~ (zabbix_scheduled_report_name_prefix | regex_escape))
+        | list
+        | length == 0
+    fail_msg: >-
+      Scheduled report names must be unique and start with the managed prefix
+      {{ zabbix_scheduled_report_name_prefix }} so absent reports can be
+      retired without affecting operator-owned reports.
+  run_once: true
+
+- name: Query configured scheduled reports
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: report.get
+      params:
+        output: extend
+        filter:
+          name: ["{{ item.name }}"]
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: "{{ zabbix_scheduled_reports_effective }}"
+  register: zabbix_report_lookups
+  loop_control:
+    label: "{{ item.name }}"
+  run_once: true
+  changed_when: false
+  failed_when: >-
+    zabbix_report_lookups.json.error is defined or
+    zabbix_report_lookups.json.result | default([]) | length > 1
+  no_log: true
+
+- name: Create or update configured scheduled reports
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: "{{ (item.1.json.result | default([]) | length > 0) | ternary('report.update', 'report.create') }}"
+      params: >-
+        {{ item.0
+           | combine({'userid': zabbix_api_userid | default('1'),
+                      'status': '0',
+                      'users': item.0.users | default([])})
+           | combine(((item.1.json.result | default([]) | first | default({})).reportid is defined)
+                    | ternary({'reportid': (item.1.json.result | first).reportid}, {})) }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: "{{ zabbix_scheduled_reports_effective | zip(zabbix_report_lookups.results | default([])) | list }}"
+  loop_control:
+    loop_var: item
+    label: "{{ item.0.name }}"
+  register: zabbix_report_reconcile
+  run_once: true
+  changed_when: true
+  failed_when: zabbix_report_reconcile.json.error is defined
+  no_log: true
+
+- name: Query all IaC-managed scheduled reports for retirement
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: report.get
+      params:
+        output:
+          - reportid
+          - name
+          - status
+        search:
+          name: "{{ zabbix_scheduled_report_name_prefix }}"
+        startSearch: true
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_managed_reports
+  run_once: true
+  changed_when: false
+  failed_when: zabbix_managed_reports.json.error is defined
+  no_log: true
+
+- name: Disable managed scheduled reports absent from desired state
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: report.update
+      params:
+        reportid: "{{ item.reportid }}"
+        status: "1"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: >-
+    {{ zabbix_managed_reports.json.result | default([])
+       | rejectattr('name', 'in', zabbix_scheduled_report_desired_names)
+       | selectattr('status', 'equalto', '0')
+       | list }}
+  loop_control:
+    label: "{{ item.name }}"
+  register: zabbix_report_retire
+  run_once: true
+  changed_when: true
+  failed_when: zabbix_report_retire.json.error is defined
+  no_log: true

@@ -1,14 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 BACKUP_DIR="{{ zabbix_backup_dir }}"
 ARCHIVE_DIR="${BACKUP_DIR}/archive"
 KEEP_ARCHIVED={{ zabbix_backup_keep_archived | int }}
 KEEP_MAX={{ zabbix_backup_keep_max | int }}
-STAMP="$(date +%Y%m%d-%H%M%S)"
+STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
 RAW_BACKUP="${BACKUP_DIR}/zabbix-db-${STAMP}.sql"
+RAW_TMP=""
 
 mkdir -p "${BACKUP_DIR}" "${ARCHIVE_DIR}"
+
+exec 9>"${BACKUP_DIR}/.zabbix-db-backup.lock"
+if ! flock -n 9; then
+  echo "Another Zabbix database backup is already running." >&2
+  exit 1
+fi
+
+cleanup() {
+  unset PGPASSWORD DB_PASSWORD
+  if [[ -n "${RAW_TMP}" ]]; then
+    rm -f "${RAW_TMP}"
+  fi
+}
+trap cleanup EXIT
 
 DB_PASSWORD="$(awk -F= '/^DBPassword=/{print substr($0,12)}' /etc/zabbix/zabbix_server.conf | head -n1)"
 if [[ -z "${DB_PASSWORD}" ]]; then
@@ -17,12 +33,15 @@ if [[ -z "${DB_PASSWORD}" ]]; then
 fi
 
 export PGPASSWORD="${DB_PASSWORD}"
+RAW_TMP="$(mktemp "${BACKUP_DIR}/.zabbix-db-${STAMP}.XXXXXX.sql")"
 pg_dump \
   -h "{{ zabbix_db_host_effective }}" \
   -p "{{ zabbix_db_port }}" \
   -U "{{ zabbix_db_user }}" \
   "{{ zabbix_db_name }}" \
-  > "${RAW_BACKUP}"
+  > "${RAW_TMP}"
+mv -f "${RAW_TMP}" "${RAW_BACKUP}"
+RAW_TMP=""
 unset PGPASSWORD
 unset DB_PASSWORD
 

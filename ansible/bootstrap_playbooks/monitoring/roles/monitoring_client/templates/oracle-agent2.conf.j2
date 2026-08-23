@@ -1,0 +1,10 @@
+# Managed by Ansible. This allowlist intentionally excludes oracle.sessions.stats.
+Plugins.Oracle.CustomQueriesPath={{ monitoring_oracle_custom_query_dir }}
+Plugins.Oracle.ResolveTNS=false
+Plugins.Oracle.ConnectTimeout=10
+{% for cdb in monitoring_oracle_cdbs %}
+Plugins.Oracle.Sessions.oracle_{{ cdb.sid | lower }}.Uri=tcp://127.0.0.1:{{ cdb.listener_port | default(1521) }}
+Plugins.Oracle.Sessions.oracle_{{ cdb.sid | lower }}.User={{ monitoring_oracle_user }}
+Plugins.Oracle.Sessions.oracle_{{ cdb.sid | lower }}.Password={{ monitoring_oracle_password }}
+Plugins.Oracle.Sessions.oracle_{{ cdb.sid | lower }}.Service={{ cdb.global_db_name }}
+{% endfor %}

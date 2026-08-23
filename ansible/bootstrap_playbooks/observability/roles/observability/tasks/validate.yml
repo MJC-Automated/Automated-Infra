@@ -5,6 +5,47 @@
       - ansible_facts.os_family == "Debian"
     fail_msg: "Observability role currently targets Ubuntu/Debian hosts."
 
+- name: Initialize central inventory environment audit
+  ansible.builtin.set_fact:
+    monitoring_central_inventory_environments: []
+
+- name: Validate explicit monitoring policy on every central target
+  ansible.builtin.assert:
+    that:
+      - hostvars[item].monitoring_environment is defined
+      - hostvars[item].monitoring_environment | string | trim | length > 0
+      - hostvars[item].monitoring_expected_up is defined
+      - hostvars[item].monitoring_environment in monitoring_central_expected_environments
+    fail_msg: >-
+      {{ item }} lacks an explicit monitoring_environment/monitoring_expected_up
+      policy or belongs to an environment outside the declared authoritative
+      union {{ monitoring_central_expected_environments }}. Regenerate every
+      inventory and invoke the central play with the complete inventory union.
+  loop: "{{ groups.monitoring_clients | default([]) }}"
+  when: monitoring_central_require_authoritative_inventory | bool
+
+- name: Collect central inventory environments
+  ansible.builtin.set_fact:
+    monitoring_central_inventory_environments: >-
+      {{ monitoring_central_inventory_environments
+         + [hostvars[item].monitoring_environment] }}
+  loop: "{{ groups.monitoring_clients | default([]) }}"
+  when: monitoring_central_require_authoritative_inventory | bool
+
+- name: Require the exact authoritative environment union
+  ansible.builtin.assert:
+    that:
+      - monitoring_central_expected_environments | length > 0
+      - monitoring_central_expected_environments | unique | length == monitoring_central_expected_environments | length
+      - monitoring_central_inventory_environments | unique | sort == monitoring_central_expected_environments | sort
+    fail_msg: >-
+      Central reconciliation is fail-closed. Inventory contains environments
+      {{ monitoring_central_inventory_environments | unique | sort }}, but the
+      authoritative set is {{ monitoring_central_expected_environments | sort }}.
+      Supply the complete generated inventory union before reconciling shared
+      Prometheus targets.
+  when: monitoring_central_require_authoritative_inventory | bool
+
 - name: Validate required Grafana admin password
   ansible.builtin.assert:
     that:
@@ -14,3 +55,167 @@
       observability_grafana_admin_password must be set with at least
       {{ observability_required_password_length }} characters.
   no_log: true
+
+- name: Validate retention and pinned component settings
+  ansible.builtin.assert:
+    that:
+      - observability_loki_retention | string | length > 0
+      - observability_tempo_retention | string | length > 0
+      - observability_alertmanager_version == '0.33.1'
+      - observability_alertmanager_amd64_digest is match('^sha256:[a-f0-9]{64}$')
+      - observability_grafana_base_url is match('^https?://[^/]+')
+    fail_msg: "Retention and immutable Alertmanager pinning must remain explicit."
+
+- name: Validate loopback-only ports are excluded from external firewall rules
+  ansible.builtin.assert:
+    that:
+      - 9093 in observability_local_only_ports
+      - observability_ports | intersect(observability_local_only_ports) | length == 0
+      - observability_ingest_ports | intersect(observability_local_only_ports) | length == 0
+      - observability_ports | intersect(observability_ingest_ports) | length == 0
+      - observability_ingest_ports | length > 0
+    fail_msg: >-
+      Alertmanager 9093 must remain loopback-only. Keep UI ports
+      (observability_ports), source-restricted ingest ports
+      (observability_ingest_ports), and local-only ports disjoint.
+
+- name: Validate kube-state-metrics credential path when enabled
+  ansible.builtin.assert:
+    that:
+      - observability_kubeconfig_path | string | length > 0
+      - observability_kubeconfig_path is match('^/')
+      - observability_kube_state_metrics_uid | int > 0
+      - observability_kube_state_metrics_gid | int > 0
+    fail_msg: >-
+      observability_kube_state_metrics_enabled requires an absolute path to a
+      read-only, least-privilege kubeconfig on the observability host.
+  when: observability_kube_state_metrics_enabled | bool
+
+- name: Inspect the remote kube-state-metrics credential
+  ansible.builtin.stat:
+    path: "{{ observability_kubeconfig_path }}"
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
+  register: observability_kubeconfig_stat
+  when: observability_kube_state_metrics_enabled | bool
+  no_log: true
+
+- name: Require a non-empty regular kube-state-metrics credential
+  ansible.builtin.assert:
+    that:
+      - observability_kubeconfig_stat.stat.exists
+      - observability_kubeconfig_stat.stat.isreg
+      - observability_kubeconfig_stat.stat.size | int > 0
+    fail_msg: >-
+      The configured kube-state-metrics kubeconfig must already exist as a
+      non-empty regular file on the observability host.
+  when: observability_kube_state_metrics_enabled | bool
+
+- name: Require the non-root kube-state-metrics identity to read its credential
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          observability_kubeconfig_stat.stat.uid | int
+          == observability_kube_state_metrics_uid | int
+          and observability_kubeconfig_stat.stat.mode[-3] in ['4', '5', '6', '7']
+        ) or (
+          observability_kubeconfig_stat.stat.gid | int
+          == observability_kube_state_metrics_gid | int
+          and observability_kubeconfig_stat.stat.mode[-2] in ['4', '5', '6', '7']
+        )
+      - observability_kubeconfig_stat.stat.mode[-1] not in ['4', '5', '6', '7']
+    fail_msg: >-
+      The kubeconfig must be readable by kube-state-metrics UID
+      {{ observability_kube_state_metrics_uid }} or GID
+      {{ observability_kube_state_metrics_gid }}, and must not be
+      world-readable. A root-owned mode-0600 file is intentionally rejected;
+      use owner {{ observability_kube_state_metrics_uid }} mode 0400 or group
+      {{ observability_kube_state_metrics_gid }} mode 0640.
+  when: observability_kube_state_metrics_enabled | bool
+
+- name: Validate optional SMTP alert settings
+  ansible.builtin.assert:
+    that:
+      - observability_smtp_smarthost | string | length > 0
+      - observability_smtp_from | string | length > 0
+      - observability_smtp_auth_username | string | length > 0
+      - observability_smtp_auth_password | string | length > 0
+      - observability_alert_recipient | string | length > 0
+    fail_msg: >-
+      Email alerting requires group-var topology plus an encrypted
+      vault_monitoring_smtp_password.
+  when: observability_email_alerts_enabled | bool
+  no_log: true
+
+- name: Validate weekly report policy
+  ansible.builtin.assert:
+    that:
+      - not (observability_weekly_report_email_enabled | bool) or (observability_weekly_report_enabled | bool)
+      - observability_weekly_report_environment is match('^[A-Za-z0-9_.-]+$')
+      - observability_weekly_report_environment in monitoring_central_expected_environments
+      - observability_weekly_report_timezone | string | length > 0
+      - observability_weekly_report_schedule | string | length > 0
+      - observability_weekly_report_title | string | trim | length > 0
+      - observability_weekly_report_brand | string | trim | length > 0
+      - observability_weekly_report_prometheus_url == 'http://127.0.0.1:9090'
+      - observability_weekly_report_output_dir is match('^/var/lib/[A-Za-z0-9_.-]+$')
+      - observability_weekly_report_script is match('^/usr/local/sbin/[A-Za-z0-9_.-]+$')
+      - observability_weekly_report_env_path is match('^/etc/[A-Za-z0-9_.-]+$')
+      - observability_weekly_report_retention_days | int >= 7
+      - observability_weekly_report_retention_days | int <= 730
+      - observability_prometheus_scrape_interval_seconds | int >= 5
+      - observability_prometheus_scrape_interval_seconds | int <= 300
+      - observability_weekly_report_availability_critical | float >= 0
+      - observability_weekly_report_availability_warning | float <= 100
+      - >-
+        observability_weekly_report_availability_critical | float
+        <= observability_weekly_report_availability_warning | float
+      - observability_weekly_report_chrome_sha256 is match('^[a-f0-9]{64}$')
+      - observability_weekly_report_chrome_archive is match('^[A-Za-z0-9_.-]+[.]zip$')
+    fail_msg: >-
+      Weekly reporting must use a declared central environment, local
+      Prometheus, bounded thresholds/retention/scrape cadence, absolute
+      protected paths, and the checksum-pinned reporting browser.
+  when: observability_weekly_report_enabled | bool
+
+- name: Validate weekly report systemd calendar
+  ansible.builtin.command:
+    argv:
+      - systemd-analyze
+      - calendar
+      - "{{ observability_weekly_report_schedule }}"
+  changed_when: false
+  when: observability_weekly_report_enabled | bool
+
+- name: Validate weekly report SMTP delivery settings
+  ansible.builtin.assert:
+    that:
+      - observability_weekly_report_smtp_host | string | trim | length > 0
+      - observability_weekly_report_smtp_port | int > 0
+      - observability_weekly_report_smtp_port | int <= 65535
+      - observability_smtp_helo | string | trim | length > 0
+      - observability_smtp_display_name | string | trim | length > 0
+      - observability_smtp_auth_username | string | trim | length > 0
+      - observability_smtp_auth_password | string | length > 0
+      - observability_weekly_report_recipients | string | trim | length > 0
+      - "'@' in observability_smtp_auth_username"
+      - "'@' in observability_weekly_report_recipients"
+    fail_msg: >-
+      Weekly report email requires the tracked SMTP topology, authenticated
+      sender, recipient, and encrypted vault_monitoring_smtp_password.
+  when:
+    - observability_weekly_report_enabled | bool
+    - observability_weekly_report_email_enabled | bool
+  no_log: true
+
+- name: Guard the exactly-two-message acceptance workflow
+  ansible.builtin.assert:
+    that:
+      - monitoring_test_alerts_confirm == 'SEND_EXACTLY_TWO'
+      - observability_email_alerts_enabled | bool
+    fail_msg: >-
+      Set monitoring_test_alerts_confirm=SEND_EXACTLY_TWO only for the approved
+      acceptance run; the unified playbook sends one Zabbix and one Alertmanager message.
+  when: monitoring_send_test_alerts | bool

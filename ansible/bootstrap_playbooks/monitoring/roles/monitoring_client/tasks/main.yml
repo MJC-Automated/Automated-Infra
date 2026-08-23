@@ -1,0 +1,75 @@
+---
+- name: Stop monitoring work for opted-out hosts
+  ansible.builtin.meta: end_host
+  when: not (monitoring_enabled | bool)
+
+- name: Validate monitoring topology and profile
+  ansible.builtin.import_tasks: validate.yml
+  tags: [monitoring, validate]
+
+- name: Install monitoring clients
+  ansible.builtin.import_tasks: packages.yml
+  tags: [monitoring, packages]
+
+- name: Detect Oracle database software for deep monitoring
+  ansible.builtin.stat:
+    path: "{{ monitoring_oracle_home }}/bin/sqlplus"
+  register: monitoring_oracle_sqlplus_probe
+  when: monitoring_oracle_enabled | bool
+  tags: [monitoring, oracle_monitoring]
+
+- name: Require Oracle software on expected-up database hosts
+  ansible.builtin.assert:
+    that:
+      - monitoring_oracle_sqlplus_probe.stat.exists | default(false)
+    fail_msg: >-
+      Expected-up Oracle profile {{ monitoring_profile }} requires
+      {{ monitoring_oracle_home }}/bin/sqlplus before deep monitoring can run.
+  when:
+    - monitoring_oracle_enabled | bool
+    - monitoring_expected_up | default(true) | bool
+  tags: [monitoring, oracle_monitoring]
+
+- name: Record whether Oracle database software is present
+  ansible.builtin.set_fact:
+    monitoring_oracle_software_present: >-
+      {{ monitoring_oracle_sqlplus_probe.stat.exists | default(false) }}
+  when: monitoring_oracle_enabled | bool
+  tags: [monitoring, oracle_monitoring]
+
+- name: Configure Oracle deep monitoring
+  ansible.builtin.import_tasks: oracle.yml
+  when:
+    - monitoring_oracle_enabled | bool
+    - monitoring_oracle_software_present | default(false) | bool
+  tags: [monitoring, oracle_monitoring]
+
+- name: Configure WebLogic deep monitoring
+  ansible.builtin.import_tasks: weblogic.yml
+  when: monitoring_weblogic_enabled | bool
+  tags: [monitoring, weblogic_monitoring]
+
+- name: Configure Kubernetes metrics credentials for Alloy
+  ansible.builtin.import_tasks: kubernetes.yml
+  when: >-
+    (monitoring_kubernetes_apiserver_scrape_enabled | bool)
+    or (monitoring_kubernetes_etcd_scrape_enabled | bool)
+  tags: [monitoring, kubernetes_monitoring]
+
+- name: Configure Zabbix Agent 2 and Alloy
+  ansible.builtin.import_tasks: configure.yml
+  tags: [monitoring, configure]
+
+- name: Reconcile WebLogic log access after JVM restart handlers
+  ansible.builtin.import_tasks: weblogic-post-restart.yml
+  when: monitoring_weblogic_enabled | bool
+  tags: [monitoring, weblogic_monitoring]
+
+- name: Configure source-restricted monitoring firewall rules
+  ansible.builtin.import_tasks: firewall.yml
+  when: monitoring_manage_firewall | bool
+  tags: [monitoring, firewall]
+
+- name: Verify monitoring clients
+  ansible.builtin.import_tasks: verify.yml
+  tags: [monitoring, verify]

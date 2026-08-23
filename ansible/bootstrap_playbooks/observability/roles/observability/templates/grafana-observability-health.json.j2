@@ -1,0 +1,533 @@
+{
+  "annotations": {"list": []},
+  "description": "Inventory-driven infrastructure and service availability. Use the environment, expected-state, VM, and service filters to control scope; planned-off objects remain available through the expected-state filter.",
+  "editable": false,
+  "links": [
+    {
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true,
+      "tags": ["iac"],
+      "targetBlank": false,
+      "title": "IaC dashboards",
+      "type": "dashboards"
+    },
+    {
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": false,
+      "targetBlank": true,
+      "title": "Prometheus rules",
+      "type": "link",
+      "url": "{{ observability_prometheus_ui_url | regex_replace('/+$', '') }}/rules"
+    }{% if observability_alertmanager_ui_url | length > 0 %},
+    {
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": false,
+      "targetBlank": true,
+      "title": "Alertmanager",
+      "type": "link",
+      "url": "{{ observability_alertmanager_ui_url | regex_replace('/+$', '') }}"
+    }{% endif %}
+  ],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {"color": "red", "text": "DOWN"},
+                "1": {"color": "green", "text": "UP"}
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {"calcs": ["lastNotNull"], "values": false}
+      },
+      "targets": [{"expr": "min(up{job=~\"prometheus|alertmanager|loki|tempo|otel-collector|blackbox-exporter\"})", "instant": true}],
+      "title": "Stack health",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 95},
+              {"color": "green", "value": 99}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 5, "x": 4, "y": 0},
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {"calcs": ["lastNotNull"], "values": false}
+      },
+      "targets": [{"expr": "avg_over_time(min(up{job=~\"prometheus|alertmanager|loki|tempo|otel-collector|blackbox-exporter\"})[${__range}:1m]) * 100", "instant": true}],
+      "title": "Overall Stack Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 95},
+              {"color": "green", "value": 99}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 5, "x": 9, "y": 0},
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {"calcs": ["lastNotNull"], "values": false}
+      },
+      "targets": [{"expr": "avg(avg_over_time(probe_success{job=\"blackbox-host\",environment=~\"$environment\",instance=~\"$instance\",expected_up=~\"$expected_up\"}[${__range}])) * 100", "instant": true}],
+      "title": "Overall VM Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {"color": "red", "text": "DOWN"},
+                "1": {"color": "green", "text": "UP"}
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 5, "x": 14, "y": 0},
+      "id": 2,
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "values": false}
+      },
+      "targets": [{"expr": "sum(max by (environment, instance) (probe_success{job=\"blackbox-host\",environment=~\"$environment\",instance=~\"$instance\",expected_up=~\"$expected_up\"}))", "instant": true}],
+      "title": "Reachable inventory hosts",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 5, "x": 19, "y": 0},
+      "id": 3,
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "values": false}
+      },
+      "targets": [{"expr": "sum(ALERTS{alertstate=\"firing\"})", "instant": true}],
+      "title": "Firing alerts",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 95},
+              {"color": "green", "value": 99}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 4},
+      "id": 8,
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(up{job=~\"prometheus|alertmanager|loki|tempo|otel-collector|blackbox-exporter\"}[${__range}]) * 100",
+          "legendFormat": "{{ "{{" }}job{{ "}}" }}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "title": "Service Uptime Percentage",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {"color": "red", "text": "DOWN"},
+                "1": {"color": "green", "text": "UP"}
+              },
+              "type": "value"
+            }
+          ],
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 70
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 10},
+      "id": 4,
+      "options": {
+        "showValue": "auto",
+        "alignLastValues": "right",
+        "mergeValues": true
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"prometheus|alertmanager|loki|tempo|otel-collector|blackbox-exporter\"}",
+          "legendFormat": "{{ "{{" }}job{{ "}}" }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Observability Components Status History",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 95},
+              {"color": "green", "value": 99}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 18},
+      "id": 9,
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "avg by (environment, instance, role, target) (avg_over_time(probe_success{job=\"blackbox-host\",environment=~\"$environment\",instance=~\"$instance\",expected_up=~\"$expected_up\"}[${__range}])) * 100",
+          "legendFormat": "{{ "{{" }}instance{{ "}}" }} · {{ "{{" }}role{{ "}}" }} · {{ "{{" }}target{{ "}}" }}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "title": "VM Uptime Percentage (Selected Range)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 26},
+      "id": 11,
+      "targets": [
+        {
+          "expr": "avg by (environment, instance, role, target) (avg_over_time(probe_success{job=\"blackbox-host\",environment=~\"$environment\",instance=~\"$instance\",expected_up=~\"$expected_up\"}[5m])) * 100",
+          "legendFormat": "{{ "{{" }}instance{{ "}}" }} · {{ "{{" }}role{{ "}}" }} · {{ "{{" }}target{{ "}}" }}",
+          "refId": "A"
+        }
+      ],
+      "title": "VM Uptime Trend (5m moving avg)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {"color": "red", "text": "UNREACHABLE"},
+                "1": {"color": "green", "text": "REACHABLE"}
+              },
+              "type": "value"
+            }
+          ],
+          "custom": {
+            "axisPlacement": "left",
+            "axisWidth": 360,
+            "lineWidth": 0,
+            "fillOpacity": 70
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 18, "w": 24, "x": 0, "y": 34},
+      "id": 6,
+      "options": {
+        "showValue": "auto",
+        "alignLastValues": "right",
+        "mergeValues": true,
+        "rowHeight": 0.85
+      },
+      "targets": [
+        {
+          "expr": "max by (environment, instance, role, target) (probe_success{job=\"blackbox-host\",environment=~\"$environment\",instance=~\"$instance\",expected_up=~\"$expected_up\"})",
+          "legendFormat": "{{ "{{" }}instance{{ "}}" }} · {{ "{{" }}role{{ "}}" }} · {{ "{{" }}target{{ "}}" }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Inventory Host Reachability (Blackbox ICMP)",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 95},
+              {"color": "green", "value": 99}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 52},
+      "id": 12,
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(probe_success{job=~\"blackbox-http|blackbox-http-insecure|blackbox-weblogic-managed|blackbox-oracle-listener|blackbox-kubernetes-api|blackbox-kubernetes-etcd\",environment=~\"$environment\",instance=~\"$instance\",service=~\"$service\",expected_up=~\"$expected_up\",check=~\".+\"}[${__range}]) * 100",
+          "legendFormat": "{{ "{{" }}instance{{ "}}" }} · {{ "{{" }}check{{ "}}" }}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "title": "Application Uptime Percentage",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {"color": "red", "text": "DOWN"},
+                "1": {"color": "green", "text": "UP"}
+              },
+              "type": "value"
+            }
+          ],
+          "custom": {
+            "axisPlacement": "left",
+            "axisWidth": 420,
+            "lineWidth": 0,
+            "fillOpacity": 70
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 22, "w": 24, "x": 0, "y": 60},
+      "id": 13,
+      "options": {
+        "showValue": "auto",
+        "alignLastValues": "right",
+        "mergeValues": true,
+        "rowHeight": 0.85,
+        "pageSize": 15
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=~\"blackbox-http|blackbox-http-insecure|blackbox-weblogic-managed|blackbox-oracle-listener|blackbox-kubernetes-api|blackbox-kubernetes-etcd\",environment=~\"$environment\",instance=~\"$instance\",service=~\"$service\",expected_up=~\"$expected_up\",check=~\".+\"}",
+          "legendFormat": "{{ "{{" }}instance{{ "}}" }} · {{ "{{" }}check{{ "}}" }}",
+          "refId": "A"
+        }
+      ],
+      "title": "Application Services Reachability History",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 82},
+      "id": 5,
+      "options": {
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Firing Alerts",
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["iac", "observability"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {"selected": true, "text": "All", "value": "$__all"},
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "definition": "label_values(probe_success{job=\"blackbox-host\"},environment)",
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "query": {
+          "query": "label_values(probe_success{job=\"blackbox-host\"},environment)",
+          "refId": "PrometheusVariableQueryEditor-Environment"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "true|false",
+        "current": {"selected": true, "text": "All", "value": "$__all"},
+        "includeAll": true,
+        "label": "Expected state",
+        "multi": true,
+        "name": "expected_up",
+        "options": [],
+        "query": "true,false",
+        "type": "custom"
+      },
+      {
+        "allValue": ".*",
+        "current": {"selected": true, "text": "All", "value": "$__all"},
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "definition": "label_values(probe_success{job=\"blackbox-host\",environment=~\"$environment\",expected_up=~\"$expected_up\"},instance)",
+        "includeAll": true,
+        "label": "VM",
+        "multi": true,
+        "name": "instance",
+        "query": {
+          "query": "label_values(probe_success{job=\"blackbox-host\",environment=~\"$environment\",expected_up=~\"$expected_up\"},instance)",
+          "refId": "PrometheusVariableQueryEditor-Instance"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {"selected": true, "text": "All", "value": "$__all"},
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "definition": "label_values(probe_success{job=~\"blackbox-http|blackbox-http-insecure|blackbox-weblogic-managed|blackbox-oracle-listener|blackbox-kubernetes-api|blackbox-kubernetes-etcd\",environment=~\"$environment\",instance=~\"$instance\",expected_up=~\"$expected_up\",check=~\".+\"},service)",
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service",
+        "query": {
+          "query": "label_values(probe_success{job=~\"blackbox-http|blackbox-http-insecure|blackbox-weblogic-managed|blackbox-oracle-listener|blackbox-kubernetes-api|blackbox-kubernetes-etcd\",environment=~\"$environment\",instance=~\"$instance\",expected_up=~\"$expected_up\",check=~\".+\"},service)",
+          "refId": "PrometheusVariableQueryEditor-Service"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "IaC Observability Stack Health",
+  "uid": "iac-observability-health",
+  "version": 7
+}

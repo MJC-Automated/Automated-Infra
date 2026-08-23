@@ -1,0 +1,19 @@
+---
+- name: Add endpoints from one inventory group
+  ansible.builtin.set_fact:
+    zabbix_web_desired_endpoints: >-
+      {{ zabbix_web_desired_endpoints + [{
+           'host_name': item,
+           'environment': hostvars[item].monitoring_environment,
+           'expected_up': hostvars[item].monitoring_expected_up | bool,
+           'service': zabbix_web_group_definition.service,
+           'scenario_name': 'IaC ' ~ zabbix_web_group_definition.service ~ ' availability',
+           'service_id': 'web::' ~ hostvars[item].monitoring_environment ~ '::' ~ item ~ '::' ~ zabbix_web_group_definition.service,
+           'url': zabbix_web_group_definition.scheme ~ '://' ~ hostvars[item].ansible_host ~ (((zabbix_web_group_definition.scheme == 'http' and zabbix_web_group_definition.port | int == 80) or (zabbix_web_group_definition.scheme == 'https' and zabbix_web_group_definition.port | int == 443)) | ternary('', ':' ~ (zabbix_web_group_definition.port | string))) ~ zabbix_web_group_definition.path,
+           'status_codes': zabbix_web_group_definition.status_codes,
+           'verify_tls': zabbix_web_group_definition.verify_tls | bool
+         }] }}
+  loop: >-
+    {{ groups[zabbix_web_group_definition.group] | default([])
+       | select('in', groups.monitoring_clients | default([]))
+       | list }}

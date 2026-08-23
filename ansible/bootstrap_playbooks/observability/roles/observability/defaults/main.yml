@@ -3,17 +3,207 @@ observability_stack_dir: "/opt/observability"
 observability_manage_firewall: true
 observability_grafana_admin_user: "admin"
 observability_grafana_admin_password: ""
+observability_grafana_base_url: >-
+  http://{{ ansible_host | default('127.0.0.1') }}:3000
+observability_prometheus_ui_url: >-
+  http://{{ ansible_host | default('127.0.0.1') }}:9090
+observability_alertmanager_ui_url: ""
 observability_prometheus_retention: "15d"
+observability_loki_retention: "168h"
+observability_tempo_retention: "24h"
+ # kube-state-metrics is enabled only when a read-only kubeconfig is supplied
+ # (or managed below). Keep the credential outside the repository and mount it
+ # read-only in the central stack; labels are constrained to inventory
+ # environment/cluster.
+observability_kube_state_metrics_enabled: false
+observability_kube_state_metrics_manage_kubeconfig: false
+observability_kubeconfig_path: "/etc/observability/kube-state-metrics.kubeconfig"
+observability_kube_state_metrics_image: "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.14.0"
+observability_kube_state_metrics_cluster: "{{ cluster_name | default('example') }}"
+observability_kube_state_metrics_namespace: kube-system
+observability_kube_state_metrics_service_account: iac-kube-state-metrics
+observability_kube_state_metrics_token_duration: 8760h
+# The official image is non-root. Pin the runtime identity so validation of
+# the bind-mounted credential has a stable, least-privilege contract.
+observability_kube_state_metrics_uid: 65534
+observability_kube_state_metrics_gid: 65534
+# Capacity planning is deliberately conservative: the recording rules use
+# six hours of observed free-space slope and alert before the filesystem is
+# expected to exhaust.  Operators can tune the horizon per environment.
+observability_storage_forecast_window: "6h"
+observability_storage_forecast_horizon_seconds: 604800
+observability_storage_forecast_critical_seconds: 172800
 observability_required_password_length: 20
 observability_generate_local_password: true
 observability_grafana_admin_password_path: "{{ playbook_dir }}/files/grafana_admin_password"
 observability_local_secret_owner: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
 observability_local_secret_group: "{{ lookup('pipe', 'id -gn ' ~ observability_local_secret_owner) }}"
 
+# Central reconciliation must see the complete environment union. A
+# single-environment deployment defaults to its own cluster environment;
+# multi-environment operators override this with the exact expected set and
+# supply every generated inventory to the same ansible-playbook invocation.
+monitoring_central_expected_environments:
+  - "{{ cluster_environment | default('managed') }}"
+monitoring_central_require_authoritative_inventory: true
+
+observability_alertmanager_version: "0.33.1"
+observability_alertmanager_amd64_digest: "sha256:a89f8d4520954079275441eecdb71444328bd90633dd4eddfc33b9ed657f349b"
+observability_blackbox_exporter_version: "0.28.0"
+observability_node_dashboard_url: "https://grafana.com/api/dashboards/1860/revisions/45/download"
+observability_node_dashboard_sha256: "184c6b7409f306da75525d7772f71945b10cea23ad16b5d78c4698ea0ea51986"
+
+# Grafana's Panels tab is a reusable panel library, not an index of dashboard
+# panels. Keep a small curated set here; dashboard panels remain file-owned.
+observability_grafana_library_panels:
+  - uid: iac-host-availability-24h
+    name: "IaC Host Availability (24h)"
+    model:
+      id: 101
+      title: "IaC Host Availability (24h)"
+      type: stat
+      description: "iac-managed-library-panel:v1"
+      datasource: { type: prometheus, uid: prometheus }
+      fieldConfig:
+        defaults:
+          unit: percent
+          decimals: 2
+          min: 0
+          max: 100
+          thresholds:
+            mode: absolute
+            steps:
+              - { color: red, value: null }
+              - { color: yellow, value: 95 }
+              - { color: green, value: 99 }
+        overrides: []
+      options:
+        colorMode: value
+        graphMode: area
+        reduceOptions: { calcs: [lastNotNull], fields: "", values: false }
+      targets:
+        - refId: A
+          expr: "inventory:host_availability:ratio24h * 100"
+          instant: true
+  - uid: iac-service-availability-24h
+    name: "IaC Service Availability (24h)"
+    model:
+      id: 102
+      title: "IaC Service Availability (24h)"
+      type: timeseries
+      description: "iac-managed-library-panel:v1"
+      datasource: { type: prometheus, uid: prometheus }
+      fieldConfig:
+        defaults: { unit: percent, decimals: 2, min: 0, max: 100 }
+        overrides: []
+      options: { legend: { displayMode: list, placement: bottom }, tooltip: { mode: multi } }
+      targets:
+        - refId: A
+          expr: "inventory:service_availability:ratio24h * 100"
+          legendFormat: "{{ '{{' }}environment{{ '}}' }} / {{ '{{' }}service{{ '}}' }}"
+  - uid: iac-firing-alerts
+    name: "IaC Firing Alerts"
+    model:
+      id: 103
+      title: "IaC Firing Alerts"
+      type: table
+      description: "iac-managed-library-panel:v1"
+      datasource: { type: prometheus, uid: prometheus }
+      fieldConfig: { defaults: {}, overrides: [] }
+      options: { cellHeight: sm, footer: { show: false }, showHeader: true }
+      targets:
+        - refId: A
+          expr: 'ALERTS{alertstate="firing"}'
+          format: table
+          instant: true
+
+observability_email_alerts_enabled: false
+observability_smtp_smarthost: "smtp.gmail.com:587"
+observability_smtp_helo: "localhost"
+observability_smtp_display_name: "Homelab Monitoring"
+observability_smtp_from: ""
+observability_smtp_auth_username: ""
+observability_smtp_auth_password: "{{ vault_monitoring_smtp_password | default('') }}"
+observability_alert_recipient: ""
+observability_alert_group_wait: 30s
+observability_alert_group_interval: 5m
+observability_alert_repeat_interval_warning: 4h
+observability_alert_repeat_interval_critical: 1h
+
+# Optional Prometheus-derived color PDF sent after the completed Nairobi
+# business week. The .sent marker makes retries idempotent for each period.
+observability_weekly_report_enabled: false
+observability_weekly_report_email_enabled: false
+observability_weekly_report_timezone: "Africa/Nairobi"
+observability_weekly_report_schedule: >-
+  Fri *-*-* 16:00:00 {{ observability_weekly_report_timezone }}
+observability_weekly_report_environment: >-
+  {{ monitoring_central_expected_environments | first | default('managed') }}
+observability_weekly_report_title: "Weekly Infrastructure Health Report"
+observability_weekly_report_brand: "MJCreatives KE"
+observability_weekly_report_prometheus_url: "http://127.0.0.1:9090"
+observability_weekly_report_output_dir: "/var/lib/observability-reports"
+observability_weekly_report_retention_days: 90
+observability_weekly_report_availability_warning: 99.0
+observability_weekly_report_availability_critical: 95.0
+observability_prometheus_scrape_interval_seconds: 15
+observability_weekly_report_script: "/usr/local/sbin/iac-observability-weekly-report"
+observability_weekly_report_env_path: "/etc/iac-observability-weekly-report.env"
+observability_weekly_report_service_name: "iac-observability-weekly-report.service"
+observability_weekly_report_timer_name: "iac-observability-weekly-report.timer"
+observability_weekly_report_chrome_version: "151.0.7922.34"
+observability_weekly_report_chrome_archive: >-
+  chrome-for-testing-{{ observability_weekly_report_chrome_version }}-linux64.zip
+observability_weekly_report_chrome_sha256: "ae8736ac28bc69278551500f219fc749575648263c43ec5990749eff43b9fcf8"
+observability_weekly_report_resource_dir: "/resources"
+observability_weekly_report_chrome_install_dir: >-
+  /opt/observability-reporting/{{ observability_weekly_report_chrome_version }}
+observability_weekly_report_chrome_binary: >-
+  {{ observability_weekly_report_chrome_install_dir }}/chrome-linux64/chrome
+observability_weekly_report_smtp_host: >-
+  {{ observability_smtp_smarthost.split(':') | first }}
+observability_weekly_report_smtp_port: >-
+  {{ observability_smtp_smarthost.split(':') | last | int }}
+observability_weekly_report_recipients: "{{ observability_alert_recipient }}"
+observability_weekly_report_browser_packages:
+  - unzip
+  - fonts-liberation
+  - libasound2t64
+  - libatk-bridge2.0-0t64
+  - libatk1.0-0t64
+  - libcairo2
+  - libcups2t64
+  - libdbus-1-3
+  - libexpat1
+  - libfontconfig1
+  - libgbm1
+  - libglib2.0-0t64
+  - libgtk-3-0t64
+  - libnspr4
+  - libnss3
+  - libpango-1.0-0
+  - libx11-6
+  - libxcb1
+  - libxcomposite1
+  - libxdamage1
+  - libxext6
+  - libxfixes3
+  - libxkbcommon0
+  - libxrandr2
+  - xdg-utils
+
+monitoring_send_test_alerts: false
+monitoring_test_alerts_confirm: ""
+
+# Host firewall: Grafana UI stays broadly reachable; unauthenticated ingest
+# (Prometheus remote-write, Loki push, OTLP) is source-restricted to
+# monitoring_clients. Alertmanager remains loopback-only.
 observability_ports:
   - 3000
+observability_ingest_ports:
   - 9090
   - 3100
   - 4317
   - 4318
-  - 10050
+observability_local_only_ports:
+  - 9093

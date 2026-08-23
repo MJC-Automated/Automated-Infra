@@ -34,4 +34,3 @@ keycloak_db_password_path: "{{ playbook_dir }}/files/keycloak_db_password"
 keycloak_admin_password_path: "{{ playbook_dir }}/files/keycloak_admin_password"
 keycloak_local_secret_owner: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
 keycloak_local_secret_group: "{{ lookup('pipe', 'id -gn ' ~ keycloak_local_secret_owner) }}"
-keycloak_zabbix_agent_port: 10050

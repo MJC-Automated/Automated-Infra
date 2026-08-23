@@ -1,0 +1,109 @@
+---
+- name: Initialize desired Zabbix service leaves
+  ansible.builtin.set_fact:
+    zabbix_service_desired_leaves: []
+    zabbix_service_root_ids: {}
+  run_once: true
+
+- name: Add inventory web endpoints to Zabbix services
+  ansible.builtin.set_fact:
+    zabbix_service_desired_leaves: >-
+      {{ zabbix_service_desired_leaves + [{
+           'name': 'IaC service - ' ~ item.environment ~ ' - ' ~ item.host_name ~ ' - ' ~ item.service,
+           'environment': item.environment,
+           'category': 'web',
+           'service_id': item.service_id,
+           'expected_up': item.expected_up | bool
+         }] }}
+  loop: "{{ zabbix_web_desired_endpoints }}"
+  run_once: true
+
+- name: Add Oracle and WebLogic logical hosts to Zabbix services
+  ansible.builtin.set_fact:
+    zabbix_service_desired_leaves: >-
+      {{ zabbix_service_desired_leaves + [{
+           'name': 'IaC service - ' ~ item.environment ~ ' - ' ~ item.host_name,
+           'environment': item.environment,
+           'category': ('oracle' if '--oracle--' in item.host_name else 'weblogic-jvm'),
+           'service_id': item.host_name,
+           'expected_up': item.expected_up | bool
+         }] }}
+  loop: >-
+    {{ zabbix_inventory_desired_hosts
+       | selectattr('autoregister', 'equalto', false)
+       | list }}
+  run_once: true
+  # The loop item contains secret macros even though this task only derives
+  # non-secret service metadata. Do not let callback output disclose them.
+  no_log: true
+
+- name: Reconcile one service-tree root per authoritative environment
+  ansible.builtin.include_tasks: services-root.yml
+  loop: "{{ monitoring_central_inventory_environments | unique | sort }}"
+  loop_control:
+    loop_var: zabbix_service_environment
+  run_once: true
+  no_log: true
+
+- name: Reconcile exact inventory Zabbix service leaves
+  ansible.builtin.include_tasks: services-leaf.yml
+  loop: "{{ zabbix_service_desired_leaves }}"
+  loop_control:
+    loop_var: zabbix_service_leaf
+  run_once: true
+  no_log: true
+
+- name: Query managed Zabbix service leaves for retirement
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: service.get
+      params:
+        output:
+          - serviceid
+          - name
+        search:
+          name: "IaC service - "
+        startSearch: true
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_service_managed_leaves
+  run_once: true
+  changed_when: false
+  failed_when: zabbix_service_managed_leaves.json.error is defined
+  no_log: true
+
+- name: Remove obsolete managed Zabbix service leaves
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: service.delete
+      params:
+        - "{{ item.serviceid }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: >-
+    {{ zabbix_service_managed_leaves.json.result
+       | rejectattr('name', 'in', zabbix_service_desired_leaves | map(attribute='name') | list)
+       | list }}
+  register: zabbix_service_retired_leaves
+  run_once: true
+  changed_when: true
+  failed_when: zabbix_service_retired_leaves.json.error is defined
+  no_log: true
+
+- name: Reconcile one SLA per authoritative environment
+  ansible.builtin.include_tasks: services-sla.yml
+  loop: "{{ monitoring_central_inventory_environments | unique | sort }}"
+  loop_control:
+    loop_var: zabbix_service_environment
+  run_once: true
+  no_log: true

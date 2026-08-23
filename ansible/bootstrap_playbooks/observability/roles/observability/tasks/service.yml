@@ -6,17 +6,24 @@
         observability_compose_template.changed or
         observability_runtime_env_template.changed or
         observability_prometheus_config.changed or
+        observability_prometheus_rules.changed or
+        observability_alertmanager_config.changed or
+        observability_alertmanager_email_template.changed or
+        observability_blackbox_config.changed or
         observability_loki_config.changed or
         observability_otel_config.changed or
         observability_tempo_config.changed or
-        observability_grafana_datasources_config.changed
+        observability_grafana_datasources_config.changed or
+        observability_grafana_dashboards_config.changed or
+        observability_node_dashboard.changed or
+        observability_repo_dashboards.changed
       }}
   changed_when: false
 
 - name: Deploy or update observability stack
   ansible.builtin.shell: |
     set -euo pipefail
-    compose_args=(up -d)
+    compose_args=(up -d --remove-orphans)
     if {{ observability_force_recreate | bool | ternary('true', 'false') }}; then
       compose_args+=(--force-recreate)
     fi
@@ -36,4 +43,36 @@
     ('Recreated' in observability_compose_up.stdout) or
     ('Starting' in observability_compose_up.stdout) or
     ('Started' in observability_compose_up.stdout) or
-    ('Pulling' in observability_compose_up.stdout)
+    ('Pulling' in observability_compose_up.stdout) or
+    ('Removing orphan' in (observability_compose_up.stdout ~ observability_compose_up.stderr)) or
+    ('Removed' in (observability_compose_up.stdout ~ observability_compose_up.stderr))
+
+- name: Inspect existing weekly report timer unit
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ observability_weekly_report_timer_name }}"
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
+  register: observability_weekly_report_timer_unit
+
+- name: Enable the weekly report timer
+  ansible.builtin.systemd:
+    name: "{{ observability_weekly_report_timer_name }}"
+    daemon_reload: true
+    enabled: true
+    state: >-
+      {{
+        (observability_weekly_report_timer_config.changed | default(false))
+        | ternary('restarted', 'started')
+      }}
+  when: observability_weekly_report_enabled | bool
+
+- name: Disable an existing weekly report timer when reporting is disabled
+  ansible.builtin.systemd:
+    name: "{{ observability_weekly_report_timer_name }}"
+    daemon_reload: true
+    enabled: false
+    state: stopped
+  when:
+    - not (observability_weekly_report_enabled | bool)
+    - observability_weekly_report_timer_unit.stat.exists

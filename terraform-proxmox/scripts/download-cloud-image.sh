@@ -4,6 +4,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." 2>/dev/null && pwd)"
+CLOUD_IMAGE_CATALOG="${CLOUD_IMAGE_CATALOG:-${REPO_ROOT}/config/cloud-images.env}"
+if [[ -r "${CLOUD_IMAGE_CATALOG}" ]]; then
+  # shellcheck disable=SC1090
+  source "${CLOUD_IMAGE_CATALOG}"
+fi
+
 PROXMOX_HOST="${PROXMOX_HOST:-}"
 PROXMOX_USER="${PROXMOX_USER:-root}"
 SSH_CONNECT_TIMEOUT="${SSH_CONNECT_TIMEOUT:-10}"
@@ -13,28 +21,28 @@ IMAGES="${IMAGES:-common}"
 FORCE="${FORCE:-false}"
 LOCAL_RUN="false"
 
-ORACLE9_IMAGE_URL="${ORACLE9_IMAGE_URL:-https://yum.oracle.com/templates/OracleLinux/OL9/u7/x86_64/OL9U7_x86_64-kvm-b289.qcow2}"
-ORACLE8_IMAGE_URL="${ORACLE8_IMAGE_URL:-https://yum.oracle.com/templates/OracleLinux/OL8/u10/x86_64/OL8U10_x86_64-kvm-b287.qcow2}"
+ORACLE9_IMAGE_URL="${ORACLE9_IMAGE_URL:-${CLOUD_IMAGE_ORACLE9_URL:-https://yum.oracle.com/templates/OracleLinux/OL9/u8/x86_64/OL9U8_x86_64-kvm-b293.qcow2}}"
+ORACLE8_IMAGE_URL="${ORACLE8_IMAGE_URL:-${CLOUD_IMAGE_ORACLE8_URL:-https://yum.oracle.com/templates/OracleLinux/OL8/u10/x86_64/OL8U10_x86_64-kvm-b287.qcow2}}"
 UBUNTU22_IMAGE_URL="${UBUNTU22_IMAGE_URL:-https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img}"
-UBUNTU24_IMAGE_URL="${UBUNTU24_IMAGE_URL:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}"
+UBUNTU24_IMAGE_URL="${UBUNTU24_IMAGE_URL:-${CLOUD_IMAGE_UBUNTU24_URL:-https://cloud-images.ubuntu.com/noble/20260801/noble-server-cloudimg-amd64.img}}"
 DEBIAN12_IMAGE_URL="${DEBIAN12_IMAGE_URL:-https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2}"
 ROCKY9_IMAGE_URL="${ROCKY9_IMAGE_URL:-https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2}"
 ALMA9_IMAGE_URL="${ALMA9_IMAGE_URL:-https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2}"
 FEDORA43_IMAGE_URL="${FEDORA43_IMAGE_URL:-https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2}"
 
-ORACLE9_CHECKSUM_URL="${ORACLE9_CHECKSUM_URL:-https://yum.oracle.com/templates/OracleLinux/ol9-template.json}"
-ORACLE8_CHECKSUM_URL="${ORACLE8_CHECKSUM_URL:-https://yum.oracle.com/templates/OracleLinux/ol8-template.json}"
+ORACLE9_CHECKSUM_URL="${ORACLE9_CHECKSUM_URL:-${CLOUD_IMAGE_ORACLE9_CHECKSUM_URL:-https://yum.oracle.com/templates/OracleLinux/ol9-template.json}}"
+ORACLE8_CHECKSUM_URL="${ORACLE8_CHECKSUM_URL:-${CLOUD_IMAGE_ORACLE8_CHECKSUM_URL:-https://yum.oracle.com/templates/OracleLinux/ol8-template.json}}"
 UBUNTU22_CHECKSUM_URL="${UBUNTU22_CHECKSUM_URL:-https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS}"
-UBUNTU24_CHECKSUM_URL="${UBUNTU24_CHECKSUM_URL:-}"
+UBUNTU24_CHECKSUM_URL="${UBUNTU24_CHECKSUM_URL:-${CLOUD_IMAGE_UBUNTU24_CHECKSUM_URL:-}}"
 DEBIAN12_CHECKSUM_URL="${DEBIAN12_CHECKSUM_URL:-https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS}"
 ROCKY9_CHECKSUM_URL="${ROCKY9_CHECKSUM_URL:-https://dl.rockylinux.org/pub/rocky/9/images/x86_64/CHECKSUM}"
 ALMA9_CHECKSUM_URL="${ALMA9_CHECKSUM_URL:-https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM}"
 FEDORA43_CHECKSUM_URL="${FEDORA43_CHECKSUM_URL:-https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-43-1.6-x86_64-CHECKSUM}"
 
-ORACLE9_IMAGE_SHA256="${ORACLE9_IMAGE_SHA256:-}"
-ORACLE8_IMAGE_SHA256="${ORACLE8_IMAGE_SHA256:-}"
+ORACLE9_IMAGE_SHA256="${ORACLE9_IMAGE_SHA256:-${CLOUD_IMAGE_ORACLE9_SHA256:-}}"
+ORACLE8_IMAGE_SHA256="${ORACLE8_IMAGE_SHA256:-${CLOUD_IMAGE_ORACLE8_SHA256:-}}"
 UBUNTU22_IMAGE_SHA256="${UBUNTU22_IMAGE_SHA256:-}"
-UBUNTU24_IMAGE_SHA256="${UBUNTU24_IMAGE_SHA256:-}"
+UBUNTU24_IMAGE_SHA256="${UBUNTU24_IMAGE_SHA256:-${CLOUD_IMAGE_UBUNTU24_SHA256:-}}"
 DEBIAN12_IMAGE_SHA512="${DEBIAN12_IMAGE_SHA512:-}"
 ROCKY9_IMAGE_SHA256="${ROCKY9_IMAGE_SHA256:-}"
 ALMA9_IMAGE_SHA256="${ALMA9_IMAGE_SHA256:-}"

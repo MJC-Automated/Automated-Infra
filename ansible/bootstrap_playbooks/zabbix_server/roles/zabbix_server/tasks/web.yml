@@ -1,0 +1,39 @@
+---
+- name: Initialize inventory-derived Zabbix web endpoints
+  ansible.builtin.set_fact:
+    zabbix_web_desired_endpoints: []
+  run_once: true
+
+- name: Add fixed-port inventory web endpoints
+  ansible.builtin.include_tasks: web-add-group.yml
+  loop: "{{ zabbix_web_endpoint_definitions }}"
+  loop_control:
+    loop_var: zabbix_web_group_definition
+  run_once: true
+  when: zabbix_web_monitoring_enabled | bool
+
+- name: Add WebLogic domain web endpoints
+  ansible.builtin.include_tasks: web-add-weblogic.yml
+  loop: >-
+    {{ groups.weblogic_servers | default([])
+       | select('in', groups.monitoring_clients | default([]))
+       | list }}
+  loop_control:
+    loop_var: zabbix_web_weblogic_host
+  run_once: true
+  when: zabbix_web_monitoring_enabled | bool
+
+- name: Reconcile exact inventory web scenarios and outage triggers
+  ansible.builtin.include_tasks: web-endpoint.yml
+  loop: "{{ zabbix_web_desired_endpoints }}"
+  loop_control:
+    loop_var: zabbix_web_endpoint
+  run_once: true
+  no_log: true
+  when: zabbix_web_monitoring_enabled | bool
+
+- name: Retire managed web objects absent from authoritative inventory
+  ansible.builtin.include_tasks: web-retire.yml
+  when: zabbix_web_retire_absent_enabled | bool
+  run_once: true
+  no_log: true

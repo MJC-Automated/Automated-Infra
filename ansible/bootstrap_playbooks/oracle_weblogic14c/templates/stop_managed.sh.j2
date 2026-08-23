@@ -1,11 +1,13 @@
 # templates/stop_managed.sh.j2
 #!/bin/bash
-# Stop a WebLogic Managed Server
+# Stop a WebLogic Managed Server using domain boot.properties (no password on argv).
 
 TIME=`/usr/bin/date +%b-%d-%Y-%H%M%S`
 
 export JAVA_HOME="{{ java_home }}"
 export PATH="$JAVA_HOME/bin:$PATH"
+# JMX options from the service drop-in are for the managed JVM, not the shutdown client.
+unset JAVA_OPTIONS USER_MEM_ARGS
 
 echo "INFO: Stopping managed server {{ managed_server_name }} for {{ wlst_domain_name | default(domain_name) }}"
 
@@ -13,6 +15,22 @@ echo "INFO: Admin URL: {{ wlst_admin_url | default(admin_url) }}"
 
 cd "{{ wlst_domain_home | default(domain_home) }}/bin" || { echo "ERROR: Cannot change to domain bin directory"; exit 1; }
 
-./stopManagedWebLogic.sh "{{ managed_server_name }}" "{{ wlst_admin_user | default(weblogic_admin_user) }}" "{{ weblogic_password }}" "{{ wlst_admin_url | default(admin_url) }}" > "{{ managed_server_logs_dir }}/stop_{{ managed_server_name }}_$TIME.log" 2>&1
+STOP_LOG="{{ managed_server_logs_dir }}/stop_{{ managed_server_name }}_$TIME.log"
+LISTEN_PORT={{ managed_server_listen_port }}
+STOP_TIMEOUT={{ managed_server_stop_timeout_seconds | default(300) }}
 
-echo "INFO: Stop command issued."
+if ! ./stopManagedWebLogic.sh "{{ managed_server_name }}" "{{ wlst_admin_url | default(admin_url) }}" > "$STOP_LOG" 2>&1; then
+  echo "ERROR: WebLogic shutdown command failed; inspect $STOP_LOG." >&2
+  exit 1
+fi
+
+for ((elapsed = 0; elapsed < STOP_TIMEOUT; elapsed += 5)); do
+  if ! /usr/sbin/ss -H -lnt "sport = :$LISTEN_PORT" | /usr/bin/grep -q LISTEN; then
+    echo "INFO: Managed server {{ managed_server_name }} stopped listening on port $LISTEN_PORT."
+    exit 0
+  fi
+  /usr/bin/sleep 5
+done
+
+echo "ERROR: Managed server {{ managed_server_name }} still listens on port $LISTEN_PORT after ${STOP_TIMEOUT}s." >&2
+exit 1

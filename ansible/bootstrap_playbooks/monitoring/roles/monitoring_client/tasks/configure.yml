@@ -1,0 +1,40 @@
+---
+- name: Render inventory-derived Zabbix Agent 2 configuration
+  ansible.builtin.template:
+    src: zabbix-agent2.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.d/90-iac-monitoring.conf
+    owner: root
+    group: zabbix
+    mode: "0640"
+  notify: Restart Zabbix Agent 2
+
+- name: Render Grafana Alloy configuration
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: "{{ monitoring_alloy_config_path }}"
+    owner: root
+    group: alloy
+    mode: "0640"
+  notify: Restart Grafana Alloy
+  no_log: "{{ monitoring_weblogic_enabled | bool }}"
+
+- name: Validate Grafana Alloy configuration before restart
+  ansible.builtin.command:
+    argv:
+      - alloy
+      - validate
+      - "{{ monitoring_alloy_config_path }}"
+  changed_when: false
+  no_log: "{{ monitoring_weblogic_enabled | bool }}"
+
+- name: Enable and start monitoring client services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - zabbix-agent2
+    - alloy
+
+- name: Apply pending monitoring client restarts
+  ansible.builtin.meta: flush_handlers

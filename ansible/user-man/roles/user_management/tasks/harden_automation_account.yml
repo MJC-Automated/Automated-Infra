@@ -232,6 +232,25 @@
     - security
     - automation_account
 
+- name: Ensure sshd loads managed drop-in configuration
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^\s*#?\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf\s*$'
+    line: 'Include /etc/ssh/sshd_config.d/*.conf'
+    insertbefore: BOF
+    owner: root
+    group: root
+    mode: '0600'
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload SSH service
+  when:
+    - (key_only_disable_password_auth | bool and (key_only_accounts_ready_for_hardening | default([])) | length > 0) or (enforce_sshd_allowlist | bool and
+      (sshd_login_allowlist_users | default([])) | length > 0)
+  tags:
+    - users
+    - security
+    - automation_account
+
 - name: Build password-lock targets for automation accounts
   ansible.builtin.set_fact:
     key_only_password_lock_targets: >-
@@ -278,6 +297,7 @@
       {% if key_only_authentication_methods_publickey | bool %}
           AuthenticationMethods publickey
       {% endif %}
+      Match all
   notify: Reload SSH service
   when:
     - key_only_disable_password_auth | bool
@@ -338,6 +358,16 @@
   notify: Reload SSH service
   when:
     - not (enforce_sshd_allowlist | bool and (sshd_allowlist_mode | lower) == 'users')
+  tags:
+    - users
+    - security
+    - automation_account
+
+- name: Ensure the SSH daemon survives guest reboots
+  ansible.builtin.systemd:
+    name: "{{ 'ssh.service' if ansible_facts.os_family == 'Debian' else 'sshd.service' }}"
+    enabled: true
+    state: started
   tags:
     - users
     - security

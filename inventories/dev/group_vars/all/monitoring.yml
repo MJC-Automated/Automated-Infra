@@ -1,0 +1,57 @@
+---
+# Central topology is inventory data. Passwords are referenced only from the
+# inline-encrypted monitoring vault file in this directory.
+monitoring_zabbix_server_host: >-
+  {{ hostvars[groups['zabbix_servers'][0]].ansible_host }}
+monitoring_observability_host: >-
+  {{ hostvars[groups['observability_servers'][0]].ansible_host }}
+observability_grafana_base_url: "http://{{ monitoring_observability_host }}:3000"
+monitoring_central_expected_environments:
+  - dev
+
+monitoring_weblogic_monitor_user: iac_monitor
+monitoring_weblogic_monitor_password: "{{ vault_monitoring_weblogic_password }}"
+monitoring_weblogic_secret_version: "1"
+monitoring_oracle_user: C##ZABBIX_MONITOR
+monitoring_oracle_password: "{{ vault_monitoring_oracle_password }}"
+
+# SMTP delivery remains disabled until the approved recipient, authenticated
+# Gmail address, and rotated app password are supplied. Use the authenticated
+# Gmail address here as both envelope address and username; do not use an
+# unverified monitoring-domain alias.
+monitoring_smtp_server: smtp.gmail.com
+monitoring_smtp_port: 587
+monitoring_smtp_helo: localhost
+monitoring_smtp_display_name: Homelab Monitoring
+monitoring_smtp_username: ""
+monitoring_smtp_recipient: ""
+monitoring_zabbix_recipient_users: []
+
+# Operating model: Alertmanager is the sole paging/notification owner.
+# Zabbix remains available for secondary checks, inventory, and SLA data.
+zabbix_email_alerts_enabled: false
+zabbix_email_trigger_notifications_enabled: false
+zabbix_email_smtp_server: "{{ monitoring_smtp_server }}"
+zabbix_email_smtp_port: "{{ monitoring_smtp_port }}"
+zabbix_email_smtp_helo: "{{ monitoring_smtp_helo }}"
+zabbix_email_from: "{{ monitoring_smtp_username }}"
+zabbix_email_smtp_username: "{{ monitoring_smtp_username }}"
+zabbix_email_smtp_password: "{{ vault_monitoring_smtp_password | default('') }}"
+zabbix_email_recipient_users: "{{ monitoring_zabbix_recipient_users }}"
+zabbix_email_recipient_address: "{{ monitoring_smtp_recipient }}"
+
+# Keep Alertmanager routing authoritative; enable SMTP only after the
+# recipient and authenticated sender are populated from encrypted Vault vars.
+observability_email_alerts_enabled: false
+observability_smtp_smarthost: "{{ monitoring_smtp_server }}:{{ monitoring_smtp_port }}"
+observability_smtp_helo: "{{ monitoring_smtp_helo }}"
+observability_smtp_display_name: "{{ monitoring_smtp_display_name }}"
+observability_smtp_from: "{{ monitoring_smtp_username }}"
+observability_smtp_auth_username: "{{ monitoring_smtp_username }}"
+observability_smtp_auth_password: "{{ vault_monitoring_smtp_password | default('') }}"
+observability_alert_recipient: "{{ monitoring_smtp_recipient }}"
+
+# This is an explicit, one-shot acceptance guard. A confirmed unified run sends
+# exactly one Zabbix test and one Alertmanager test; normal runs send neither.
+monitoring_send_test_alerts: false
+monitoring_test_alerts_confirm: ""

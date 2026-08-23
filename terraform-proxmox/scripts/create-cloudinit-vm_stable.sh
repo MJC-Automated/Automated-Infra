@@ -5,7 +5,29 @@ IFS=$'\n\t'
 # Provision a Proxmox VM from a cloud image and custom cloud-init userdata.
 # Secrets and site-local values live in .env next to this script.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env"
+ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/.env}"
+
+# Explicit process-environment values supplied by the remote wrapper or direct
+# invocation take precedence over values in the site-local environment file.
+_config_override_names=(
+  VMID NAME OS_TYPE IPCIDR GATEWAY FORCE DRY_RUN SANITIZE_TEMPLATE_BASE DOMAIN
+  SOURCE_IMAGE ORACLE_LINUX_IMAGE UBUNTU_IMAGE ROCKY_LINUX_IMAGE
+  ALMA_LINUX_IMAGE DEBIAN_IMAGE FEDORA_IMAGE
+  BRIDGE DNS CORES MEM CPU_TYPE VGA_TYPE
+  OS_STORAGE DATA_STORAGE EFI_STORAGE CI_STORAGE SNIPPET_STORAGE
+  OS_DISK_SIZE DATA_DISK_ENABLED DATA_DISK_SIZE PARTITION_LAYOUT
+  DO_OS_UPDATE REMAINING_SPACE_MODE MIN_REMAINING_WARN SWAP_SIZE FS_TYPE
+  XFS_LOGBSIZE_VALUE VG_NAME RESET_VGA_TO_DEFAULT SHUTDOWN_FINAL_VM TIMEZONE
+  SUDO_NOPASSWD SSH_IDENTITY_FILE GUEST_DEBUG
+  CIUSER PASSWORD SSH_KEYS_FILE
+  ZABBIX_SERVER ZABBIX_SERVER_PASSIVE ZABBIX_SERVER_ACTIVE ZABBIX_AGENT_PORT
+)
+declare -A _config_overrides=()
+for _config_name in "${_config_override_names[@]}"; do
+  if [[ -v "${_config_name}" ]]; then
+    _config_overrides["${_config_name}"]="${!_config_name}"
+  fi
+done
 
 if [[ ! -f "$ENV_FILE" ]]; then
   cat >&2 <<EOF
@@ -37,6 +59,12 @@ fi
 
 # shellcheck source=/dev/null
 source "$ENV_FILE"
+
+for _config_name in "${!_config_overrides[@]}"; do
+  printf -v "${_config_name}" '%s' "${_config_overrides[${_config_name}]}"
+  export "${_config_name}"
+done
+unset _config_name _config_override_names _config_overrides
 
 for _secret_var in CIUSER PASSWORD SSH_KEYS_FILE; do
   if [[ -z "${!_secret_var:-}" ]]; then
@@ -78,27 +106,30 @@ unset _secret_var
 VMID="${VMID:-999999991}"
 NAME="${NAME:-}"          # Leave empty → auto-derived from OS_TYPE + IP last octet
 OS_TYPE="${OS_TYPE:-oracle-linux-8}"  # See detect_os_config() for supported values
-IPCIDR="${IPCIDR:-203.0.113.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
-GATEWAY="${GATEWAY:-198.51.100.19}"
+IPCIDR="${IPCIDR:-192.0.2.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
+GATEWAY="${GATEWAY:-198.51.100.20}"
 FORCE="${FORCE:-1}"       # 1 = destroy existing VM, 0 = abort if exists
 DRY_RUN="${DRY_RUN:-0}"   # 1 = show what would happen without executing
 SANITIZE_TEMPLATE_BASE="${SANITIZE_TEMPLATE_BASE:-0}" # 1 = clean per-instance state before final shutdown
 
-readonly DOMAIN="example.internal"     # Domain suffix (FQDN = ${NAME}.${DOMAIN})
+readonly DOMAIN="${DOMAIN:-example.internal}" # Domain suffix (FQDN = ${NAME}.${DOMAIN})
 
 # Source images. Select with --os or OS_TYPE.
 readonly ORACLE_LINUX_8_IMAGE="/var/lib/vz/template/iso/OL8U10_x86_64-kvm-b287.qcow2"
-readonly ORACLE_LINUX_9_IMAGE="/var/lib/vz/template/iso/OL9U7_x86_64-kvm-b289.qcow2"
+readonly ORACLE_LINUX_9_IMAGE="/var/lib/vz/template/iso/OL9U8_x86_64-kvm-b293.qcow2"
 readonly UBUNTU_22_IMAGE="/var/lib/vz/template/iso/jammy-server-cloudimg-amd64.img"
 readonly UBUNTU_24_IMAGE="/var/lib/vz/template/iso/noble-server-cloudimg-amd64.img"
 readonly ROCKY_LINUX_9_IMAGE="/var/lib/vz/template/iso/Rocky-9-GenericCloud.latest.x86_64.qcow2"
 readonly ALMA_LINUX_9_IMAGE="/var/lib/vz/template/iso/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2"
 readonly DEBIAN_12_IMAGE="/var/lib/vz/template/iso/debian-12-genericcloud-amd64.qcow2"
 readonly FEDORA_43_IMAGE="/var/lib/vz/template/iso/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2"
+SOURCE_IMAGE="${SOURCE_IMAGE:-}"
 
 # Network.
 readonly BRIDGE="${BRIDGE:-vmbr0}"
 readonly DNS="${DNS:-198.51.100.29}"
+# Optional VLAN tag for primary NIC. Empty or 0 disables VLAN tagging.
+readonly NETWORK_VLAN="${NETWORK_VLAN:-0}"
 
 # CPU, memory, and display.
 readonly CORES="${CORES:-6}"
@@ -318,6 +349,10 @@ userdata_volid() {
   echo "${SNIPPET_STORAGE}:snippets/${VMID}-userdata.yaml"
 }
 
+networkdata_volid() {
+  echo "${SNIPPET_STORAGE}:snippets/${VMID}-network.yaml"
+}
+
 userdata_path() {
   local vol
   vol="$(userdata_volid)"
@@ -328,6 +363,19 @@ userdata_path() {
   fi
 
   echo "/var/lib/vz/snippets/${VMID}-userdata.yaml"
+  return 0
+}
+
+networkdata_path() {
+  local vol
+  vol="$(networkdata_volid)"
+
+  if pvesm path "$vol" >/dev/null 2>&1; then
+    pvesm path "$vol"
+    return 0
+  fi
+
+  echo "/var/lib/vz/snippets/${VMID}-network.yaml"
   return 0
 }
 
@@ -372,14 +420,14 @@ detect_os_config() {
 
     # Oracle Linux.
     oracle-linux-8|oracle8|ol8)
-      QCOW2="$ORACLE_LINUX_8_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${ORACLE_LINUX_IMAGE:-$ORACLE_LINUX_8_IMAGE}}"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
       OS_USER_GROUPS="wheel"; OS_FAMILY="rhel"
       ACTUAL_FS_TYPE="${FS_TYPE}"; [[ "$FS_TYPE" == "auto" ]] && ACTUAL_FS_TYPE="xfs"
       log_info "OS Type: Oracle Linux 8"
       ;;
     oracle-linux-9|oracle9|ol9|oracle-linux|oracle|ol)
-      QCOW2="$ORACLE_LINUX_9_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${ORACLE_LINUX_IMAGE:-$ORACLE_LINUX_9_IMAGE}}"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
       OS_USER_GROUPS="wheel"; OS_FAMILY="rhel"
       ACTUAL_FS_TYPE="${FS_TYPE}"; [[ "$FS_TYPE" == "auto" ]] && ACTUAL_FS_TYPE="xfs"
@@ -388,7 +436,7 @@ detect_os_config() {
 
     # Ubuntu.
     ubuntu-22|ubuntu22)
-      QCOW2="$UBUNTU_22_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${UBUNTU_IMAGE:-$UBUNTU_22_IMAGE}}"
       PKG_MANAGER="apt"
       PKG_UPDATE_CMD="apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade"
       PKG_INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get -y install"
@@ -397,7 +445,7 @@ detect_os_config() {
       log_info "OS Type: Ubuntu 22.04 LTS (Jammy)"
       ;;
     ubuntu-24|ubuntu24|ubuntu)
-      QCOW2="$UBUNTU_24_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${UBUNTU_IMAGE:-$UBUNTU_24_IMAGE}}"
       PKG_MANAGER="apt"
       PKG_UPDATE_CMD="apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade"
       PKG_INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get -y install"
@@ -408,7 +456,7 @@ detect_os_config() {
 
     # Debian.
     debian-12|debian12|debian)
-      QCOW2="$DEBIAN_12_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${DEBIAN_IMAGE:-$DEBIAN_12_IMAGE}}"
       PKG_MANAGER="apt"
       PKG_UPDATE_CMD="apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade"
       PKG_INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get -y install"
@@ -421,7 +469,7 @@ detect_os_config() {
 
     # Rocky Linux.
     rocky-linux-9|rocky9|rocky-linux|rocky|rl)
-      QCOW2="$ROCKY_LINUX_9_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${ROCKY_LINUX_IMAGE:-$ROCKY_LINUX_9_IMAGE}}"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
       OS_USER_GROUPS="wheel"; OS_FAMILY="rhel"
       ACTUAL_FS_TYPE="${FS_TYPE}"; [[ "$FS_TYPE" == "auto" ]] && ACTUAL_FS_TYPE="xfs"
@@ -430,7 +478,7 @@ detect_os_config() {
 
     # AlmaLinux.
     alma-linux-9|alma9|alma-linux|alma|al)
-      QCOW2="$ALMA_LINUX_9_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${ALMA_LINUX_IMAGE:-$ALMA_LINUX_9_IMAGE}}"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
       OS_USER_GROUPS="wheel"; OS_FAMILY="rhel"
       ACTUAL_FS_TYPE="${FS_TYPE}"; [[ "$FS_TYPE" == "auto" ]] && ACTUAL_FS_TYPE="xfs"
@@ -439,7 +487,7 @@ detect_os_config() {
 
     # Fedora.
     fedora-43|fedora43|fedora)
-      QCOW2="$FEDORA_43_IMAGE"
+      QCOW2="${SOURCE_IMAGE:-${FEDORA_IMAGE:-$FEDORA_43_IMAGE}}"
       PKG_MANAGER="dnf"; PKG_UPDATE_CMD="dnf -y update"; PKG_INSTALL_CMD="dnf -y install"
       OS_USER_GROUPS="wheel"; OS_FAMILY="fedora"
       ACTUAL_FS_TYPE="${FS_TYPE}"; [[ "$FS_TYPE" == "auto" ]] && ACTUAL_FS_TYPE="xfs"
@@ -464,6 +512,13 @@ detect_os_config() {
   log_info "Hostname:         $HOSTNAME_FQDN"
 }
 
+is_oracle_linux_8() {
+  case "${OS_TYPE,,}" in
+    oracle-linux-8|oracle8|ol8) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Utility functions.
 
 need() {
@@ -480,6 +535,31 @@ mb_to_gb() {
 
 is_number() {
   [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+validate_zabbix_passive_sources() {
+  local raw_source source address prefix octet
+  local -a sources octets
+
+  IFS=',' read -r -a sources <<< "${ZABBIX_SERVER_PASSIVE}"
+  [[ "${#sources[@]}" -gt 0 ]] || die "No Zabbix passive firewall source is configured"
+
+  for raw_source in "${sources[@]}"; do
+    source="${raw_source//[[:space:]]/}"
+    address="${source%%/*}"
+    prefix="${source#*/}"
+    [[ "${source}" == */* ]] || prefix="32"
+
+    [[ "${prefix}" =~ ^[0-9]+$ ]] || die "Invalid Zabbix passive CIDR prefix: ${raw_source}"
+    (( 10#${prefix} <= 32 )) || die "Invalid Zabbix passive CIDR prefix: ${raw_source}"
+
+    IFS='.' read -r -a octets <<< "${address}"
+    [[ "${#octets[@]}" -eq 4 ]] || die "Zabbix passive source must be an IPv4 address or CIDR: ${raw_source}"
+    for octet in "${octets[@]}"; do
+      [[ "${octet}" =~ ^[0-9]+$ ]] || die "Invalid Zabbix passive IPv4 source: ${raw_source}"
+      (( 10#${octet} <= 255 )) || die "Invalid Zabbix passive IPv4 source: ${raw_source}"
+    done
+  done
 }
 
 is_valid_mountpoint() {
@@ -552,7 +632,9 @@ run_or_die() {
     return 0
   fi
 
-  if ! "$@"; then
+  if "$@"; then
+    return 0
+  else
     local rc=$?
     log_error "${desc} failed (exit ${rc})"
     maybe_hint_storage_failure "$cmdline" ""
@@ -572,7 +654,11 @@ run_capture_or_die() {
   fi
 
   local out rc
-  out="$("$@" 2>&1)"; rc=$?
+  if out="$("$@" 2>&1)"; then
+    rc=0
+  else
+    rc=$?
+  fi
   [[ -n "$out" ]] && echo "$out"
 
   if [[ $rc -ne 0 ]]; then
@@ -851,11 +937,19 @@ preflight_checks() {
 
   [[ $EUID -eq 0 ]] || die "This script must be run as root"
 
-  for cmd in qm pvesm awk grep openssl sed ssh nc ping tee qemu-img; do
+  for cmd in qm pvesm awk grep openssl sed ssh nc ping tee qemu-img nproc; do
     need "$cmd"
   done
 
+  validate_zabbix_passive_sources
   detect_os_config
+
+  local flag_name
+  for flag_name in DO_OS_UPDATE SANITIZE_TEMPLATE_BASE SHUTDOWN_FINAL_VM; do
+    [[ "${!flag_name}" == "0" || "${!flag_name}" == "1" ]] || \
+      die "${flag_name} must be 0 or 1 (got '${!flag_name}')"
+  done
+  log_info "Run flags: DO_OS_UPDATE=${DO_OS_UPDATE}, SANITIZE_TEMPLATE_BASE=${SANITIZE_TEMPLATE_BASE}, SHUTDOWN_FINAL_VM=${SHUTDOWN_FINAL_VM}"
 
   [[ -f "$QCOW2" ]] || die "Cloud image not found: $QCOW2"
   [[ -f "$SSH_KEYS_FILE" ]] || die "SSH keys file not found: $SSH_KEYS_FILE"
@@ -863,6 +957,13 @@ preflight_checks() {
   if [[ -n "$SSH_IDENTITY_FILE" && ! -f "$SSH_IDENTITY_FILE" ]]; then
     die "SSH_IDENTITY_FILE not found: $SSH_IDENTITY_FILE"
   fi
+
+  is_number "$CORES" && (( CORES > 0 )) || die "CORES must be a positive integer"
+  is_number "$MEM" && (( MEM > 0 )) || die "MEM must be a positive integer"
+  local allowed_vcpus
+  allowed_vcpus="$(nproc)"
+  (( CORES <= allowed_vcpus )) || \
+    die "CORES=${CORES} exceeds this PVE node's ${allowed_vcpus}-vCPU-per-VM limit"
 
   is_number "$OS_DISK_SIZE" || die "Invalid OS_DISK_SIZE"
   [[ -n "$PASSWORD" ]] || die "PASSWORD is empty"
@@ -973,7 +1074,7 @@ generate_lvm_sections() {
 get_base_packages() {
   case "$PKG_MANAGER" in
     apt)
-      echo "qemu-guest-agent lvm2 gdisk parted xfsprogs e2fsprogs chrony nano wget curl rsync python3 sudo libpam-systemd nfs-common nfs-kernel-server"
+      echo "qemu-guest-agent lvm2 gdisk parted xfsprogs e2fsprogs chrony nano wget curl rsync python3 sudo libpam-systemd nfs-common"
       ;;
     dnf|yum)
       if [[ "$OS_FAMILY" == "fedora" ]]; then
@@ -1001,6 +1102,70 @@ _substitute_common_placeholders() {
   local ssh_key="$3"
   local esc
 
+  local os_bootcmd
+  os_bootcmd="$(mktemp)"
+  if is_oracle_linux_8; then
+    cat > "$os_bootcmd" <<'EOF'
+bootcmd:
+  - |
+      set -eu
+      sysconfig_py=""
+      for candidate in /usr/lib/python*/site-packages/cloudinit/net/sysconfig.py; do
+        if [ -f "${candidate}" ]; then
+          sysconfig_py="${candidate}"
+          break
+        fi
+      done
+      if [ -n "${sysconfig_py}" ]; then
+        util_py="${sysconfig_py%/net/sysconfig.py}/util.py"
+        if grep -qF 'util.load_text_file(existing_dns_path)' "${sysconfig_py}" && \
+           ! grep -qE '^def[[:space:]]+load_text_file\(' "${util_py}"; then
+          sed -i 's/util\.load_text_file(existing_dns_path)/util.load_file(existing_dns_path)/g' "${sysconfig_py}"
+        fi
+        if grep -qF 'util.load_text_file(existing_dns_path)' "${sysconfig_py}" && \
+           ! grep -qE '^def[[:space:]]+load_text_file\(' "${util_py}"; then
+          echo "ERROR: Oracle Linux 8 cloud-init DNS renderer compatibility repair failed" >&2
+          exit 1
+        fi
+      fi
+
+      resolver='__DNS__'
+      nm_ready=0
+      attempt=1
+      while [ "${attempt}" -le 30 ]; do
+        connection="$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: '$2 == "eth0" {print $1; exit}')"
+        if [ -n "${connection}" ] && \
+           nmcli connection modify "${connection}" ipv4.ignore-auto-dns yes ipv4.dns "${resolver}" >/dev/null 2>&1 && \
+           nmcli device reapply eth0 >/dev/null 2>&1; then
+          nm_ready=1
+          break
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+      done
+      if [ "${nm_ready}" -ne 1 ]; then
+        echo "ERROR: Oracle Linux 8 NetworkManager DNS profile did not become ready" >&2
+        exit 1
+      fi
+      printf 'nameserver %s\n' "${resolver}" > /etc/resolv.conf
+      getent ahostsv4 yum.oracle.com >/dev/null
+      install -d -m 0755 /var/lib/cloud
+      printf 'renderer_compatible=yes\nresolver=%s\n' "${resolver}" > /var/lib/cloud/ol8-cloudinit-dns-compat
+EOF
+  fi
+  inject_block "__OS_BOOTCMD__" "$os_bootcmd" "$userdata_file"
+  rm -f "$os_bootcmd"
+
+  local os_runcmd
+  os_runcmd="$(mktemp)"
+  if is_oracle_linux_8; then
+    cat > "$os_runcmd" <<'EOF'
+  - [ /bin/bash, -c, "echo 'nameserver __DNS__' > /etc/resolv.conf && getent ahostsv4 yum.oracle.com >/dev/null" ]
+EOF
+  fi
+  inject_block "__OS_RUNCMD__" "$os_runcmd" "$userdata_file"
+  rm -f "$os_runcmd"
+
   esc="$(sed_escape_repl "$CIUSER")"
   sed -i "s|__CIUSER__|$esc|g" "$userdata_file"
 
@@ -1013,14 +1178,20 @@ _substitute_common_placeholders() {
   esc="$(sed_escape_repl "$pass_hash")"
   sed -i "s|__PASS_HASH__|$esc|g" "$userdata_file"
 
-  esc="$(sed_escape_repl "$ssh_key")"
-  sed -i "s|__SSH_KEY__|$esc|g" "$userdata_file"
+  local tmp_keys
+  tmp_keys="$(mktemp)"
+  printf '%s\n' "$ssh_key" > "$tmp_keys"
+  inject_block "__SSH_KEY__" "$tmp_keys" "$userdata_file"
+  rm -f "$tmp_keys"
 
   esc="$(sed_escape_repl "$HOSTNAME_FQDN")"
   sed -i "s|__HOSTNAME_FQDN__|$esc|g" "$userdata_file"
 
   esc="$(sed_escape_repl "$TIMEZONE")"
   sed -i "s|__TIMEZONE__|$esc|g" "$userdata_file"
+
+  esc="$(sed_escape_repl "$DNS")"
+  sed -i "s|__DNS__|$esc|g" "$userdata_file"
 
   esc="$(sed_escape_repl "$CALCULATED_SWAP_SIZE_MB")"
   sed -i "s|__SWAP_MB__|$esc|g" "$userdata_file"
@@ -1055,7 +1226,7 @@ create_cloudinit_config() {
       sub(/\r$/, "");
       if ($0 ~ /^[[:space:]]*$/) next;
       if ($0 ~ /^[[:space:]]*#/) next;
-      print; exit
+      print "      - \"" $0 "\""
     }
   ' "$SSH_KEYS_FILE")"
   [[ -n "$ssh_key" ]] || die "No SSH key found in $SSH_KEYS_FILE"
@@ -1106,6 +1277,8 @@ chpasswd:
 
 timezone: __TIMEZONE__
 
+__OS_BOOTCMD__
+
 users:
   - name: __CIUSER__
     groups: [__OS_USER_GROUPS__]
@@ -1114,7 +1287,7 @@ users:
     lock_passwd: false
     passwd: "__PASS_HASH__"
     ssh_authorized_keys:
-      - "__SSH_KEY__"
+__SSH_KEY__
 
 package_update: true
 
@@ -1232,8 +1405,7 @@ write_files:
                 rpm -Uvh "${release_rpm}"
                 rm -f "${release_rpm}"
               fi
-              dnf clean all
-              dnf -y install zabbix-agent2
+        dnf -y install zabbix-agent2
               ;;
             *)
               echo "Skipping Zabbix install on unsupported distro: ${ID:-unknown} ${VERSION_ID:-unknown}"
@@ -1261,22 +1433,91 @@ write_files:
         echo "WARNING: ${zbx_conf} not found; skipping Zabbix server configuration."
       fi
 
-      # Ensure firewall allows port __ZABBIX_AGENT_PORT__/tcp
-      if command -v firewall-cmd >/dev/null 2>&1; then
-        if systemctl is-active firewalld >/dev/null 2>&1; then
-          timeout 15 firewall-cmd --permanent --add-port=__ZABBIX_AGENT_PORT__/tcp && timeout 15 firewall-cmd --reload || echo "WARNING: firewall-cmd timed out or failed"
+      zbx_agent_port="__ZABBIX_AGENT_PORT__"
+      zbx_sources=()
+      IFS=',' read -r -a zbx_raw_sources <<< "${zbx_server_passive}"
+      for zbx_raw_source in "${zbx_raw_sources[@]}"; do
+        zbx_source="${zbx_raw_source//[[:space:]]/}"
+        zbx_address="${zbx_source%%/*}"
+        zbx_prefix="${zbx_source#*/}"
+        [[ "${zbx_source}" == */* ]] || zbx_prefix="32"
+
+        IFS='.' read -r -a zbx_octets <<< "${zbx_address}"
+        if [[ "${#zbx_octets[@]}" -ne 4 || ! "${zbx_prefix}" =~ ^[0-9]+$ ]] || (( 10#${zbx_prefix} > 32 )); then
+          echo "ERROR: Zabbix passive source must be an IPv4 address or CIDR: ${zbx_raw_source}" >&2
+          exit 1
         fi
-      fi
-      if command -v ufw >/dev/null 2>&1; then
-        ufw allow __ZABBIX_AGENT_PORT__/tcp
-      fi
-      if command -v iptables >/dev/null 2>&1; then
-        iptables -C INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT
+        for zbx_octet in "${zbx_octets[@]}"; do
+          if [[ ! "${zbx_octet}" =~ ^[0-9]+$ ]] || (( 10#${zbx_octet} > 255 )); then
+            echo "ERROR: invalid Zabbix passive IPv4 source: ${zbx_raw_source}" >&2
+            exit 1
+          fi
+        done
+        zbx_sources+=("${zbx_address}/${zbx_prefix}")
+      done
+      [[ "${#zbx_sources[@]}" -gt 0 ]] || { echo "ERROR: no Zabbix passive firewall source configured" >&2; exit 1; }
+
+      # cloud_init_t can hang on firewalld D-Bus even while interactive clients work.
+      # Reconcile persistent rules offline, restart once, and verify live rules over SSH later.
+      if command -v firewall-offline-cmd >/dev/null 2>&1 && systemctl is-active firewalld >/dev/null 2>&1; then
+        zbx_firewall_zone="$(firewall-offline-cmd --get-default-zone)"
+        [[ -n "${zbx_firewall_zone}" ]] || { echo "ERROR: firewalld default zone is empty" >&2; exit 1; }
+
+        for zbx_zone in $(firewall-offline-cmd --get-zones); do
+          firewall-offline-cmd --zone="${zbx_zone}" --remove-port="${zbx_agent_port}/tcp" >/dev/null 2>&1 || true
+          mapfile -t zbx_stale_rules < <(firewall-offline-cmd --zone="${zbx_zone}" --list-rich-rules)
+          for zbx_existing_rule in "${zbx_stale_rules[@]}"; do
+            if [[ "${zbx_existing_rule}" == *"port=\"${zbx_agent_port}\""* && "${zbx_existing_rule}" == *'protocol="tcp"'* && "${zbx_existing_rule}" == *" accept"* ]]; then
+              firewall-offline-cmd --zone="${zbx_zone}" --remove-rich-rule="${zbx_existing_rule}" >/dev/null
+            fi
+          done
+        done
+
+        for zbx_source in "${zbx_sources[@]}"; do
+          zbx_rule="rule family=\"ipv4\" source address=\"${zbx_source}\" port protocol=\"tcp\" port=\"${zbx_agent_port}\" accept"
+          firewall-offline-cmd --zone="${zbx_firewall_zone}" --add-rich-rule="${zbx_rule}" >/dev/null
+          firewall-offline-cmd --zone="${zbx_firewall_zone}" --query-rich-rule="${zbx_rule}" >/dev/null
+        done
+
+        firewall-offline-cmd --check-config
+        systemctl restart firewalld
+        systemctl is-active --quiet firewalld
+      elif command -v ufw >/dev/null 2>&1; then
+        mapfile -t zbx_ufw_rules < <(ufw show added | sed -n '/^ufw /p')
+        for zbx_ufw_rule in "${zbx_ufw_rules[@]}"; do
+          if [[ "${zbx_ufw_rule}" =~ (^|[[:space:]])${zbx_agent_port}/tcp($|[[:space:]]) || "${zbx_ufw_rule}" =~ [[:space:]]port[[:space:]]${zbx_agent_port}($|[[:space:]]) ]]; then
+            read -r -a zbx_ufw_args <<< "${zbx_ufw_rule#ufw }"
+            ufw --force delete "${zbx_ufw_args[@]}" >/dev/null 2>&1 || true
+          fi
+        done
+        for zbx_source in "${zbx_sources[@]}"; do
+          ufw allow proto tcp from "${zbx_source}" to any port "${zbx_agent_port}"
+        done
+        zbx_ufw_rules="$(ufw show added | sed -n '/^ufw /p')"
+        zbx_ufw_rule_count="$(grep -Ec "(^|[[:space:]])${zbx_agent_port}/tcp($|[[:space:]])|[[:space:]]port[[:space:]]${zbx_agent_port}($|[[:space:]])" <<< "${zbx_ufw_rules}" || true)"
+        [[ "${zbx_ufw_rule_count}" -eq "${#zbx_sources[@]}" ]] || { echo "ERROR: unexpected persisted Zabbix Agent 2 UFW rule count" >&2; exit 1; }
+        for zbx_source in "${zbx_sources[@]}"; do
+          zbx_ufw_display_source="${zbx_source%/32}"
+          grep -Fx "ufw allow from ${zbx_ufw_display_source} to any port ${zbx_agent_port} proto tcp" <<< "${zbx_ufw_rules}" >/dev/null || {
+            echo "ERROR: exact persisted Zabbix Agent 2 UFW rule is missing for ${zbx_source}" >&2
+            exit 1
+          }
+        done
+      elif command -v iptables >/dev/null 2>&1; then
+        while iptables -C INPUT -p tcp --dport "${zbx_agent_port}" -j ACCEPT >/dev/null 2>&1; do
+          iptables -D INPUT -p tcp --dport "${zbx_agent_port}" -j ACCEPT
+        done
+        for zbx_source in "${zbx_sources[@]}"; do
+          iptables -C INPUT -p tcp -s "${zbx_source}" --dport "${zbx_agent_port}" -j ACCEPT >/dev/null 2>&1 || \
+            iptables -I INPUT -p tcp -s "${zbx_source}" --dport "${zbx_agent_port}" -j ACCEPT
+          iptables -C INPUT -p tcp -s "${zbx_source}" --dport "${zbx_agent_port}" -j ACCEPT >/dev/null
+        done
       fi
 
       systemctl enable --now zabbix-agent2
 
 runcmd:
+__OS_RUNCMD__
   - [ udevadm, settle ]
   - [ /usr/local/sbin/install-zabbix-agent2.sh ]
   - [ /usr/local/sbin/ensure-swap.sh ]
@@ -1334,6 +1575,8 @@ chpasswd:
 
 timezone: __TIMEZONE__
 
+__OS_BOOTCMD__
+
 users:
   - name: __CIUSER__
     groups: [__OS_USER_GROUPS__]
@@ -1342,7 +1585,7 @@ users:
     lock_passwd: false
     passwd: "__PASS_HASH__"
     ssh_authorized_keys:
-      - "__SSH_KEY__"
+__SSH_KEY__
 
 package_update: true
 
@@ -1625,8 +1868,7 @@ __LVM_CHOWN_SECTION__
                 rpm -Uvh "${release_rpm}"
                 rm -f "${release_rpm}"
               fi
-              dnf clean all
-              dnf -y install zabbix-agent2
+        dnf -y install zabbix-agent2
               ;;
             *)
               echo "Skipping Zabbix install on unsupported distro: ${ID:-unknown} ${VERSION_ID:-unknown}"
@@ -1654,22 +1896,91 @@ __LVM_CHOWN_SECTION__
         echo "WARNING: ${zbx_conf} not found; skipping Zabbix server configuration."
       fi
 
-      # Ensure firewall allows port __ZABBIX_AGENT_PORT__/tcp
-      if command -v firewall-cmd >/dev/null 2>&1; then
-        if systemctl is-active firewalld >/dev/null 2>&1; then
-          timeout 15 firewall-cmd --permanent --add-port=__ZABBIX_AGENT_PORT__/tcp && timeout 15 firewall-cmd --reload || echo "WARNING: firewall-cmd timed out or failed"
+      zbx_agent_port="__ZABBIX_AGENT_PORT__"
+      zbx_sources=()
+      IFS=',' read -r -a zbx_raw_sources <<< "${zbx_server_passive}"
+      for zbx_raw_source in "${zbx_raw_sources[@]}"; do
+        zbx_source="${zbx_raw_source//[[:space:]]/}"
+        zbx_address="${zbx_source%%/*}"
+        zbx_prefix="${zbx_source#*/}"
+        [[ "${zbx_source}" == */* ]] || zbx_prefix="32"
+
+        IFS='.' read -r -a zbx_octets <<< "${zbx_address}"
+        if [[ "${#zbx_octets[@]}" -ne 4 || ! "${zbx_prefix}" =~ ^[0-9]+$ ]] || (( 10#${zbx_prefix} > 32 )); then
+          echo "ERROR: Zabbix passive source must be an IPv4 address or CIDR: ${zbx_raw_source}" >&2
+          exit 1
         fi
-      fi
-      if command -v ufw >/dev/null 2>&1; then
-        ufw allow __ZABBIX_AGENT_PORT__/tcp
-      fi
-      if command -v iptables >/dev/null 2>&1; then
-        iptables -C INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p tcp --dport __ZABBIX_AGENT_PORT__ -j ACCEPT
+        for zbx_octet in "${zbx_octets[@]}"; do
+          if [[ ! "${zbx_octet}" =~ ^[0-9]+$ ]] || (( 10#${zbx_octet} > 255 )); then
+            echo "ERROR: invalid Zabbix passive IPv4 source: ${zbx_raw_source}" >&2
+            exit 1
+          fi
+        done
+        zbx_sources+=("${zbx_address}/${zbx_prefix}")
+      done
+      [[ "${#zbx_sources[@]}" -gt 0 ]] || { echo "ERROR: no Zabbix passive firewall source configured" >&2; exit 1; }
+
+      # cloud_init_t can hang on firewalld D-Bus even while interactive clients work.
+      # Reconcile persistent rules offline, restart once, and verify live rules over SSH later.
+      if command -v firewall-offline-cmd >/dev/null 2>&1 && systemctl is-active firewalld >/dev/null 2>&1; then
+        zbx_firewall_zone="$(firewall-offline-cmd --get-default-zone)"
+        [[ -n "${zbx_firewall_zone}" ]] || { echo "ERROR: firewalld default zone is empty" >&2; exit 1; }
+
+        for zbx_zone in $(firewall-offline-cmd --get-zones); do
+          firewall-offline-cmd --zone="${zbx_zone}" --remove-port="${zbx_agent_port}/tcp" >/dev/null 2>&1 || true
+          mapfile -t zbx_stale_rules < <(firewall-offline-cmd --zone="${zbx_zone}" --list-rich-rules)
+          for zbx_existing_rule in "${zbx_stale_rules[@]}"; do
+            if [[ "${zbx_existing_rule}" == *"port=\"${zbx_agent_port}\""* && "${zbx_existing_rule}" == *'protocol="tcp"'* && "${zbx_existing_rule}" == *" accept"* ]]; then
+              firewall-offline-cmd --zone="${zbx_zone}" --remove-rich-rule="${zbx_existing_rule}" >/dev/null
+            fi
+          done
+        done
+
+        for zbx_source in "${zbx_sources[@]}"; do
+          zbx_rule="rule family=\"ipv4\" source address=\"${zbx_source}\" port protocol=\"tcp\" port=\"${zbx_agent_port}\" accept"
+          firewall-offline-cmd --zone="${zbx_firewall_zone}" --add-rich-rule="${zbx_rule}" >/dev/null
+          firewall-offline-cmd --zone="${zbx_firewall_zone}" --query-rich-rule="${zbx_rule}" >/dev/null
+        done
+
+        firewall-offline-cmd --check-config
+        systemctl restart firewalld
+        systemctl is-active --quiet firewalld
+      elif command -v ufw >/dev/null 2>&1; then
+        mapfile -t zbx_ufw_rules < <(ufw show added | sed -n '/^ufw /p')
+        for zbx_ufw_rule in "${zbx_ufw_rules[@]}"; do
+          if [[ "${zbx_ufw_rule}" =~ (^|[[:space:]])${zbx_agent_port}/tcp($|[[:space:]]) || "${zbx_ufw_rule}" =~ [[:space:]]port[[:space:]]${zbx_agent_port}($|[[:space:]]) ]]; then
+            read -r -a zbx_ufw_args <<< "${zbx_ufw_rule#ufw }"
+            ufw --force delete "${zbx_ufw_args[@]}" >/dev/null 2>&1 || true
+          fi
+        done
+        for zbx_source in "${zbx_sources[@]}"; do
+          ufw allow proto tcp from "${zbx_source}" to any port "${zbx_agent_port}"
+        done
+        zbx_ufw_rules="$(ufw show added | sed -n '/^ufw /p')"
+        zbx_ufw_rule_count="$(grep -Ec "(^|[[:space:]])${zbx_agent_port}/tcp($|[[:space:]])|[[:space:]]port[[:space:]]${zbx_agent_port}($|[[:space:]])" <<< "${zbx_ufw_rules}" || true)"
+        [[ "${zbx_ufw_rule_count}" -eq "${#zbx_sources[@]}" ]] || { echo "ERROR: unexpected persisted Zabbix Agent 2 UFW rule count" >&2; exit 1; }
+        for zbx_source in "${zbx_sources[@]}"; do
+          zbx_ufw_display_source="${zbx_source%/32}"
+          grep -Fx "ufw allow from ${zbx_ufw_display_source} to any port ${zbx_agent_port} proto tcp" <<< "${zbx_ufw_rules}" >/dev/null || {
+            echo "ERROR: exact persisted Zabbix Agent 2 UFW rule is missing for ${zbx_source}" >&2
+            exit 1
+          }
+        done
+      elif command -v iptables >/dev/null 2>&1; then
+        while iptables -C INPUT -p tcp --dport "${zbx_agent_port}" -j ACCEPT >/dev/null 2>&1; do
+          iptables -D INPUT -p tcp --dport "${zbx_agent_port}" -j ACCEPT
+        done
+        for zbx_source in "${zbx_sources[@]}"; do
+          iptables -C INPUT -p tcp -s "${zbx_source}" --dport "${zbx_agent_port}" -j ACCEPT >/dev/null 2>&1 || \
+            iptables -I INPUT -p tcp -s "${zbx_source}" --dport "${zbx_agent_port}" -j ACCEPT
+          iptables -C INPUT -p tcp -s "${zbx_source}" --dport "${zbx_agent_port}" -j ACCEPT >/dev/null
+        done
       fi
 
       systemctl enable --now zabbix-agent2
 
 runcmd:
+__OS_RUNCMD__
   - [ udevadm, settle ]
   - [ /usr/local/sbin/install-zabbix-agent2.sh ]
   - [ systemctl, enable, --now, qemu-guest-agent ]
@@ -1726,12 +2037,24 @@ create_vm() {
     return 0
   }
 
+  # Build the net0 spec with optional VLAN tag
+  net0_spec="virtio,bridge=${BRIDGE}"
+  if [[ -n "${NETWORK_VLAN:-}" && "${NETWORK_VLAN}" != "0" ]]; then
+    # Validate numeric VLAN (1-4094)
+    if [[ "${NETWORK_VLAN}" =~ ^[0-9]+$ ]] && (( NETWORK_VLAN >= 1 && NETWORK_VLAN <= 4094 )); then
+      net0_spec+=",tag=${NETWORK_VLAN}"
+      log_info "Adding VLAN tag ${NETWORK_VLAN} to primary NIC"
+    else
+      log_warn "NETWORK_VLAN='${NETWORK_VLAN}' is not a valid VLAN ID; ignoring VLAN tagging"
+    fi
+  fi
+
   run_or_die "qm create" qm create "$VMID" \
     --name "$NAME" \
     --cores "$CORES" \
     --memory "$MEM" \
     --cpu "$CPU_TYPE" \
-    --net0 "virtio,bridge=$BRIDGE" \
+    --net0 "$net0_spec" \
     --ostype l26 \
     --machine q35 \
     --bios ovmf \
@@ -1830,15 +2153,49 @@ setup_cloudinit() {
   log_info "Custom cloud-init userdata attached"
 
   if [[ "$IPCIDR" == "dhcp" || -z "$IPCIDR" ]]; then
-    run_or_die "Set IP config" qm set "$VMID" --ipconfig0 "ip=dhcp" --nameserver "$DNS"
-    log_info "Network configuration: DHCP"
+    if is_oracle_linux_8; then
+      run_or_die "Set initial Oracle Linux 8 IP config" qm set "$VMID" --ipconfig0 "ip=dhcp" --delete nameserver
+      log_info "Network configuration: DHCP (OL8 DNS deferred to compatibility bootcmd)"
+    else
+      run_or_die "Set IP config" qm set "$VMID" --ipconfig0 "ip=dhcp" --nameserver "$DNS"
+      log_info "Network configuration: DHCP"
+    fi
   else
-    run_or_die "Set IP config" qm set "$VMID" --ipconfig0 "ip=$IPCIDR,gw=$GATEWAY" --nameserver "$DNS"
-    log_info "Network configuration: Static ($IPCIDR)"
+    if is_oracle_linux_8; then
+      run_or_die "Set initial Oracle Linux 8 IP config" qm set "$VMID" --ipconfig0 "ip=$IPCIDR,gw=$GATEWAY" --delete nameserver
+      log_info "Network configuration: Static ($IPCIDR; OL8 DNS deferred to compatibility bootcmd)"
+    else
+      run_or_die "Set IP config" qm set "$VMID" --ipconfig0 "ip=$IPCIDR,gw=$GATEWAY" --nameserver "$DNS"
+      log_info "Network configuration: Static ($IPCIDR)"
+    fi
+  fi
+
+  if is_oracle_linux_8; then
+    local networkdata_file
+    networkdata_file="$(networkdata_path)"
+    mkdir -p "$(dirname "$networkdata_file")"
+    qm cloudinit dump "$VMID" network | awk '
+      /^    - type: nameserver$/ { skip=1; next }
+      skip && /^    - type:/ { skip=0 }
+      !skip { print }
+    ' > "$networkdata_file"
+    chmod 600 "$networkdata_file"
+    grep -q '^version: 1$' "$networkdata_file" || die "OL8 bootstrap network-data has no version"
+    grep -q '^    - type: physical$' "$networkdata_file" || die "OL8 bootstrap network-data has no physical interface"
+    ! grep -q '^    - type: nameserver$' "$networkdata_file" || die "OL8 bootstrap network-data still contains DNS"
+    run_or_die "Attach DNS-free Oracle Linux 8 bootstrap network-data" \
+      qm set "$VMID" --cicustom "user=$(userdata_volid),network=$(networkdata_volid)"
+    log_info "DNS-free Oracle Linux 8 bootstrap network-data attached"
   fi
 
   run_or_die "Enable guest agent" qm set "$VMID" --agent enabled=1
   log_info "QEMU guest agent enabled"
+
+  # DO_OS_UPDATE is the explicit update control. Without ciupgrade=0, Proxmox
+  # regenerates default user-data with package_upgrade=true after cicustom is
+  # detached, so a sanitized base performs an unrequested upgrade on next boot.
+  run_or_die "Disable implicit cloud-init package upgrades" qm set "$VMID" --ciupgrade 0
+  log_info "Implicit Proxmox cloud-init package upgrades disabled"
 
   qm cloudinit update "$VMID" >/dev/null 2>&1 || true
   log_info "Cloud-init configuration complete"
@@ -1965,6 +2322,11 @@ wait_for_cloudinit_done() {
         return 0
       fi
     else
+      if echo "${out:-}" | grep -qE '^status:[[:space:]]+(error|disabled)'; then
+        print_cloudinit_poll_line "$out"
+        log_error "cloud-init reached a terminal failure state"
+        return 1
+      fi
       log_warn "Could not query cloud-init (ssh): $(echo "${out:-}" | sed -n '1p')"
     fi
 
@@ -2034,7 +2396,9 @@ run_verification() {
     return 1
   fi
 
-  wait_for_cloudinit_done || true
+  if ! wait_for_cloudinit_done; then
+    VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+  fi
 
   if [[ "$DATA_DISK_ENABLED" == "1" ]]; then
     if ! wait_for_storage_marker; then
@@ -2098,8 +2462,9 @@ run_verification() {
   if [[ -z "$failed_services" ]]; then
     log_info "All systemd services are healthy"
   else
-    log_warn "Some systemd services are degraded/failed:"
+    log_error "Some systemd services are degraded/failed:"
     echo "$failed_services" | sed 's/^/  /'
+    VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
   fi
 
   log_verify "Checking QEMU Guest Agent status..."
@@ -2121,10 +2486,123 @@ run_verification() {
   fi
 
   log_verify "Checking Zabbix Agent 2 status..."
+  local zabbix_wait_start=$SECONDS
+  while (( SECONDS - zabbix_wait_start < 300 )); do
+    if ssh_execute "systemctl is-active --quiet zabbix-agent2" >/dev/null 2>&1; then
+      break
+    fi
+    if ! ssh_execute "ps -eo args | awk '/[i]nstall-zabbix-agent2[.]sh|[d]nf .*install zabbix-agent2/ { found=1 } END { exit !found }'" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 5
+  done
   if ssh_execute "systemctl is-active --quiet zabbix-agent2" >/dev/null 2>&1; then
     log_info "Zabbix Agent 2 is running"
   else
-    log_warn "Zabbix Agent 2 is NOT active (expected if package download timed out)"
+    log_error "Zabbix Agent 2 is NOT active"
+    ssh_execute "sudo -n tail -n 80 /var/log/install-zabbix-agent2.log 2>/dev/null || true" || true
+    VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+  fi
+
+  if ssh_execute "command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld" >/dev/null 2>&1; then
+    log_verify "Checking exact permanent and runtime Zabbix firewalld rules..."
+    local zbx_firewall_zone zbx_raw_source zbx_source zbx_rule
+    local permanent_rules runtime_rules permanent_rule_count runtime_rule_count
+    local expected_rule_count=0
+    local -a zbx_expected_sources
+
+    zbx_firewall_zone="$(ssh_execute "sudo -n firewall-cmd --get-default-zone" 2>/dev/null | tail -n1 | tr -d '\r')"
+    if [[ ! "${zbx_firewall_zone}" =~ ^[[:alnum:]_-]+$ ]]; then
+      log_error "Could not resolve a safe firewalld default zone"
+      VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+    elif ! ssh_execute "for zone in \$(sudo -n firewall-cmd --get-zones); do if sudo -n firewall-cmd --permanent --zone=\"\$zone\" --query-port='${ZABBIX_AGENT_PORT}/tcp' >/dev/null 2>&1 || sudo -n firewall-cmd --zone=\"\$zone\" --query-port='${ZABBIX_AGENT_PORT}/tcp' >/dev/null 2>&1; then exit 1; fi; done" >/dev/null 2>&1; then
+      log_error "A broad permanent or runtime Zabbix Agent 2 firewalld rule remains"
+      VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+    else
+      IFS=',' read -r -a zbx_expected_sources <<< "${ZABBIX_SERVER_PASSIVE}"
+      for zbx_raw_source in "${zbx_expected_sources[@]}"; do
+        zbx_source="${zbx_raw_source//[[:space:]]/}"
+        [[ "${zbx_source}" == */* ]] || zbx_source="${zbx_source}/32"
+        zbx_rule="rule family=\"ipv4\" source address=\"${zbx_source}\" port protocol=\"tcp\" port=\"${ZABBIX_AGENT_PORT}\" accept"
+        expected_rule_count=$((expected_rule_count + 1))
+        if ! ssh_execute "sudo -n firewall-cmd --permanent --zone='${zbx_firewall_zone}' --query-rich-rule='${zbx_rule}' >/dev/null && sudo -n firewall-cmd --zone='${zbx_firewall_zone}' --query-rich-rule='${zbx_rule}' >/dev/null" >/dev/null 2>&1; then
+          log_error "Missing permanent or runtime Zabbix firewalld rule for ${zbx_source}"
+          VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+        fi
+      done
+
+      permanent_rules="$(ssh_execute "for zone in \$(sudo -n firewall-cmd --get-zones); do sudo -n firewall-cmd --permanent --zone=\"\$zone\" --list-rich-rules; done" 2>/dev/null || true)"
+      runtime_rules="$(ssh_execute "for zone in \$(sudo -n firewall-cmd --get-zones); do sudo -n firewall-cmd --zone=\"\$zone\" --list-rich-rules; done" 2>/dev/null || true)"
+      permanent_rule_count="$(awk -v port="${ZABBIX_AGENT_PORT}" 'index($0, "port=\"" port "\"") && index($0, "protocol=\"tcp\"") && / accept$/ { count++ } END { print count + 0 }' <<< "${permanent_rules}")"
+      runtime_rule_count="$(awk -v port="${ZABBIX_AGENT_PORT}" 'index($0, "port=\"" port "\"") && index($0, "protocol=\"tcp\"") && / accept$/ { count++ } END { print count + 0 }' <<< "${runtime_rules}")"
+      if [[ "${permanent_rule_count}" -ne "${expected_rule_count}" || "${runtime_rule_count}" -ne "${expected_rule_count}" ]]; then
+        log_error "Unexpected Zabbix Agent 2 firewalld rule count (permanent=${permanent_rule_count}, runtime=${runtime_rule_count}, expected=${expected_rule_count})"
+        VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+      else
+        log_info "Firewalld permits Agent 2 only from ${expected_rule_count} declared source(s)"
+      fi
+    fi
+  elif ssh_execute "command -v ufw >/dev/null 2>&1" >/dev/null 2>&1; then
+    log_verify "Checking exact persisted Zabbix UFW rules..."
+    local ufw_rules ufw_runtime_rules ufw_rule_count ufw_runtime_rule_count
+    local ufw_raw_source ufw_source ufw_display_source
+    local ufw_expected_count=0
+    local -a ufw_expected_sources
+
+    ufw_rules="$(ssh_execute "sudo -n ufw show added" 2>/dev/null || true)"
+    ufw_rule_count="$(grep -Ec "(^|[[:space:]])${ZABBIX_AGENT_PORT}/tcp($|[[:space:]])|[[:space:]]port[[:space:]]${ZABBIX_AGENT_PORT}($|[[:space:]])" <<< "${ufw_rules}" || true)"
+    IFS=',' read -r -a ufw_expected_sources <<< "${ZABBIX_SERVER_PASSIVE}"
+    for ufw_raw_source in "${ufw_expected_sources[@]}"; do
+      ufw_source="${ufw_raw_source//[[:space:]]/}"
+      [[ "${ufw_source}" == */* ]] || ufw_source="${ufw_source}/32"
+      ufw_display_source="${ufw_source%/32}"
+      ufw_expected_count=$((ufw_expected_count + 1))
+      if ! grep -Fx "ufw allow from ${ufw_display_source} to any port ${ZABBIX_AGENT_PORT} proto tcp" <<< "${ufw_rules}" >/dev/null; then
+        log_error "Missing exact persisted Zabbix UFW rule for ${ufw_source}"
+        VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+      fi
+    done
+
+    if [[ "${ufw_rule_count}" -ne "${ufw_expected_count}" ]]; then
+      log_error "Unexpected persisted Zabbix UFW rule count (actual=${ufw_rule_count}, expected=${ufw_expected_count})"
+      VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+    elif ssh_execute "sudo -n ufw status | grep -qx 'Status: active'" >/dev/null 2>&1; then
+      ufw_runtime_rules="$(ssh_execute "sudo -n ufw status" 2>/dev/null || true)"
+      ufw_runtime_rule_count="$(awk -v port="${ZABBIX_AGENT_PORT}/tcp" '$1 == port && $2 == "ALLOW" && $3 == "IN" { count++ } END { print count + 0 }' <<< "${ufw_runtime_rules}")"
+      if [[ "${ufw_runtime_rule_count}" -ne "${ufw_expected_count}" ]]; then
+        log_error "Unexpected runtime Zabbix UFW rule count (actual=${ufw_runtime_rule_count}, expected=${ufw_expected_count})"
+        VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+      else
+        for ufw_raw_source in "${ufw_expected_sources[@]}"; do
+          ufw_source="${ufw_raw_source//[[:space:]]/}"
+          ufw_display_source="${ufw_source%/32}"
+          grep -F "${ufw_display_source}" <<< "${ufw_runtime_rules}" >/dev/null || {
+            log_error "Missing runtime Zabbix UFW rule for ${ufw_source}"
+            VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+          }
+        done
+        log_info "Active UFW permits Agent 2 only from ${ufw_expected_count} declared source(s)"
+      fi
+    else
+      log_info "Inactive UFW has exactly ${ufw_expected_count} declared Agent 2 rule(s) ready for activation"
+    fi
+  fi
+
+  if is_oracle_linux_8; then
+    log_verify "Checking Oracle Linux 8 cloud-init DNS compatibility..."
+    if ssh_execute "connection=\$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: '\$2 == \"eth0\" {print \$1; exit}'); test -n \"\$connection\" && sudo -n nmcli connection modify \"\$connection\" ipv4.ignore-auto-dns yes ipv4.dns '$DNS' && sudo -n sh -c \"printf 'nameserver %s\\n' '$DNS' > /etc/resolv.conf\" && sudo -n test -f /var/lib/cloud/ol8-cloudinit-dns-compat && sudo -n grep -qx 'renderer_compatible=yes' /var/lib/cloud/ol8-cloudinit-dns-compat && sudo -n grep -Eq '^nameserver[[:space:]]+${DNS//./\\.}([[:space:]]|$)' /etc/resolv.conf && getent ahostsv4 yum.oracle.com >/dev/null && { ! sudo -n grep -qF 'util.load_text_file(existing_dns_path)' /usr/lib/python3.6/site-packages/cloudinit/net/sysconfig.py || sudo -n grep -qE '^def[[:space:]]+load_text_file\\(' /usr/lib/python3.6/site-packages/cloudinit/util.py; }" >/dev/null 2>&1; then
+      log_info "Oracle Linux 8 cloud-init renderer and DNS are healthy"
+      if qm set "$VMID" --nameserver "$DNS" --cicustom "user=$(userdata_volid)" >/dev/null && \
+         rm -f "$(networkdata_path)" && qm cloudinit update "$VMID" >/dev/null; then
+        log_info "Declared PVE nameserver and standard network-data restored for subsequent boots"
+      else
+        log_error "Failed to restore the declared PVE nameserver and standard network-data"
+        VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+      fi
+    else
+      log_error "Oracle Linux 8 cloud-init renderer or DNS compatibility check failed"
+      VERIFICATION_FAILED=$((VERIFICATION_FAILED + 1))
+    fi
   fi
 
   log_section "Verification Summary"
@@ -2221,6 +2699,7 @@ Required .env values:
 
 Options:
   --os <type>       OS image type (default: ${OS_TYPE})
+  --image <path>    Override the selected OS image path
   --vmid <id>       VM ID (default: ${VMID})
   --name <name>     VM name (default: auto-derived)
   --ip <cidr|dhcp>  Static IP/CIDR or dhcp (default: ${IPCIDR})
@@ -2245,10 +2724,10 @@ Auto-derived names:
     <os-short-label>-packer-base-<last-ip-octet>
 
 Examples:
-  $(basename "$0") --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 192.0.2.0/24 --template-base
-  $(basename "$0") --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 198.51.100.0/24 --template-base
+  $(basename "$0") --os oracle-linux-9 --vmid 999999990 --name oracle9-packer-base --ip 198.51.100.0/24 --template-base
+  $(basename "$0") --os oracle-linux-8 --vmid 999999991 --name oracle8-packer-base --ip 203.0.113.0/24 --template-base
   $(basename "$0") --os debian-12 --dry-run
-  $(basename "$0") --os ubuntu-24 --vmid 999999992 --name ubuntu2404-packer-base --ip 203.0.113.0/24 --template-base
+  $(basename "$0") --os ubuntu-24 --vmid 999999992 --name ubuntu2404-packer-base --ip 192.0.2.0/24 --template-base
 
 EOF
 }
@@ -2267,6 +2746,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --os)        OS_TYPE="$2";   shift 2 ;;
+      --image)     SOURCE_IMAGE="$2"; shift 2 ;;
       --vmid)      VMID="$2";      shift 2 ;;
       --name)      NAME="$2";      shift 2 ;;
       --ip)        IPCIDR="$2";    shift 2 ;;
@@ -2290,7 +2770,7 @@ finalize_config() {
   fi
 
   # Lock CLI-overridable vars so nothing downstream can mutate them.
-  readonly VMID NAME OS_TYPE IPCIDR GATEWAY FORCE DRY_RUN SANITIZE_TEMPLATE_BASE
+  readonly VMID NAME OS_TYPE IPCIDR GATEWAY FORCE DRY_RUN SANITIZE_TEMPLATE_BASE SOURCE_IMAGE
 
   # Derived vars can now be computed with their final values.
   readonly HOSTNAME_FQDN="${NAME}.${DOMAIN}"
@@ -2345,12 +2825,15 @@ sanitize_template_base() {
 finalize_template_base() {
   [[ "$SANITIZE_TEMPLATE_BASE" == "1" ]] || return 0
 
-  local userdata_file
+  local userdata_file networkdata_file
   userdata_file="$(userdata_path)"
+  networkdata_file="$(networkdata_path)"
 
   log_section "Finalizing Packer Base VM"
   run_or_die "Detach bootstrap-only cloud-init userdata" qm set "$VMID" --delete cicustom
-  run_or_die "Delete generated bootstrap userdata" rm -f "$userdata_file"
+  run_or_die "Delete generated bootstrap userdata and retry backups" \
+    rm -f "$userdata_file" "${userdata_file}.backup-"*
+  run_or_die "Delete temporary bootstrap network-data" rm -f "$networkdata_file"
   run_or_die "Regenerate standard cloud-init drive" qm cloudinit update "$VMID"
 
   if qm config "$VMID" | grep -q '^cicustom:'; then
@@ -2359,8 +2842,20 @@ finalize_template_base() {
   if [[ -e "$userdata_file" ]]; then
     die "Bootstrap userdata still exists after finalization: $userdata_file"
   fi
+  if compgen -G "${userdata_file}.backup-*" >/dev/null; then
+    die "Bootstrap userdata retry backups remain after finalization: ${userdata_file}.backup-*"
+  fi
+  if [[ -e "$networkdata_file" ]]; then
+    die "Bootstrap network-data still exists after finalization: $networkdata_file"
+  fi
+  if ! qm config "$VMID" | grep -qx 'ciupgrade: 0'; then
+    die "Template base does not explicitly disable Proxmox cloud-init package upgrades"
+  fi
+  if qm cloudinit dump "$VMID" user | grep -qx 'package_upgrade: true'; then
+    die "Template base standard cloud-init userdata still enables package upgrades"
+  fi
 
-  log_info "Template base cloud-init configuration is reusable."
+  log_info "Template base cloud-init configuration is reusable (ciupgrade=0)."
 }
 
 main() {
@@ -2392,7 +2887,7 @@ main() {
   wait_for_vm
   run_verification || true
 
-  if [[ "$DO_OS_UPDATE" == "1" ]] && [[ "$DRY_RUN" != "1" ]]; then
+  if [[ "$DO_OS_UPDATE" == "1" ]] && [[ "$DRY_RUN" != "1" ]] && [[ $VERIFICATION_FAILED -eq 0 ]]; then
     log_section "Rebooting VM after OS Upgrades"
     log_info "Initiating reboot for VM $VMID to verify upgrades..."
 
@@ -2419,7 +2914,11 @@ main() {
     qm set "$VMID" --delete vga || true
   fi
 
-  sanitize_template_base
+  if [[ $VERIFICATION_FAILED -eq 0 ]]; then
+    sanitize_template_base
+  else
+    log_warn "Skipping sanitation after failed verification so guest diagnostics remain available."
+  fi
 
   if [[ "$SHUTDOWN_FINAL_VM" == "1" ]] && [[ "$DRY_RUN" != "1" ]]; then
     log_section "Shutting Down VM"
@@ -2436,11 +2935,15 @@ main() {
     log_info "VM $VMID stopped successfully."
   fi
 
+  if [[ "$VERIFY_VM" == "1" && $VERIFICATION_FAILED -gt 0 ]]; then
+    log_section "Provisioning Failed"
+    log_error "${VERIFICATION_FAILED} verification check(s) failed; VM $VMID was not finalized as a reusable base."
+    log_info "Guest logs and bootstrap cloud-init snippets were preserved for diagnosis."
+    exit 1
+  fi
+
   finalize_template_base
-
   print_summary
-
-  [[ "$VERIFY_VM" == "1" && $VERIFICATION_FAILED -gt 0 ]] && exit 1
   exit 0
 }
 

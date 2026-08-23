@@ -1,0 +1,32 @@
+[Unit]
+Description=IaC observability weekly PDF health report
+Documentation=file://{{ observability_weekly_report_script }}
+Wants=network-online.target
+After=network-online.target docker.service
+ConditionFileIsExecutable={{ observability_weekly_report_script }}
+ConditionPathExists={{ observability_weekly_report_env_path }}
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile={{ observability_weekly_report_env_path }}
+ExecStart={{ observability_weekly_report_script }}
+WorkingDirectory={{ observability_weekly_report_output_dir }}
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=180
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ observability_weekly_report_output_dir }}
+CapabilityBoundingSet=
+LockPersonality=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

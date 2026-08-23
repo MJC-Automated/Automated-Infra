@@ -1,4 +1,9 @@
 ---
+zabbix_manage_firewall: true
+zabbix_agent_source_cidr: "{{ monitoring_zabbix_server_host }}/32"
+# Homelab underlay only — do not leave these as 0.0.0.0/0 when firewall mgmt is on.
+zabbix_allow_http_cidr: "198.51.100.0/16"
+zabbix_allow_server_port_cidr: "198.51.100.0/16"
 # Keep database backups on the dedicated Zabbix data volume provisioned by Terraform.
 zabbix_backup_mount_point: /zabbix
 zabbix_backup_dir: "{{ zabbix_backup_mount_point }}/zabbix-data"

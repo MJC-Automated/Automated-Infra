@@ -23,6 +23,75 @@
   notify: Restart zabbix stack
   no_log: true
 
+- name: Configure local Zabbix Java Gateway
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+    create: false
+  loop:
+    - { key: "JavaGateway", value: "{{ zabbix_java_gateway_host }}" }
+    - { key: "JavaGatewayPort", value: "{{ zabbix_java_gateway_port }}" }
+    - { key: "StartJavaPollers", value: "{{ zabbix_java_pollers }}" }
+  when: zabbix_java_gateway_enabled | bool
+  notify: Restart zabbix stack
+
+- name: Retire disabled Zabbix Java Gateway server directives
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    regexp: "^{{ item }}="
+    state: absent
+    create: false
+  loop:
+    - JavaGateway
+    - JavaGatewayPort
+    - StartJavaPollers
+  when: not (zabbix_java_gateway_enabled | bool)
+  notify: Restart zabbix stack
+
+- name: Configure Zabbix scheduled-report workers
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+    create: false
+  loop:
+    - key: WebServiceURL
+      value: "http://{{ zabbix_web_service_host }}:{{ zabbix_web_service_port }}/report"
+    - key: StartReportWriters
+      value: "{{ zabbix_report_writers }}"
+  when: zabbix_reporting_enabled | bool
+  notify: Restart zabbix stack
+
+- name: Retire disabled Zabbix scheduled-report server directives
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    regexp: "^{{ item }}="
+    state: absent
+    create: false
+  loop:
+    - WebServiceURL
+    - StartReportWriters
+  when: not (zabbix_reporting_enabled | bool)
+  notify: Restart zabbix stack
+
+- name: Configure source-restricted Zabbix web service
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_web_service.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+    create: false
+  loop:
+    - { key: "AllowedIP", value: "127.0.0.1" }
+    - { key: "ListenPort", value: "{{ zabbix_web_service_port }}" }
+    - { key: "IgnoreURLCertErrors", value: "0" }
+    - { key: "Timeout", value: "30" }
+  when: zabbix_reporting_enabled | bool
+  notify: Restart zabbix stack
+
 - name: Configure frontend PHP timezone
   ansible.builtin.lineinfile:
     path: "{{ zabbix_platform.apache_conf_path }}"

@@ -37,10 +37,10 @@ The Makefile exposes several verification surfaces before and during provisionin
 - `apply` runs `snippets`, then `plan`, then `terraform apply`, then `generate-inventory`
 - `deploy` wraps `fmt`, `init`, `validate`, workspace setup, `plan`, and `apply`
 
-The same Makefile also defines where generated outputs land:
+The same Makefile and Terraform configuration define where generated outputs land:
 
 - `plans/`
-- `logs/`
+- `logs/` (centralized init, plan, apply, snippet, destroy, and Proxmox provider logs like `terraform-plugin-proxmox-<env>.log`)
 - `summaries/`
 - `backups/`
 - `snippets/`

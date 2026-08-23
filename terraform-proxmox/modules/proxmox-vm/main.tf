@@ -110,6 +110,8 @@ resource "proxmox_vm_qemu" "this" {
     id     = 0 // Default network interface ID
     model  = var.network_model
     bridge = var.network_bridge
+    # Optional VLAN tagging: Proxmox 'tag' is a numeric VLAN ID. Use 0 to disable.
+    tag = var.network_vlan != 0 ? var.network_vlan : null
   }
 
   // IP configuration for the first network interface.

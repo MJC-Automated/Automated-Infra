@@ -1,4 +1,18 @@
 ---
+- name: Gather installed service units for optional-component retirement
+  ansible.builtin.service_facts:
+  when: zabbix_disabled_optional_services | length > 0
+
+- name: Stop and disable inactive optional Zabbix services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop: "{{ zabbix_disabled_optional_services }}"
+  when:
+    - zabbix_disabled_optional_services | length > 0
+    - (item ~ '.service') in ansible_facts.services
+
 - name: Ensure Zabbix runtime services are in desired state
   ansible.builtin.service:
     name: "{{ item }}"

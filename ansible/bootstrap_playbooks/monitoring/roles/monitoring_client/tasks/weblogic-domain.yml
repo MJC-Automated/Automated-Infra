@@ -1,0 +1,25 @@
+---
+- name: Add WebLogic admin JVM to manifest
+  ansible.builtin.set_fact:
+    monitoring_weblogic_jvms: >-
+      {{ monitoring_weblogic_jvms + [{
+           'domain': monitoring_weblogic_domain.domain_name,
+           'server': monitoring_weblogic_domain.admin_server_name | default('AdminServer'),
+           'listen_port': monitoring_weblogic_domain.admin_port | int,
+           'jmx_port': (monitoring_weblogic_jmx_port_offset | int) + (monitoring_weblogic_domain.admin_port | int),
+           'service': 'wls' ~ (monitoring_weblogic_domain.domain_name | upper | regex_replace('[^A-Z0-9]', '')) ~ (monitoring_weblogic_domain.admin_port | string) ~ '.service'
+         }] }}
+  changed_when: false
+
+- name: Add WebLogic managed JVMs to manifest
+  ansible.builtin.set_fact:
+    monitoring_weblogic_jvms: >-
+      {{ monitoring_weblogic_jvms + [{
+           'domain': monitoring_weblogic_domain.domain_name,
+           'server': item.name,
+           'listen_port': item.listen_port | int,
+           'jmx_port': (monitoring_weblogic_jmx_port_offset | int) + (item.listen_port | int),
+           'service': 'wls' ~ (monitoring_weblogic_domain.domain_name | upper | regex_replace('[^A-Z0-9]', '')) ~ (item.listen_port | string) ~ '.service'
+         }] }}
+  loop: "{{ monitoring_weblogic_domain.managed_servers | default([]) }}"
+  changed_when: false

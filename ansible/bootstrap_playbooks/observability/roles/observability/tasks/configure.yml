@@ -11,11 +11,18 @@
     - { path: "{{ observability_stack_dir }}/grafana", owner: "root", group: "root", mode: "0755" }
     - { path: "{{ observability_stack_dir }}/grafana/provisioning", owner: "root", group: "root", mode: "0755" }
     - { path: "{{ observability_stack_dir }}/grafana/provisioning/datasources", owner: "root", group: "root", mode: "0755" }
+    - { path: "{{ observability_stack_dir }}/grafana/provisioning/dashboards", owner: "root", group: "root", mode: "0755" }
+    - { path: "{{ observability_stack_dir }}/grafana/dashboards", owner: "root", group: "root", mode: "0755" }
     - { path: "{{ observability_stack_dir }}/prometheus", owner: "root", group: "root", mode: "0755" }
+    - { path: "{{ observability_stack_dir }}/prometheus/rules", owner: "root", group: "root", mode: "0755" }
+    - { path: "{{ observability_stack_dir }}/alertmanager", owner: "65534", group: "65534", mode: "0750" }
+    - { path: "{{ observability_stack_dir }}/alertmanager/templates", owner: "65534", group: "65534", mode: "0750" }
+    - { path: "{{ observability_stack_dir }}/blackbox", owner: "root", group: "root", mode: "0755" }
     - { path: "{{ observability_stack_dir }}/loki", owner: "root", group: "root", mode: "0755" }
     - { path: "{{ observability_stack_dir }}/otel", owner: "root", group: "root", mode: "0755" }
     - { path: "{{ observability_stack_dir }}/tempo", owner: "root", group: "root", mode: "0755" }
     - { path: "/var/lib/prometheus", owner: "65534", group: "65534", mode: "0755" }
+    - { path: "/var/lib/prometheus/alertmanager", owner: "65534", group: "65534", mode: "0755" }
     - { path: "/var/lib/loki", owner: "10001", group: "10001", mode: "0755" }
     - { path: "/var/lib/grafana", owner: "472", group: "472", mode: "0755" }
     - { path: "/var/lib/tempo", owner: "10001", group: "10001", mode: "0755" }
@@ -47,6 +54,45 @@
     group: root
     mode: "0644"
   register: observability_prometheus_config
+
+- name: Render Prometheus alert rules
+  ansible.builtin.template:
+    src: prometheus-rules.yml.j2
+    dest: "{{ observability_stack_dir }}/prometheus/rules/iac-alerts.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: observability_prometheus_rules
+
+- name: Render Alertmanager configuration
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: "{{ observability_stack_dir }}/alertmanager/alertmanager.yml"
+    # The pinned image runs as nobody (65534). Keep the SMTP-bearing file
+    # private while making it readable to the process that consumes it.
+    owner: "65534"
+    group: "65534"
+    mode: "0640"
+  register: observability_alertmanager_config
+  no_log: true
+
+- name: Render Alertmanager custom email template
+  ansible.builtin.template:
+    src: email.tmpl.j2
+    dest: "{{ observability_stack_dir }}/alertmanager/templates/email.tmpl"
+    owner: "65534"
+    group: "65534"
+    mode: "0640"
+  register: observability_alertmanager_email_template
+
+- name: Render blackbox exporter configuration
+  ansible.builtin.template:
+    src: blackbox.yml.j2
+    dest: "{{ observability_stack_dir }}/blackbox/blackbox.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: observability_blackbox_config
 
 - name: Render Loki configuration
   ansible.builtin.template:
@@ -83,3 +129,87 @@
     group: root
     mode: "0644"
   register: observability_grafana_datasources_config
+
+- name: Render Grafana dashboard provisioning
+  ansible.builtin.template:
+    src: grafana-dashboards.yml.j2
+    dest: "{{ observability_stack_dir }}/grafana/provisioning/dashboards/dashboards.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: observability_grafana_dashboards_config
+
+- name: Download pinned Node Exporter Full dashboard
+  ansible.builtin.get_url:
+    url: "{{ observability_node_dashboard_url }}"
+    dest: "{{ observability_stack_dir }}/grafana/dashboards/node-exporter-full.json"
+    checksum: "sha256:{{ observability_node_dashboard_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: observability_node_dashboard
+
+- name: Render repo-owned Grafana dashboards
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ observability_stack_dir }}/grafana/dashboards/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: "grafana-weblogic-dashboard.json.j2", dest: "weblogic.json" }
+    - { src: "grafana-oracle-dashboard.json.j2", dest: "oracle.json" }
+    - { src: "grafana-observability-health.json.j2", dest: "observability-health.json" }
+    - { src: "grafana-kubernetes-dashboard.json.j2", dest: "kubernetes-workloads.json" }
+  register: observability_repo_dashboards
+
+- name: Ensure weekly report output directory exists
+  ansible.builtin.file:
+    path: "{{ observability_weekly_report_output_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: observability_weekly_report_enabled | bool
+
+- name: Install weekly report generator
+  ansible.builtin.copy:
+    src: weekly_report.py
+    dest: "{{ observability_weekly_report_script }}"
+    owner: root
+    group: root
+    mode: "0750"
+    validate: /usr/bin/python3 -m py_compile %s
+  register: observability_weekly_report_script_config
+  when: observability_weekly_report_enabled | bool
+
+- name: Render protected weekly report runtime environment
+  ansible.builtin.template:
+    src: weekly-report.env.j2
+    dest: "{{ observability_weekly_report_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  register: observability_weekly_report_env_config
+  when: observability_weekly_report_enabled | bool
+  no_log: true
+
+- name: Render weekly report systemd service
+  ansible.builtin.template:
+    src: weekly-report.service.j2
+    dest: "/etc/systemd/system/{{ observability_weekly_report_service_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: observability_weekly_report_service_config
+  when: observability_weekly_report_enabled | bool
+
+- name: Render weekly report systemd timer
+  ansible.builtin.template:
+    src: weekly-report.timer.j2
+    dest: "/etc/systemd/system/{{ observability_weekly_report_timer_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: observability_weekly_report_timer_config
+  when: observability_weekly_report_enabled | bool

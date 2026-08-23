@@ -1,0 +1,288 @@
+---
+- name: Gather firewall service facts
+  ansible.builtin.service_facts:
+
+- name: Reconcile Ubuntu monitoring firewall
+  when: ansible_facts.os_family == 'Debian'
+  block:
+    - name: Preserve OpenSSH access before enabling UFW
+      community.general.ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: Allow profile service ports in UFW
+      community.general.ufw:
+        rule: allow
+        to_port: "{{ item.split('/')[0] }}"
+        proto: "{{ item.split('/')[1] }}"
+      loop: "{{ monitoring_profile_effective.firewall_ports | default([]) }}"
+
+    - name: Remove unqualified broad Zabbix Agent 2 UFW rule
+      ansible.builtin.command:
+        argv:
+          - ufw
+          - --force
+          - delete
+          - allow
+          - "{{ monitoring_zabbix_agent_port }}/tcp"
+      register: monitoring_ufw_unqualified_agent_rule
+      changed_when: >-
+        monitoring_ufw_unqualified_agent_rule.rc == 0 and
+        ('Rule deleted' in (monitoring_ufw_unqualified_agent_rule.stdout | default('')) or
+         'Rules updated' in (monitoring_ufw_unqualified_agent_rule.stdout | default('')))
+      failed_when: false
+
+    - name: Allow passive Zabbix Agent 2 only from the Zabbix server in UFW
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ monitoring_zabbix_server_host }}/32"
+        to_port: "{{ monitoring_zabbix_agent_port | string }}"
+        proto: tcp
+
+    - name: Allow authenticated WebLogic JMX only from the Zabbix server in UFW
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ monitoring_zabbix_server_host }}/32"
+        to_port: "{{ item.jmx_port | string }}"
+        proto: tcp
+      loop: "{{ monitoring_weblogic_jvms | default([]) }}"
+      when: monitoring_weblogic_enabled | bool
+
+    - name: Query declarative UFW rules
+      ansible.builtin.command:
+        argv:
+          - ufw
+          - show
+          - added
+      register: monitoring_ufw_added_rules
+      changed_when: false
+
+    - name: Identify obsolete Zabbix Agent 2 UFW rules
+      ansible.builtin.set_fact:
+        monitoring_ufw_obsolete_agent_rules: >-
+          {{ monitoring_ufw_added_rules.stdout_lines
+             | map('trim')
+             | select(
+                 'match',
+                 '^ufw allow from [^ ]+ to any port '
+                 ~ (monitoring_zabbix_agent_port | string)
+                 ~ ' proto tcp$'
+               )
+             | reject(
+                 'equalto',
+                 'ufw allow from ' ~ monitoring_zabbix_server_host
+                 ~ '/32 to any port ' ~ (monitoring_zabbix_agent_port | string)
+                 ~ ' proto tcp'
+               )
+             | reject(
+                 'equalto',
+                 'ufw allow from ' ~ monitoring_zabbix_server_host
+                 ~ ' to any port ' ~ (monitoring_zabbix_agent_port | string)
+                 ~ ' proto tcp'
+               )
+             | list }}
+
+    - name: Retire obsolete source-specific Zabbix Agent 2 UFW rules
+      ansible.builtin.command:
+        argv: >-
+          {{ ['ufw', '--force', 'delete']
+             + ((item | regex_replace('^ufw ', '')).split()) }}
+      loop: "{{ monitoring_ufw_obsolete_agent_rules }}"
+      changed_when: true
+
+    - name: Inspect firewalld LoadState on Ubuntu before UFW enablement
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - show
+          - firewalld.service
+          - --property=LoadState
+          - --value
+      register: monitoring_ubuntu_firewalld_load_state
+      changed_when: false
+      failed_when: false
+
+    - name: Stop and disable firewalld on Ubuntu
+      ansible.builtin.systemd:
+        name: firewalld
+        enabled: false
+        state: stopped
+      when:
+        - monitoring_ubuntu_firewalld_load_state.rc == 0
+        - (monitoring_ubuntu_firewalld_load_state.stdout | trim) != 'not-found'
+
+    - name: Enable UFW after the complete ingress contract is staged
+      community.general.ufw:
+        state: enabled
+
+- name: Reconcile Oracle Linux monitoring firewall
+  when: ansible_facts.os_family == 'RedHat'
+  block:
+    - name: Ensure firewalld is enabled and running
+      ansible.builtin.systemd:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Allow permanent profile service ports  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - --permanent
+          - "--add-port={{ item }}"
+      loop: "{{ monitoring_profile_effective.firewall_ports | default([]) }}"
+      register: monitoring_firewall_profile_permanent
+      changed_when: >-
+        'ALREADY_ENABLED' not in (monitoring_firewall_profile_permanent.stderr | default(''))
+
+    - name: Allow runtime profile service ports  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - "--add-port={{ item }}"
+      loop: "{{ monitoring_profile_effective.firewall_ports | default([]) }}"
+      register: monitoring_firewall_profile_runtime
+      changed_when: >-
+        'ALREADY_ENABLED' not in (monitoring_firewall_profile_runtime.stderr | default(''))
+
+    - name: Remove permanent broad Zabbix Agent 2 access  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - --permanent
+          - "--remove-port={{ monitoring_zabbix_agent_port }}/tcp"
+      register: monitoring_firewall_remove_permanent
+      changed_when: >-
+        'NOT_ENABLED' not in (monitoring_firewall_remove_permanent.stderr | default(''))
+      failed_when: >-
+        monitoring_firewall_remove_permanent.rc != 0 and
+        'NOT_ENABLED' not in (monitoring_firewall_remove_permanent.stderr | default(''))
+
+    - name: Remove runtime broad Zabbix Agent 2 access  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - "--remove-port={{ monitoring_zabbix_agent_port }}/tcp"
+      register: monitoring_firewall_remove_runtime
+      changed_when: >-
+        'NOT_ENABLED' not in (monitoring_firewall_remove_runtime.stderr | default(''))
+      failed_when: >-
+        monitoring_firewall_remove_runtime.rc != 0 and
+        'NOT_ENABLED' not in (monitoring_firewall_remove_runtime.stderr | default(''))
+
+    - name: Query permanent source-specific firewall rules
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - --permanent
+          - --list-rich-rules
+      register: monitoring_firewall_permanent_rich_rules
+      changed_when: false
+
+    - name: Query runtime source-specific firewall rules
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - --list-rich-rules
+      register: monitoring_firewall_runtime_rich_rules
+      changed_when: false
+
+    - name: Build obsolete Zabbix Agent 2 source-rule sets
+      ansible.builtin.set_fact:
+        monitoring_firewall_obsolete_agent_permanent_rules: >-
+          {{ monitoring_firewall_permanent_rich_rules.stdout_lines
+             | select(
+                 'search',
+                 'port port="' ~ (monitoring_zabbix_agent_port | string)
+                 ~ '" protocol="tcp"'
+               )
+             | select('search', ' accept$')
+             | reject('equalto', monitoring_zabbix_agent_rich_rule | trim)
+             | list }}
+        monitoring_firewall_obsolete_agent_runtime_rules: >-
+          {{ monitoring_firewall_runtime_rich_rules.stdout_lines
+             | select(
+                 'search',
+                 'port port="' ~ (monitoring_zabbix_agent_port | string)
+                 ~ '" protocol="tcp"'
+               )
+             | select('search', ' accept$')
+             | reject('equalto', monitoring_zabbix_agent_rich_rule | trim)
+             | list }}
+
+    - name: Retire obsolete permanent Zabbix Agent 2 source rules
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - --permanent
+          - "--remove-rich-rule={{ item }}"
+      loop: "{{ monitoring_firewall_obsolete_agent_permanent_rules }}"
+      changed_when: true
+
+    - name: Retire obsolete runtime Zabbix Agent 2 source rules
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - "--remove-rich-rule={{ item }}"
+      loop: "{{ monitoring_firewall_obsolete_agent_runtime_rules }}"
+      changed_when: true
+
+    - name: Allow permanent passive Agent 2 access  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - --permanent
+          - "--add-rich-rule={{ monitoring_zabbix_agent_rich_rule }}"
+      register: monitoring_firewall_agent_permanent
+      changed_when: >-
+        'ALREADY_ENABLED' not in (monitoring_firewall_agent_permanent.stderr | default(''))
+
+    - name: Allow runtime passive Agent 2 access  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - "--add-rich-rule={{ monitoring_zabbix_agent_rich_rule }}"
+      register: monitoring_firewall_agent_runtime
+      changed_when: >-
+        'ALREADY_ENABLED' not in (monitoring_firewall_agent_runtime.stderr | default(''))
+
+    - name: Allow permanent authenticated JMX  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - --permanent
+          - >-
+            --add-rich-rule=rule family="ipv4"
+            source address="{{ monitoring_zabbix_server_host }}/32"
+            port port="{{ item.jmx_port }}" protocol="tcp" accept
+      loop: "{{ monitoring_weblogic_jvms | default([]) }}"
+      register: monitoring_firewall_jmx_permanent
+      changed_when: >-
+        'ALREADY_ENABLED' not in (monitoring_firewall_jmx_permanent.stderr | default(''))
+      when: monitoring_weblogic_enabled | bool
+
+    - name: Allow runtime authenticated JMX  # noqa command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - firewall-cmd
+          - "--zone={{ monitoring_firewall_zone }}"
+          - >-
+            --add-rich-rule=rule family="ipv4"
+            source address="{{ monitoring_zabbix_server_host }}/32"
+            port port="{{ item.jmx_port }}" protocol="tcp" accept
+      loop: "{{ monitoring_weblogic_jvms | default([]) }}"
+      register: monitoring_firewall_jmx_runtime
+      changed_when: >-
+        'ALREADY_ENABLED' not in (monitoring_firewall_jmx_runtime.stderr | default(''))
+      when: monitoring_weblogic_enabled | bool

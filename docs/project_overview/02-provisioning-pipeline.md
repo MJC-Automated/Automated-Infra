@@ -104,16 +104,51 @@ The lowest-level VM bootstrap script is `terraform-proxmox/scripts/create-cloudi
 What the script handles:
 
 - creating Proxmox cloud-init VMs for multiple OS families via `--os`
-- reading local script-directory `.env` values for secrets and controller-side defaults
+- reading a root-only environment file selected by `ENV_FILE` (the sibling
+  `.env` remains the direct-execution default)
 - auto-deriving names and validating VM, disk, network, filesystem, and partition options
-- installing a baseline package set that includes Python, Chrony, disk tooling, and NFS support
+- rejecting a core count above the target PVE node's reported CPU count before
+  any existing VMID is replaced
+- installing a baseline package set that includes Python, Chrony, disk tooling,
+  and NFS client support (not the Ubuntu NFS server)
+- installing Zabbix Agent 2 with a fail-closed, source-scoped passive firewall
+  rule derived from configured IPv4/CIDR server sources; broad TCP/10050 rules
+  are retired rather than retained
 
 The remote wrapper `create-base-vm-remote.sh` adds:
 
 - SSH delivery to a Proxmox host
 - auto-download of common cloud images when missing
-- pass-through of environment variables such as `VMID`, `NAME`, and `OS_TYPE`
+- pass-through of environment variables such as `VMID`, `NAME`, `OS_TYPE`,
+  and the exact validated source-image path
+- selection of the existing remote environment file (default
+  `/root/scripts/.env`) without copying its secrets to a temporary directory
+- deterministic precedence in which explicit wrapper/Make environment values
+  override that file and the file fills only otherwise-unset site defaults
+- template-base finalization by default when invoked through the Make targets:
+  clean cloud-init identity, detach bootstrap userdata, regenerate the standard
+  cloud-init drive, and stop the VM
 - remote execution on the actual Proxmox node rather than the operator workstation
+
+### Network Tagging Boundary
+
+The low-level base builder optionally accepts `NETWORK_VLAN=1..4094` and adds
+`tag=<id>` to the primary Proxmox NIC. Empty or `0` keeps that NIC untagged;
+invalid non-zero values warn and are ignored. This is intentionally narrower
+than a complete VLAN architecture: the repository does not configure a
+VLAN-aware PVE bridge or upstream switch policy.
+
+`NETWORK_VLAN` is validated by the scaffold and written as `network_vlan` in
+the generated tfvars. It is passed through the root Terraform module to every
+workload NIC. The scaffold also writes `BASE_VM_VLAN`; the Make base-VM target
+forwards it through the remote wrapper as `NETWORK_VLAN`. Thus one environment
+VLAN choice reaches both source bases and workload VMs. Values must be `0`
+(untagged) or an integer from `1` through `4094`.
+
+The Packer input images are pinned once in
+`terraform-proxmox/config/cloud-images.env`. The Makefile, image downloader,
+remote wrapper, and low-level builder consume that catalog so filenames, URLs,
+and checksums cannot drift independently.
 
 This is the point where the repo turns cloud images into reusable base assets for later cloning.
 
@@ -127,12 +162,16 @@ The Makefile exposes:
 - `packer-build-oracle8`
 - `packer-build-oracle9`
 
-The Packer templates in this repo use the `proxmox-clone` builder and `communicator = "none"`.
+The Packer templates use the `proxmox-clone` builder with SSH as the `ansible`
+user.
 
 That means:
 
-- Packer is not configuring guest internals over SSH
-- it is cloning a prepared base VM into a reusable template VM
+- Packer clones a prepared base VM into a reusable template VM
+- it waits for cloud-init and runs `packer/scripts/sanitize-template.sh` over
+  SSH before conversion
+- it cleans cloud-init instance state and machine identity so clones do not
+  inherit the base identity
 - the template stage standardizes the Proxmox-side source image for later Terraform cloning
 
 The Oracle 8 and Ubuntu 24.04 Packer templates both show:

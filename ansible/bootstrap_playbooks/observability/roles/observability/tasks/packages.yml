@@ -6,9 +6,10 @@
       - docker-compose-v2
       - curl
       - ca-certificates
-      - firewalld
+      - ufw
     state: present
     update_cache: true
+    cache_valid_time: 3600
 
 - name: Ensure docker service is enabled and running
   ansible.builtin.systemd:
@@ -16,18 +17,236 @@
     enabled: true
     state: started
 
-- name: Ensure firewalld is enabled and running
-  ansible.builtin.systemd:
-    name: firewalld
-    enabled: true
-    state: started
+- name: Install weekly report browser runtime packages
+  ansible.builtin.apt:
+    name: "{{ observability_weekly_report_browser_packages }}"
+    state: present
+    update_cache: false
+  when: observability_weekly_report_enabled | bool
+
+- name: Inspect controller-owned weekly report browser artifact
+  ansible.builtin.stat:
+    path: >-
+      {{ observability_weekly_report_resource_dir }}/{{ observability_weekly_report_chrome_archive }}
+    checksum_algorithm: sha256
+    get_checksum: true
+  delegate_to: localhost
+  become: false
+  register: observability_weekly_report_chrome_artifact
+  when: observability_weekly_report_enabled | bool
+
+- name: Require the checksum-pinned weekly report browser artifact
+  ansible.builtin.assert:
+    that:
+      - observability_weekly_report_chrome_artifact.stat.exists
+      - observability_weekly_report_chrome_artifact.stat.isreg
+      - >-
+        observability_weekly_report_chrome_artifact.stat.checksum
+        == observability_weekly_report_chrome_sha256
+    fail_msg: >-
+      The weekly PDF reporter requires the checksum-pinned Chrome artifact at
+      {{ observability_weekly_report_resource_dir }}/{{ observability_weekly_report_chrome_archive }}.
+  when: observability_weekly_report_enabled | bool
+
+- name: Ensure versioned weekly report browser directory exists
+  ansible.builtin.file:
+    path: "{{ observability_weekly_report_chrome_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: observability_weekly_report_enabled | bool
+
+- name: Install pinned weekly report browser artifact
+  ansible.builtin.unarchive:
+    src: >-
+      {{ observability_weekly_report_resource_dir }}/{{ observability_weekly_report_chrome_archive }}
+    dest: "{{ observability_weekly_report_chrome_install_dir }}"
+    owner: root
+    group: root
+    creates: "{{ observability_weekly_report_chrome_binary }}"
+  when: observability_weekly_report_enabled | bool
+
+- name: Expose pinned weekly report browser on a role-owned path
+  ansible.builtin.file:
+    src: "{{ observability_weekly_report_chrome_binary }}"
+    dest: /usr/local/bin/iac-report-chrome
+    state: link
+    owner: root
+    group: root
+  when: observability_weekly_report_enabled | bool
+
+- name: Preserve OpenSSH access before enabling UFW
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
   when: observability_manage_firewall | bool
 
-- name: Open observability firewall ports
-  ansible.posix.firewalld:
-    port: "{{ item }}/tcp"
-    permanent: true
-    state: enabled
-    immediate: true
+- name: Open observability UI ports in UFW
+  community.general.ufw:
+    rule: allow
+    to_port: "{{ item | string }}"
+    proto: tcp
   loop: "{{ observability_ports }}"
+  when: observability_manage_firewall | bool
+
+- name: Retire broad UFW opens for unauthenticated or loopback-only ports
+  community.general.ufw:
+    rule: allow
+    to_port: "{{ item | string }}"
+    proto: tcp
+    delete: true
+  loop: "{{ (observability_ingest_ports + observability_local_only_ports) | unique }}"
+  when: observability_manage_firewall | bool
+
+- name: Build monitoring-client source allowlist for ingest
+  ansible.builtin.set_fact:
+    observability_ingest_source_cidrs: >-
+      {{
+        (groups.monitoring_clients | default([]))
+        | map('extract', hostvars, 'ansible_host')
+        | select('defined')
+        | map('string')
+        | map('trim')
+        | reject('equalto', '')
+        | map('regex_replace', '$', '/32')
+        | unique
+        | list
+      }}
+  when: observability_manage_firewall | bool
+
+- name: Initialize desired ingest UFW rules
+  ansible.builtin.set_fact:
+    observability_ingest_ufw_expected_rules: []
+  when: observability_manage_firewall | bool
+
+- name: Build desired ingest UFW rule representations
+  ansible.builtin.set_fact:
+    observability_ingest_ufw_expected_rules: >-
+      {{
+        observability_ingest_ufw_expected_rules
+        + [
+          'ufw allow from ' ~ item.0 ~ ' to any port '
+          ~ (item.1 | string) ~ ' proto tcp',
+          'ufw allow from ' ~ (item.0 | regex_replace('/32$', ''))
+          ~ ' to any port ' ~ (item.1 | string) ~ ' proto tcp'
+        ]
+      }}
+  loop: "{{ observability_ingest_source_cidrs | product(observability_ingest_ports) | list }}"
+  when:
+    - observability_manage_firewall | bool
+    - observability_ingest_source_cidrs | length > 0
+
+- name: Allow monitoring-client ingest sources in UFW
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item.0 }}"
+    to_port: "{{ item.1 | string }}"
+    proto: tcp
+  loop: "{{ observability_ingest_source_cidrs | product(observability_ingest_ports) | list }}"
+  when:
+    - observability_manage_firewall | bool
+    - observability_ingest_source_cidrs | length > 0
+
+- name: Query declarative observability UFW rules
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - show
+      - added
+  register: observability_ufw_added_rules
+  changed_when: false
+  when: observability_manage_firewall | bool
+
+- name: Identify stale observability ingest UFW rules
+  ansible.builtin.set_fact:
+    observability_stale_ingest_ufw_rules: >-
+      {{ observability_ufw_added_rules.stdout_lines
+         | map('trim')
+         | select(
+             'match',
+             '^ufw allow from [^ ]+ to any port ('
+             ~ (observability_ingest_ports | map('string') | join('|'))
+             ~ ') proto tcp$'
+           )
+         | reject('in', observability_ingest_ufw_expected_rules)
+         | list }}
+  when: observability_manage_firewall | bool
+
+- name: Retire stale observability ingest UFW rules
+  ansible.builtin.command:
+    argv: >-
+      {{ ['ufw', '--force', 'delete']
+         + ((item | regex_replace('^ufw ', '')).split()) }}
+  loop: "{{ observability_stale_ingest_ufw_rules }}"
+  changed_when: true
+  when: observability_manage_firewall | bool
+
+# service_facts can list firewalld.service as not-found after other units
+# reference it; systemd then fails. Probe LoadState before stopping it.
+- name: Inspect firewalld LoadState before UFW enablement
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - show
+      - firewalld.service
+      - --property=LoadState
+      - --value
+  register: observability_firewalld_load_state
+  changed_when: false
+  failed_when: false
+  when: observability_manage_firewall | bool
+
+- name: Stop and disable firewalld before enabling UFW
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: false
+    state: stopped
+  when:
+    - observability_manage_firewall | bool
+    - observability_firewalld_load_state.rc == 0
+    - (observability_firewalld_load_state.stdout | trim) != 'not-found'
+
+- name: Enable UFW after the complete observability ingress contract is staged
+  community.general.ufw:
+    state: enabled
+  when: observability_manage_firewall | bool
+
+- name: Query final observability UFW rules
+  ansible.builtin.command:
+    argv:
+      - ufw
+      - show
+      - added
+  register: observability_ufw_final_rules
+  changed_when: false
+  when: observability_manage_firewall | bool
+
+- name: Verify exact observability ingest UFW sources
+  vars:
+    observability_actual_ingest_ufw_rules: >-
+      {{ observability_ufw_final_rules.stdout_lines
+         | map('trim')
+         | select(
+             'match',
+             '^ufw allow from [^ ]+ to any port ('
+             ~ (observability_ingest_ports | map('string') | join('|'))
+             ~ ') proto tcp$'
+           )
+         | list }}
+  ansible.builtin.assert:
+    that:
+      - >-
+        observability_actual_ingest_ufw_rules | length
+        == ((observability_ingest_source_cidrs | length)
+            * (observability_ingest_ports | length))
+      - >-
+        observability_actual_ingest_ufw_rules
+        | reject('in', observability_ingest_ufw_expected_rules)
+        | list
+        | length == 0
+    fail_msg: >-
+      Observability ingest ports must have exactly the authoritative
+      monitoring-client source set in UFW.
+    quiet: true
   when: observability_manage_firewall | bool

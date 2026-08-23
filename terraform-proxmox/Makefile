@@ -1,7 +1,9 @@
 # Enhanced Makefile for Root Module Pattern
 # Terraform Proxmox infrastructure deployment with workspace-based environments
 
-.PHONY: help setup setup-tools check-tools vault-login vault-bootstrap rotate-proxmox-creds env-discover env-template env-ssh-access env-cloud-images env-base-vm env-base-vm-ubuntu2404 env-base-vm-oracle8 env-base-vm-oracle9 env-base-vms env-bootstrap env-bootstrap-apply init validate fmt plan apply deploy destroy workspace-create workspace-select workspace-list create-dirs tf-security-scan tfsec tflint tf_scan render-snippets upload-snippets snippets packer-build packer-build-all packer-destroy-all vault-mode-status vault-mode-loopback vault-mode-lan vault-mode-lan-auto vault-mode-verify vault-unseal-help vault-tls-regenerate vault-reinit-dry-run vault-reinit vault-recovery-list clean clean-all clean-legacy-inventory check-env
+SHELL := /bin/bash
+
+.PHONY: help setup setup-tools check-tools vault-login vault-bootstrap vault-approle-refresh vault-runtime-verify vault-audit-check vault-audit-enable-file rotate-proxmox-creds env-discover env-template env-ssh-access env-cloud-images env-base-vm env-base-vm-ubuntu2404 env-base-vm-oracle8 env-base-vm-oracle9 env-base-vms env-bootstrap env-bootstrap-apply init validate fmt plan apply deploy destroy-workloads destroy-governance workspace-create workspace-select workspace-list create-dirs tf-security-scan tfsec tflint tf_scan render-snippets upload-snippets snippets packer-build packer-build-all packer-destroy-all k8s-deploy backup backup-jobs backup-vms verify-backups restore-drill clean-backups vault-mode-status vault-mode-loopback vault-mode-lan vault-mode-lan-auto vault-mode-verify vault-unseal-help vault-tls-regenerate vault-reinit-dry-run vault-reinit vault-recovery-list clean clean-all clean-legacy-inventory check-env
 
 # Default environment follows the currently selected Terraform workspace.
 # Falls back to dev when workspace is unset or still "default".
@@ -9,14 +11,27 @@ CURRENT_WORKSPACE := $(shell terraform workspace show 2>/dev/null || true)
 DEFAULT_ENVIRONMENT := $(if $(CURRENT_WORKSPACE),$(if $(filter default,$(CURRENT_WORKSPACE)),dev,$(CURRENT_WORKSPACE)),dev)
 ENVIRONMENT ?= $(DEFAULT_ENVIRONMENT)
 MAKEFILE_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+CLOUD_IMAGE_CATALOG ?= $(MAKEFILE_DIR)/config/cloud-images.env
+include $(CLOUD_IMAGE_CATALOG)
 
-# Define colors for output
-GREEN := \033[0;32m
-YELLOW := \033[0;33m
-RED := \033[0;31m
-BLUE := \033[0;34m
-CYAN := \033[0;36m
-NC := \033[0m # No Color
+# Store a real escape byte so output does not depend on shell-specific echo
+# behavior. Set NO_COLOR to any non-empty value for plain output.
+ifeq ($(strip $(NO_COLOR)),)
+COLOR_ESC := $(shell printf '\033')
+GREEN := $(COLOR_ESC)[0;32m
+YELLOW := $(COLOR_ESC)[0;33m
+RED := $(COLOR_ESC)[0;31m
+BLUE := $(COLOR_ESC)[0;34m
+CYAN := $(COLOR_ESC)[0;36m
+NC := $(COLOR_ESC)[0m
+else
+GREEN :=
+YELLOW :=
+RED :=
+BLUE :=
+CYAN :=
+NC :=
+endif
 
 TFSEC_MIN_SEVERITY ?= HIGH
 TFLINT_MIN_FAILURE_SEVERITY ?= error
@@ -32,9 +47,14 @@ LEGACY_INVENTORY_DIR := $(abspath $(MAKEFILE_DIR)/inventories)
 SUMMARY_DIR := summaries
 LOG_DIR := logs
 BACKUP_DIR := backups
+STATE_BACKUP_RETENTION_DAYS ?= 30
+STATE_BACKUP_KEEP_MIN ?= 5
 
 # External dependencies
 KUBESPRAY_DIR ?= $(HOME)/kubespray
+KUBESPRAY_PYTHON ?= python3
+KUBESPRAY_VENV ?= $(KUBESPRAY_DIR)/venv
+KUBESPRAY_VENV_ABS := $(abspath $(KUBESPRAY_VENV))
 RESOLVE_PROXMOX_HOST_SCRIPT ?= ./scripts/resolve-proxmox-host.sh
 RESOLVE_ANSIBLE_HOST_SCRIPT ?= ./scripts/resolve-ansible-host.sh
 DISCOVER_PROXMOX_CORE_SCRIPT ?= ./scripts/discover-proxmox-core.sh
@@ -47,7 +67,9 @@ PACKER_DIR ?= packer/ubuntu-noble
 PACKER_TEMPLATE ?= ubuntu-noble.pkr.hcl
 PACKER_VARS ?= $(PACKER_DIR)/vars.$(ENVIRONMENT).pkrvars.hcl
 PACKER_USE_VAULT_CREDS ?= true
+PACKER_ON_ERROR ?= cleanup
 PACKER_VAULT_RENDER_SCRIPT ?= ./scripts/render-packer-vault-vars.sh
+PACKER_CLOUDINIT_GUARD_SCRIPT ?= ./scripts/packer-cloudinit-guard.sh
 
 TFVARS_FILE_FOR_ENV = environments/$(ENVIRONMENT).tfvars
 VAULT_KV_MOUNT_PATH_FOR_ENV = $(if $(VAULT_KV_MOUNT_PATH),$(VAULT_KV_MOUNT_PATH),$(shell awk -F= '/^[[:space:]]*vault_kv_mount_path[[:space:]]*=/{val=$$2; sub(/[[:space:]]*(\/\/|#).*$$/,"",val); sub(/[[:space:]]*\/\*.*\*\/[[:space:]]*$$/,"",val); gsub(/^[[:space:]]+|[[:space:]]+$$/,"",val); sub(/^"/,"",val); sub(/"$$/,"",val); print val; exit}' "$(TFVARS_FILE_FOR_ENV)" 2>/dev/null || true))
@@ -56,6 +78,9 @@ VAULT_KV_MOUNT_PATH_EFFECTIVE = $(if $(VAULT_KV_MOUNT_PATH_FOR_ENV),$(VAULT_KV_M
 VAULT_SECRET_PREFIX_EFFECTIVE = $(if $(VAULT_SECRET_PREFIX_FOR_ENV),$(VAULT_SECRET_PREFIX_FOR_ENV),terraform)
 VAULT_CREDS_PATH_FOR_ENV = $(VAULT_KV_MOUNT_PATH_EFFECTIVE)/$(VAULT_SECRET_PREFIX_EFFECTIVE)/$(ENVIRONMENT)/creds
 PACKER_VAULT_PATH ?= $(VAULT_CREDS_PATH_FOR_ENV)
+WORKLOAD_DESTROY_TARGETS := -target=module.proxmox_vms -target=module.vm_pool -target=local_file.partitioning_snippet -target=local_file.cloudinit_first_access_snippet -target=local_file.ansible_inventory -target=local_file.deployment_summary
+GOVERNANCE_DESTROY_TARGETS := -target=module.vault_proxmox_access
+DESTROY_RED_ALERT_PHRASE := red alert $(ENVIRONMENT)
 
 # Proxmox snippet upload defaults (override via .env if needed)
 PROXMOX_USER ?= root
@@ -72,11 +97,13 @@ ANSIBLE_HOST ?=
 NETWORK_CIDR ?=
 NETWORK_GW ?=
 NETWORK_BRIDGE ?=
+NETWORK_VLAN ?= 0
 STORAGE_POOL ?=
 DATA_STORAGE ?=
 
 # Remote base VM defaults (used by env-base-vm* targets)
 BASE_VM_BRIDGE ?= vmbr0
+BASE_VM_VLAN ?= $(NETWORK_VLAN)
 BASE_VM_IPCIDR ?= dhcp
 BASE_VM_GATEWAY ?=
 BASE_VM_DNS ?= 198.51.100.23
@@ -92,6 +119,10 @@ BASE_VM_CIUSER ?= ansible
 BASE_VM_SSH_KEYS_FILE ?= /root/.ssh/authorized_keys
 BASE_VM_FORCE ?= 1
 BASE_VM_DRY_RUN ?= 0
+BASE_VM_REMOTE_ENV_FILE ?= /root/scripts/.env
+BASE_VM_SANITIZE_TEMPLATE_BASE ?= 1
+BASE_VM_SHUTDOWN_FINAL_VM ?= 1
+BASE_VM_DO_OS_UPDATE ?= 0
 BASE_VM_BUILD_ORACLE ?= false
 SKIP_BASE_VM_SETUP ?= false
 AUTO_DOWNLOAD_IMAGE ?= true
@@ -107,37 +138,37 @@ BASE_VM_NAME_ORACLE9 ?= oracle9-packer-base
 BASE_VM_NAME_ORACLE8 ?= oracle8-packer-base
 BASE_VM_NAME_UBUNTU2404 ?= ubuntu2404-packer-base
 
-ORACLE8_IMAGE_URL ?= https://yum.oracle.com/templates/OracleLinux/OL8/u10/x86_64/OL8U10_x86_64-kvm-b271.qcow2
-ORACLE9_IMAGE_URL ?= https://yum.oracle.com/templates/OracleLinux/OL9/u7/x86_64/OL9U7_x86_64-kvm-b269.qcow2
+ORACLE8_IMAGE_URL ?= $(CLOUD_IMAGE_ORACLE8_URL)
+ORACLE9_IMAGE_URL ?= $(CLOUD_IMAGE_ORACLE9_URL)
 UBUNTU22_IMAGE_URL ?= https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
-UBUNTU24_IMAGE_URL ?= https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+UBUNTU24_IMAGE_URL ?= $(CLOUD_IMAGE_UBUNTU24_URL)
 DEBIAN12_IMAGE_URL ?= https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
 ROCKY9_IMAGE_URL ?= https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2
 ALMA9_IMAGE_URL ?= https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
 FEDORA43_IMAGE_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2
 UBUNTU_IMAGE_URL ?= $(UBUNTU24_IMAGE_URL)
 
-ORACLE8_CHECKSUM_URL ?= https://yum.oracle.com/templates/OracleLinux/ol8-template.json
-ORACLE9_CHECKSUM_URL ?= https://yum.oracle.com/templates/OracleLinux/ol9-template.json
+ORACLE8_CHECKSUM_URL ?= $(CLOUD_IMAGE_ORACLE8_CHECKSUM_URL)
+ORACLE9_CHECKSUM_URL ?= $(CLOUD_IMAGE_ORACLE9_CHECKSUM_URL)
 UBUNTU22_CHECKSUM_URL ?= https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS
-UBUNTU24_CHECKSUM_URL ?=
+UBUNTU24_CHECKSUM_URL ?= $(CLOUD_IMAGE_UBUNTU24_CHECKSUM_URL)
 DEBIAN12_CHECKSUM_URL ?= https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS
 ROCKY9_CHECKSUM_URL ?= https://dl.rockylinux.org/pub/rocky/9/images/x86_64/CHECKSUM
 ALMA9_CHECKSUM_URL ?= https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM
 FEDORA43_CHECKSUM_URL ?= https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-43-1.6-x86_64-CHECKSUM
 
-ORACLE8_IMAGE_SHA256 ?=
-ORACLE9_IMAGE_SHA256 ?=
+ORACLE8_IMAGE_SHA256 ?= $(CLOUD_IMAGE_ORACLE8_SHA256)
+ORACLE9_IMAGE_SHA256 ?= $(CLOUD_IMAGE_ORACLE9_SHA256)
 UBUNTU22_IMAGE_SHA256 ?=
-UBUNTU24_IMAGE_SHA256 ?=
+UBUNTU24_IMAGE_SHA256 ?= $(CLOUD_IMAGE_UBUNTU24_SHA256)
 DEBIAN12_IMAGE_SHA512 ?=
 ROCKY9_IMAGE_SHA256 ?=
 ALMA9_IMAGE_SHA256 ?=
 FEDORA43_IMAGE_SHA256 ?=
 
-BASE_VM_UBUNTU_IMAGE ?= $(PVE_IMAGE_DIR)/noble-server-cloudimg-amd64.img
-BASE_VM_ORACLE8_IMAGE ?= $(PVE_IMAGE_DIR)/OL8U10_x86_64-kvm-b271.qcow2
-BASE_VM_ORACLE9_IMAGE ?= $(PVE_IMAGE_DIR)/OL9U7_x86_64-kvm-b269.qcow2
+BASE_VM_UBUNTU_IMAGE ?= $(PVE_IMAGE_DIR)/$(CLOUD_IMAGE_UBUNTU24_FILENAME)
+BASE_VM_ORACLE8_IMAGE ?= $(PVE_IMAGE_DIR)/$(CLOUD_IMAGE_ORACLE8_FILENAME)
+BASE_VM_ORACLE9_IMAGE ?= $(PVE_IMAGE_DIR)/$(CLOUD_IMAGE_ORACLE9_FILENAME)
 
 # Vault mode switching defaults
 VAULT_MODE_SCRIPT ?= ./scripts/vault-mode-switch.sh
@@ -147,6 +178,10 @@ VAULT_HCL ?= /etc/vault.d/vault.hcl
 VAULT_UNIT ?= vault
 VAULT_AUTH_SCRIPT ?= ./scripts/vault-auth.sh
 WITH_VAULT_TOKEN_SCRIPT ?= ./scripts/with-vault-token.sh
+VAULT_APPROLE_REFRESH_SCRIPT ?= ./scripts/vault-approle-refresh.sh
+VAULT_RUNTIME_VERIFY_SCRIPT ?= ./scripts/vault-runtime-verify.sh
+VAULT_AUDIT_CHECK_SCRIPT ?= ./scripts/vault-audit-check.sh
+VAULT_AUDIT_ENABLE_FILE_SCRIPT ?= ./scripts/vault-audit-enable-file.sh
 ROTATE_PROXMOX_CREDS_SCRIPT ?= ./scripts/rotate-proxmox-creds.sh
 VAULT_BOOTSTRAP_SCRIPT ?= ./scripts/vault-bootstrap.sh
 VAULT_TLS_SCRIPT ?= ./scripts/vault-regenerate-tls.sh
@@ -195,6 +230,10 @@ help:
 	    @echo "  ${GREEN}check-tools${NC}      : Validate local toolchain + Vault/Packer/Terraform readiness"
 	    @echo "  ${GREEN}vault-login${NC}      : Authenticate to Vault (AppRole/token) and cache token locally"
 	    @echo "  ${GREEN}vault-bootstrap${NC}  : Recreate Vault module resources + refresh AppRole IDs + rotate Proxmox creds"
+	    @echo "  ${GREEN}vault-approle-refresh${NC}: Refresh only local AppRole runtime IDs with an admin token"
+	    @echo "  ${GREEN}vault-runtime-verify${NC}: Verify AppRole runtime secret reads + Terraform plan"
+	    @echo "  ${GREEN}vault-audit-check${NC}: Verify Vault audit logging is enabled"
+	    @echo "  ${GREEN}vault-audit-enable-file${NC}: Enable Vault file audit logging (requires CONFIRM=ENABLE_AUDIT)"
 	    @echo "  ${GREEN}rotate-proxmox-creds${NC} : Rotate Proxmox API token and update Vault for ENVIRONMENT"
 	    @echo "  ${GREEN}env-discover${NC}     : Discover Proxmox node/storage/bridge defaults + local source IP"
 	    @echo "  ${GREEN}env-template${NC}     : Scaffold tfvars/packer vars/.env entries for a new ENVIRONMENT"
@@ -212,13 +251,24 @@ help:
 	    @echo "  ${GREEN}packer-build-ubuntu2404${NC} : Build Ubuntu 24.04 template"
 	    @echo "  ${GREEN}packer-build-oracle8${NC}    : Build Oracle Linux 8 template"
 	    @echo "  ${GREEN}packer-build-oracle9${NC}    : Build Oracle Linux 9 template"
-	    @echo "  ${GREEN}packer-destroy-all${NC}      : Destroy all packer-generated VMs for ENVIRONMENT"
+	    @echo "  ${GREEN}packer-destroy-all${NC}      : Destroy all packer-generated VMs for ENVIRONMENT (requires confirmation phrase)"
+	    @echo ""
+	    @echo "${YELLOW}Backup / PVE jobs:${NC}"
+	    @echo "  ${GREEN}backup${NC}           : Archive local artifacts + pulled remote state (checksum + retention)"
+	    @echo "  ${GREEN}backup-jobs${NC}      : Reconcile policy-owned PVE backup schedules (CONFIRM=YES)"
+	    @echo "  ${GREEN}backup-vms${NC}       : Run selected/all enabled VM backups now (CONFIRM=YES)"
+	    @echo "  ${GREEN}verify-backups${NC}   : Check newest VM archive age against policy"
+	    @echo "  ${GREEN}restore-drill${NC}    : Restore newest archive into reserved stopped VMID (CONFIRM=YES)"
+	    @echo "  ${GREEN}clean-backups${NC}    : Delete retained local state archives (CONFIRM=DELETE_BACKUPS)"
 	    @echo ""
 	    @echo "${YELLOW}New Environment Overrides:${NC}"
 	    @echo "  TEMPLATE_ENV=$(TEMPLATE_ENV)"
 	    @echo "  ENV_TEMPLATE_FORCE=$(ENV_TEMPLATE_FORCE)"
 	    @echo "  AUTO_DISCOVER=$(AUTO_DISCOVER)"
 	    @echo "  PROXMOX_NODE=$(PROXMOX_NODE)"
+	    @echo "  NETWORK_BRIDGE=$(NETWORK_BRIDGE)"
+	    @echo "  NETWORK_VLAN=$(NETWORK_VLAN)"
+	    @echo "  BASE_VM_VLAN=$(BASE_VM_VLAN)"
 	    @echo "  BASE_VM_BUILD_ORACLE=$(BASE_VM_BUILD_ORACLE)"
 	    @echo "  SKIP_BASE_VM_SETUP=$(SKIP_BASE_VM_SETUP)"
 	    @echo "  AUTO_DOWNLOAD_IMAGE=$(AUTO_DOWNLOAD_IMAGE)"
@@ -231,6 +281,7 @@ help:
 	    @echo "  PACKER_VARS=$(PACKER_VARS)"
 	    @echo "  PACKER_USE_VAULT_CREDS=$(PACKER_USE_VAULT_CREDS)"
 	    @echo "  PACKER_VAULT_PATH=$(PACKER_VAULT_PATH)"
+	    @echo "  PACKER_ON_ERROR=$(PACKER_ON_ERROR)"
 	    @echo "  TF_INIT_UPGRADE=$(TF_INIT_UPGRADE)"
 	    @echo ""
 	    @echo "${YELLOW}Workspace Management:${NC}"
@@ -251,11 +302,12 @@ help:
 	    @echo "  ${GREEN}deploy${NC}           : Run complete deployment workflow"
 	    @echo ""
 	@echo "${YELLOW}Operations:${NC}"
-	@echo "  ${GREEN}destroy${NC}          : Destroy all Terraform-managed resources"
-	@echo "  ${GREEN}clean${NC}            : Remove generated artifacts (plans, logs, inventories, summaries, backups)"
-	@echo "  ${GREEN}clean-all${NC}        : Remove ALL local artifacts + Terraform state/workspaces"
+	@echo "  ${GREEN}destroy-workloads${NC}: Destroy workload VMs/generated files; retain Vault governance"
+	@echo "  ${GREEN}destroy-governance${NC}: Target Vault governance only; requires separate review and prevent_destroy removal"
+	@echo "  ${GREEN}clean${NC}            : Remove generated artifacts (plans, inventories, summaries, non-acceptance logs); preserve backups + logs/acceptance"
+	@echo "  ${GREEN}clean-all${NC}        : Remove ALL local artifacts + Terraform state/workspaces; preserve retained backups"
 	@echo "  ${GREEN}clean-legacy-inventory${NC} : Remove deprecated terraform-proxmox/inventories directory"
-	@echo "  ${GREEN}backup${NC}           : Backup current environment state"
+	@echo "  ${GREEN}backup${NC}           : Backup current environment artifacts and pulled remote state"
 	@echo ""
 	    @echo "${YELLOW}Utility Commands:${NC}"
 	    @echo "  ${GREEN}tree${NC}             : Show organized project structure"
@@ -278,9 +330,9 @@ help:
 	    @echo "${YELLOW}Examples:${NC}"
 	    @echo "  make deploy ENVIRONMENT=dev"
 	    @echo "  make plan ENVIRONMENT=prod"
-	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.15"
-	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.15 AUTO_DISCOVER=true"
-	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.15 PROXMOX_NODE=proxmox"
+	    @echo "  make env-discover ENVIRONMENT=qa PROXMOX_HOST=198.51.100.16"
+	    @echo "  make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.16 AUTO_DISCOVER=true"
+	    @echo "  make env-bootstrap ENVIRONMENT=qa PROXMOX_HOST=198.51.100.16 PROXMOX_NODE=proxmox"
 	    @echo "  make workspace-create ENVIRONMENT=testing"
 	    @echo "  make backup ENVIRONMENT=prod"
 	    @echo "  make tree"
@@ -326,6 +378,26 @@ vault-bootstrap: workspace-create workspace-select
 	    @ENVIRONMENT="$(ENVIRONMENT)" ENV_FILE="$(ENV_FILE)" TFVARS_FILE="$(TFVARS_FILE_FOR_ENV)" PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" VAULT_PATH="$(VAULT_CREDS_PATH_FOR_ENV)" VAULT_AUTH_SCRIPT="$(VAULT_AUTH_SCRIPT)" ROTATE_PROXMOX_CREDS_SCRIPT="$(ROTATE_PROXMOX_CREDS_SCRIPT)" "$(VAULT_BOOTSTRAP_SCRIPT)"
 	    @echo "${GREEN}✓ Vault bootstrap completed for $(ENVIRONMENT)${NC}"
 
+vault-approle-refresh:
+	    @echo "${YELLOW}--- Refreshing Vault AppRole runtime credentials ---${NC}"
+	    @ENV_FILE="$(ENV_FILE)" VAULT_AUTH_SCRIPT="$(VAULT_AUTH_SCRIPT)" "$(VAULT_APPROLE_REFRESH_SCRIPT)"
+	    @echo "${GREEN}✓ Vault AppRole runtime credentials refreshed${NC}"
+
+vault-runtime-verify: workspace-select
+	    @echo "${YELLOW}--- Verifying Vault AppRole runtime access for ${ENVIRONMENT} ---${NC}"
+	    @ENVIRONMENT="$(ENVIRONMENT)" ENV_FILE="$(ENV_FILE)" TFVARS_FILE="$(TFVARS_FILE_FOR_ENV)" VAULT_PATH="$(VAULT_CREDS_PATH_FOR_ENV)" "$(VAULT_RUNTIME_VERIFY_SCRIPT)"
+	    @echo "${GREEN}✓ Vault AppRole runtime verification passed for $(ENVIRONMENT)${NC}"
+
+vault-audit-check:
+	    @echo "${YELLOW}--- Checking Vault audit logging ---${NC}"
+	    @ENV_FILE="$(ENV_FILE)" VAULT_AUTH_SCRIPT="$(VAULT_AUTH_SCRIPT)" "$(VAULT_AUDIT_CHECK_SCRIPT)"
+	    @echo "${GREEN}✓ Vault audit logging check passed${NC}"
+
+vault-audit-enable-file:
+	    @echo "${YELLOW}--- Enabling Vault file audit logging ---${NC}"
+	    @ENV_FILE="$(ENV_FILE)" VAULT_AUTH_SCRIPT="$(VAULT_AUTH_SCRIPT)" CONFIRM="$(CONFIRM)" "$(VAULT_AUDIT_ENABLE_FILE_SCRIPT)"
+	    @echo "${GREEN}✓ Vault file audit logging enabled${NC}"
+
 rotate-proxmox-creds:
 	    @echo "${YELLOW}--- Rotating Proxmox API credentials for ${ENVIRONMENT} ---${NC}"
 	    @if [ -z "$(PROXMOX_HOST_FOR_ENV)" ]; then \
@@ -357,7 +429,7 @@ env-template:
 	    fi
 	    @FORCE_ARG=""; \
 	    if [ "$(ENV_TEMPLATE_FORCE)" = "true" ]; then FORCE_ARG="--force"; fi; \
-	    ENVIRONMENT="$(ENVIRONMENT)" TEMPLATE_ENV="$(TEMPLATE_ENV)" AUTO_DISCOVER="$(AUTO_DISCOVER)" PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" PROXMOX_NODE="$(PROXMOX_NODE)" ANSIBLE_HOST="$(ANSIBLE_HOST_FOR_ENV)" NETWORK_CIDR="$(NETWORK_CIDR)" NETWORK_GW="$(NETWORK_GW)" NETWORK_BRIDGE="$(NETWORK_BRIDGE)" STORAGE_POOL="$(STORAGE_POOL)" DATA_STORAGE="$(DATA_STORAGE)" "$(SCAFFOLD_ENV_SCRIPT)" $$FORCE_ARG
+	    ENVIRONMENT="$(ENVIRONMENT)" TEMPLATE_ENV="$(TEMPLATE_ENV)" AUTO_DISCOVER="$(AUTO_DISCOVER)" PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" PROXMOX_NODE="$(PROXMOX_NODE)" ANSIBLE_HOST="$(ANSIBLE_HOST_FOR_ENV)" NETWORK_CIDR="$(NETWORK_CIDR)" NETWORK_GW="$(NETWORK_GW)" NETWORK_BRIDGE="$(NETWORK_BRIDGE)" NETWORK_VLAN="$(NETWORK_VLAN)" STORAGE_POOL="$(STORAGE_POOL)" DATA_STORAGE="$(DATA_STORAGE)" "$(SCAFFOLD_ENV_SCRIPT)" $$FORCE_ARG
 	    @echo "${GREEN}✓ Environment scaffold ready for $(ENVIRONMENT)${NC}"
 
 env-ssh-access:
@@ -410,7 +482,10 @@ env-base-vm:
 	    @PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" \
 	            VMID="$(BASE_VM_VMID)" NAME="$(BASE_VM_NAME)" OS_TYPE="$(BASE_VM_OS_TYPE)" \
 	            FORCE="$(BASE_VM_FORCE)" DRY_RUN="$(BASE_VM_DRY_RUN)" \
-	            BRIDGE="$(BASE_VM_BRIDGE)" IPCIDR="$(BASE_VM_IPCIDR)" GATEWAY="$(BASE_VM_GATEWAY)" DNS="$(BASE_VM_DNS)" \
+	            REMOTE_ENV_FILE="$(BASE_VM_REMOTE_ENV_FILE)" \
+	            SANITIZE_TEMPLATE_BASE="$(BASE_VM_SANITIZE_TEMPLATE_BASE)" SHUTDOWN_FINAL_VM="$(BASE_VM_SHUTDOWN_FINAL_VM)" \
+	            DO_OS_UPDATE="$(BASE_VM_DO_OS_UPDATE)" \
+	            BRIDGE="$(BASE_VM_BRIDGE)" NETWORK_VLAN="$(BASE_VM_VLAN)" IPCIDR="$(BASE_VM_IPCIDR)" GATEWAY="$(BASE_VM_GATEWAY)" DNS="$(BASE_VM_DNS)" \
 	            OS_STORAGE="$(BASE_VM_OS_STORAGE)" DATA_STORAGE="$(BASE_VM_DATA_STORAGE)" EFI_STORAGE="$(BASE_VM_EFI_STORAGE)" \
 	            CI_STORAGE="$(BASE_VM_CI_STORAGE)" SNIPPET_STORAGE="$(BASE_VM_SNIPPET_STORAGE)" \
 	            CORES="$(BASE_VM_CORES)" MEM="$(BASE_VM_MEM)" OS_DISK_SIZE="$(BASE_VM_OS_DISK_SIZE)" \
@@ -424,10 +499,10 @@ env-base-vm-ubuntu2404:
 	    @$(MAKE) env-base-vm ENVIRONMENT=$(ENVIRONMENT) BASE_VM_OS_TYPE=ubuntu BASE_VM_VMID=$(BASE_VMID_UBUNTU2404) BASE_VM_NAME=$(BASE_VM_NAME_UBUNTU2404) UBUNTU_IMAGE="$(BASE_VM_UBUNTU_IMAGE)"
 
 env-base-vm-oracle8:
-	    @$(MAKE) env-base-vm ENVIRONMENT=$(ENVIRONMENT) BASE_VM_OS_TYPE=oracle-linux BASE_VM_VMID=$(BASE_VMID_ORACLE8) BASE_VM_NAME=$(BASE_VM_NAME_ORACLE8) ORACLE_LINUX_IMAGE="$(BASE_VM_ORACLE8_IMAGE)"
+	    @$(MAKE) env-base-vm ENVIRONMENT=$(ENVIRONMENT) BASE_VM_OS_TYPE=oracle-linux-8 BASE_VM_VMID=$(BASE_VMID_ORACLE8) BASE_VM_NAME=$(BASE_VM_NAME_ORACLE8) ORACLE_LINUX_IMAGE="$(BASE_VM_ORACLE8_IMAGE)"
 
 env-base-vm-oracle9:
-	    @$(MAKE) env-base-vm ENVIRONMENT=$(ENVIRONMENT) BASE_VM_OS_TYPE=oracle-linux BASE_VM_VMID=$(BASE_VMID_ORACLE9) BASE_VM_NAME=$(BASE_VM_NAME_ORACLE9) ORACLE_LINUX_IMAGE="$(BASE_VM_ORACLE9_IMAGE)"
+	    @$(MAKE) env-base-vm ENVIRONMENT=$(ENVIRONMENT) BASE_VM_OS_TYPE=oracle-linux-9 BASE_VM_VMID=$(BASE_VMID_ORACLE9) BASE_VM_NAME=$(BASE_VM_NAME_ORACLE9) ORACLE_LINUX_IMAGE="$(BASE_VM_ORACLE9_IMAGE)"
 
 env-base-vms:
 	    @echo "${YELLOW}--- Creating base VMs on target Proxmox for ${ENVIRONMENT} ---${NC}"
@@ -548,7 +623,7 @@ render-snippets: init workspace-select
 	            echo "${RED}Error: environments/$(ENVIRONMENT).tfvars not found${NC}"; \
 	            exit 1; \
 	    fi
-	    @/bin/bash -lc "set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform apply -target=local_file.partitioning_snippet -var-file=\"environments/$(ENVIRONMENT).tfvars\" -auto-approve 2>&1 | tee \"$(LOG_DIR)/terraform-snippets-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
+	    @/bin/bash -lc "set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform apply -target=local_file.partitioning_snippet -target=local_file.cloudinit_first_access_snippet -var-file=\"environments/$(ENVIRONMENT).tfvars\" -auto-approve 2>&1 | tee \"$(LOG_DIR)/terraform-snippets-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
 	    @echo "${GREEN}✓ Snippets rendered for $(ENVIRONMENT)${NC}"
 
 upload-snippets:
@@ -641,17 +716,55 @@ packer-build:
 	            echo "${YELLOW}Tip:${NC} copy $(PACKER_DIR)/vars.example.pkrvars.hcl to $(PACKER_VARS) and fill values."; \
 	            exit 1; \
 	    fi
+	    @case "$(PACKER_ON_ERROR)" in \
+	            cleanup|abort|run-cleanup-provisioner) ;; \
+	            *) echo "${RED}Error: PACKER_ON_ERROR must be cleanup, abort, or run-cleanup-provisioner.${NC}"; exit 1 ;; \
+	    esac
 	    @set -e; \
+	    PVE_HOST="$(PROXMOX_HOST_FOR_ENV)"; \
+	    if [ -z "$$PVE_HOST" ]; then echo "${RED}Error: could not resolve Proxmox host for $(ENVIRONMENT).${NC}"; exit 1; fi; \
+	    PACKER_DIR_ABS="$$(cd "$(PACKER_DIR)" && pwd)"; \
+	    PACKER_TEMPLATE_NAME="$(notdir $(PACKER_TEMPLATE))"; \
+	    PACKER_VARS_NAME="$$(realpath --relative-to="$$PACKER_DIR_ABS" "$(PACKER_VARS)")"; \
+	    packer_value() { printf '%s\n' "$$1" | (cd "$$PACKER_DIR_ABS" && packer console -var-file="$$PACKER_VARS_NAME" "$$PACKER_TEMPLATE_NAME"); }; \
+	    SOURCE_VMID="$$(packer_value var.clone_vm_id)"; \
+	    TARGET_VMID="$$(packer_value var.vm_id)"; \
+	    PVE_NODE="$$(packer_value var.proxmox_node)"; \
+	    SSH_USERNAME="$$(packer_value var.ssh_username)"; \
+	    SSH_PRIVATE_KEY="$$(packer_value var.ssh_private_key_file)"; \
+	    SSH_PRIVATE_KEY="$${SSH_PRIVATE_KEY/#\~\//$${HOME}/}"; \
+	    SSH_PUBLIC_KEY_FILE="$$(mktemp)"; \
+	    chmod 600 "$$SSH_PUBLIC_KEY_FILE"; \
+	    ssh-keygen -y -f "$$SSH_PRIVATE_KEY" >"$$SSH_PUBLIC_KEY_FILE"; \
+	    export PVE_HOST PVE_NODE SOURCE_VMID TARGET_VMID SSH_USERNAME SSH_PUBLIC_KEY_FILE ENVIRONMENT="$(ENVIRONMENT)" SNIPPET_STORAGE="$(SNIPPET_STORAGE_FOR_ENV)"; \
+	    VAULT_OVERRIDE_FILE=""; \
+	    cleanup_cloudinit() { "$(PACKER_CLOUDINIT_GUARD_SCRIPT)" cleanup; }; \
+	    cleanup_build() { \
+	            status=$$?; \
+	            [ -z "$$VAULT_OVERRIDE_FILE" ] || rm -f "$$VAULT_OVERRIDE_FILE"; \
+	            [ -z "$$SSH_PUBLIC_KEY_FILE" ] || rm -f "$$SSH_PUBLIC_KEY_FILE"; \
+	            cleanup_status=0; cleanup_cloudinit || cleanup_status=$$?; \
+	            if [ "$$status" -eq 0 ] && [ "$$cleanup_status" -ne 0 ]; then status=$$cleanup_status; fi; \
+	            exit "$$status"; \
+	    }; \
+	    trap cleanup_build EXIT; \
+	    "$(PACKER_CLOUDINIT_GUARD_SCRIPT)" prepare; \
 	    if [ "$(PACKER_USE_VAULT_CREDS)" = "true" ]; then \
 	            VAULT_OVERRIDE_FILE="$$(mktemp --suffix=.pkrvars.hcl)"; \
-	            trap 'rm -f "$$VAULT_OVERRIDE_FILE"' EXIT; \
 	            ENVIRONMENT="$(ENVIRONMENT)" VAULT_PATH="$(PACKER_VAULT_PATH)" "$(PACKER_VAULT_RENDER_SCRIPT)" "$$VAULT_OVERRIDE_FILE"; \
 	            (cd "$(PACKER_DIR)" && packer init .); \
-	            (cd "$(PACKER_DIR)" && packer build -var-file="$(notdir $(PACKER_VARS))" -var-file="$$VAULT_OVERRIDE_FILE" "$(PACKER_TEMPLATE)"); \
+	            (cd "$(PACKER_DIR)" && packer build -on-error="$(PACKER_ON_ERROR)" -var-file="$(notdir $(PACKER_VARS))" -var-file="$$VAULT_OVERRIDE_FILE" "$(PACKER_TEMPLATE)"); \
 	    else \
 	            (cd "$(PACKER_DIR)" && packer init .); \
-	            (cd "$(PACKER_DIR)" && packer build -var-file="$(notdir $(PACKER_VARS))" "$(PACKER_TEMPLATE)"); \
-	    fi
+	            (cd "$(PACKER_DIR)" && packer build -on-error="$(PACKER_ON_ERROR)" -var-file="$(notdir $(PACKER_VARS))" "$(PACKER_TEMPLATE)"); \
+	    fi; \
+	    cleanup_cloudinit; \
+	    [ -z "$$VAULT_OVERRIDE_FILE" ] || rm -f "$$VAULT_OVERRIDE_FILE"; \
+	    VAULT_OVERRIDE_FILE=""; \
+	    rm -f "$$SSH_PUBLIC_KEY_FILE"; \
+	    SSH_PUBLIC_KEY_FILE=""; \
+	    trap - EXIT; \
+	    "$(PACKER_CLOUDINIT_GUARD_SCRIPT)" verify
 	    @echo "${GREEN}✓ Packer build complete for $(ENVIRONMENT)${NC}"
 
 packer-build-all:
@@ -764,44 +877,149 @@ k8s-deploy: check-env ## Deploy Kubernetes cluster
 		echo "Error: Inventory file not found at $(INVENTORY_FILE)"; \
 		exit 1; \
 	fi
-	@echo "Installing python requirements..."
-	@cd "$(KUBESPRAY_DIR)" && $(HOME)/.pyenv/versions/v3.13.14/bin/pip install -r requirements.txt
+	@echo "Preparing isolated Kubespray environment..."
+	@set -euo pipefail; \
+	PYTHON_BIN="$$(command -v "$(KUBESPRAY_PYTHON)" || true)"; \
+	if [ -z "$$PYTHON_BIN" ]; then \
+		echo "${RED}Error: KUBESPRAY_PYTHON=$(KUBESPRAY_PYTHON) is not executable${NC}"; \
+		exit 1; \
+	fi; \
+	if [ ! -x "$(KUBESPRAY_VENV_ABS)/bin/python" ]; then \
+		"$$PYTHON_BIN" -m venv "$(KUBESPRAY_VENV_ABS)" || { \
+			echo "${RED}Error: could not create $(KUBESPRAY_VENV_ABS); install the venv module for $(KUBESPRAY_PYTHON)${NC}"; \
+			exit 1; \
+		}; \
+	fi; \
+	"$(KUBESPRAY_VENV_ABS)/bin/python" -m pip install -r "$(KUBESPRAY_DIR)/requirements.txt"; \
+	test -x "$(KUBESPRAY_VENV_ABS)/bin/ansible-playbook"
 	@echo "Running Ansible Playbook..."
-	@cd "$(KUBESPRAY_DIR)" && $(HOME)/.pyenv/versions/v3.13.14/bin/ansible-playbook -i "$(INVENTORY_FILE)" -i "$(INVENTORY_DIR)/../aliases.ini" \
+	@cd "$(KUBESPRAY_DIR)" && "$(KUBESPRAY_VENV_ABS)/bin/ansible-playbook" -i "$(INVENTORY_FILE)" -i "$(INVENTORY_DIR)/../aliases.ini" \
 		--become --become-user=root \
 		--vault-password-file "$(MAKEFILE_DIR)/../ansible/.vault_password" \
 		cluster.yml \
 		--extra-vars "ansible_user=ansible ansible_ssh_private_key_file=~/.ssh/id_rsa"
 	@echo "Kubernetes cluster deployed for $(ENVIRONMENT)!"
 
-# Backup current state
+# Backup current artifacts and a pulled copy of remote workspace state
 backup: create-dirs workspace-select
 	    @echo "${YELLOW}--- Backing up state for ${ENVIRONMENT} ---${NC}"
-	    @BACKUP_TIME=$$(date +%Y%m%d-%H%M%S); \
+	    @set -euo pipefail; \
+	    umask 077; \
+	    RETENTION_DAYS="$(STATE_BACKUP_RETENTION_DAYS)"; \
+	    KEEP_MIN="$(STATE_BACKUP_KEEP_MIN)"; \
+	    if [[ ! "$$RETENTION_DAYS" =~ ^[0-9]+$$ ]]; then \
+	            echo "${RED}Error: STATE_BACKUP_RETENTION_DAYS must be a non-negative integer${NC}"; \
+	            exit 1; \
+	    fi; \
+	    if [[ ! "$$KEEP_MIN" =~ ^[1-9][0-9]*$$ ]]; then \
+	            echo "${RED}Error: STATE_BACKUP_KEEP_MIN must be a positive integer${NC}"; \
+	            exit 1; \
+	    fi; \
+	    BACKUP_TIME=$$(date +%Y%m%d-%H%M%S); \
 	    BACKUP_FILE="$(BACKUP_DIR)/backup-$(ENVIRONMENT)-$$BACKUP_TIME.tar.gz"; \
-	    tar -czf "$$BACKUP_FILE" \
-	            terraform.tfstate.d/$(ENVIRONMENT)/ \
-	            $(PLAN_DIR)/$(ENVIRONMENT).tfplan \
-	            $(INVENTORY_FILE) \
-	            $(SUMMARY_DIR)/*$(ENVIRONMENT)* \
-	            environments/$(ENVIRONMENT).tfvars 2>/dev/null || true; \
+	    STAGE_DIR="$(BACKUP_DIR)/.stage-$(ENVIRONMENT)-$$BACKUP_TIME"; \
+	    cleanup_stage() { rm -rf -- "$$STAGE_DIR"; }; \
+	    trap cleanup_stage EXIT; \
+	    mkdir -p "$$STAGE_DIR"; \
+	    /bin/bash -lc "set -a; [ -f \"$(ENV_FILE)\" ] && source \"$(ENV_FILE)\"; set +a; set -euo pipefail; \
+	      $(WITH_VAULT_TOKEN_SCRIPT) terraform state pull > \"$$STAGE_DIR/terraform.tfstate\""; \
+	    chmod 600 "$$STAGE_DIR/terraform.tfstate"; \
+	    for optional in \
+	            "$(PLAN_DIR)/$(ENVIRONMENT).tfplan" \
+	            "$(INVENTORY_FILE)" \
+	            "environments/$(ENVIRONMENT).tfvars"; do \
+	            if [ -e "$$optional" ]; then \
+	                    cp -a "$$optional" "$$STAGE_DIR/"; \
+	            fi; \
+	    done; \
+	    if ls "$(SUMMARY_DIR)/"*$(ENVIRONMENT)* >/dev/null 2>&1; then \
+	            mkdir -p "$$STAGE_DIR/summaries"; \
+	            cp -a "$(SUMMARY_DIR)/"*$(ENVIRONMENT)* "$$STAGE_DIR/summaries/" || true; \
+	    fi; \
+	    tar -czf "$$BACKUP_FILE" -C "$$STAGE_DIR" .; \
+	    BACKUP_PARENT="$$(dirname -- "$$BACKUP_FILE")"; \
+	    BACKUP_BASENAME="$$(basename -- "$$BACKUP_FILE")"; \
+	    (cd "$$BACKUP_PARENT" && sha256sum "$$BACKUP_BASENAME" > "$$BACKUP_BASENAME.sha256"); \
+	    chmod 600 "$$BACKUP_FILE" "$$BACKUP_FILE.sha256"; \
+	    cleanup_stage; \
+	    trap - EXIT; \
+	    mapfile -t archives < <(ls -1t "$(BACKUP_DIR)/backup-$(ENVIRONMENT)-"*.tar.gz 2>/dev/null || true); \
+	    find "$(BACKUP_DIR)" -maxdepth 1 -type f \
+	            \( -name 'backup-$(ENVIRONMENT)-*.tar.gz' -o -name 'backup-$(ENVIRONMENT)-*.tar.gz.sha256' \) \
+	            -exec chmod 600 {} +; \
+	    for ((index=KEEP_MIN; index<$${#archives[@]}; index++)); do \
+	            old="$${archives[$$index]}"; \
+	            if [[ -n "$$(find "$$old" -maxdepth 0 -type f -mtime +"$$RETENTION_DAYS" -print -quit)" ]]; then \
+	                    rm -f -- "$$old" "$$old.sha256"; \
+	            fi; \
+	    done; \
 	    echo "${GREEN}✓ Backup created: $$BACKUP_FILE${NC}"
 
-# Destroy resources with proper confirmation
-destroy: workspace-select backup
-	    @echo "${YELLOW}--- Destroying Terraform resources in ${ENVIRONMENT} ---${NC}"
-	    @echo "${RED}WARNING: This will destroy ALL resources in the $(ENVIRONMENT) environment!${NC}"
+backup-jobs: workspace-select
+	    @ENVIRONMENT="$(ENVIRONMENT)" CONFIRM="$(CONFIRM)" DRY_RUN="$(DRY_RUN)" ./scripts/reconcile-backup-jobs.sh
+
+backup-vms: workspace-select
+	    @ENVIRONMENT="$(ENVIRONMENT)" CONFIRM="$(CONFIRM)" DRY_RUN="$(DRY_RUN)" ./scripts/backup-vms.sh
+
+verify-backups: workspace-select
+	    @ENVIRONMENT="$(ENVIRONMENT)" ./scripts/verify-vm-backups.sh
+
+restore-drill: workspace-select
+	    @ENVIRONMENT="$(ENVIRONMENT)" CONFIRM="$(CONFIRM)" DRY_RUN="$(DRY_RUN)" ./scripts/restore-drill.sh
+
+clean-backups:
+	    @echo "${RED}--- Deleting retained local Terraform backup archives ---${NC}"
 	    @set -e; \
-	    read -p "Type 'yes' to confirm destruction of $(ENVIRONMENT) environment: " confirm; \
-	    if [ "$$confirm" = "yes" ]; then \
+	    if [ "$(CONFIRM)" != "DELETE_BACKUPS" ]; then \
+	            echo "${YELLOW}Refusing to delete backups without CONFIRM=DELETE_BACKUPS${NC}"; \
+	            exit 1; \
+	    fi; \
+	    rm -rf "$(BACKUP_DIR)/"; \
+	    mkdir -p "$(BACKUP_DIR)"; \
+	    echo "${GREEN}✓ Local backup archives deleted${NC}"
+
+destroy-workloads: workspace-select backup
+	    @echo "${YELLOW}--- Destroying Terraform workload resources in ${ENVIRONMENT} ---${NC}"
+	    @echo "${RED}WARNING: This destroys workload VMs and generated local files for $(ENVIRONMENT).${NC}"
+	    @echo "${YELLOW}Vault KV mounts, policies, AppRole backends, and AppRole roles are not targeted.${NC}"
+	    @set -e; \
+	    read -p "RED ALERT: type '$(DESTROY_RED_ALERT_PHRASE)' to continue: " red_alert; \
+	    if [ "$$red_alert" != "$(DESTROY_RED_ALERT_PHRASE)" ]; then \
+	            echo "${BLUE}Workload destroy operation cancelled.${NC}"; \
+	            exit 0; \
+	    fi; \
+	    read -p "Type 'destroy-workloads $(ENVIRONMENT)' to confirm workload destruction: " confirm; \
+	    if [ "$$confirm" = "destroy-workloads $(ENVIRONMENT)" ]; then \
 	            if [ ! -f "environments/$(ENVIRONMENT).tfvars" ]; then \
 	              echo "${RED}Error: environments/$(ENVIRONMENT).tfvars not found${NC}"; \
 	              exit 1; \
 	            fi; \
-		            /bin/bash -lc "set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform destroy -var-file=\"environments/$(ENVIRONMENT).tfvars\" -auto-approve 2>&1 | tee \"$(LOG_DIR)/terraform-destroy-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""; \
-	            echo "${GREEN}✓ Resources destroyed for $(ENVIRONMENT)${NC}"; \
+		            /bin/bash -lc "set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform destroy $(WORKLOAD_DESTROY_TARGETS) -var-file=\"environments/$(ENVIRONMENT).tfvars\" -auto-approve 2>&1 | tee \"$(LOG_DIR)/terraform-destroy-workloads-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""; \
+	            echo "${GREEN}✓ Workload resources destroyed for $(ENVIRONMENT); Vault governance retained${NC}"; \
 	    else \
-	            echo "${BLUE}Destroy operation cancelled.${NC}"; \
+	            echo "${BLUE}Workload destroy operation cancelled.${NC}"; \
+	    fi
+
+destroy-governance: workspace-select backup
+	    @echo "${RED}--- DANGER: Destroying Vault governance for ${ENVIRONMENT} ---${NC}"
+	    @echo "${RED}This targets the Vault KV mount/config, policy, AppRole backend, and AppRole role.${NC}"
+	    @echo "${YELLOW}Terraform lifecycle prevent_destroy remains the final guardrail; removing it requires a separate reviewed code change.${NC}"
+	    @set -e; \
+	    read -p "RED ALERT: type '$(DESTROY_RED_ALERT_PHRASE)' to continue: " red_alert; \
+	    if [ "$$red_alert" != "$(DESTROY_RED_ALERT_PHRASE)" ]; then \
+	            echo "${BLUE}Vault governance destroy operation cancelled.${NC}"; \
+	            exit 0; \
+	    fi; \
+	    read -p "Type 'destroy-governance $(ENVIRONMENT)' to confirm Vault governance destruction: " confirm; \
+	    if [ "$$confirm" = "destroy-governance $(ENVIRONMENT)" ]; then \
+	            if [ ! -f "environments/$(ENVIRONMENT).tfvars" ]; then \
+	              echo "${RED}Error: environments/$(ENVIRONMENT).tfvars not found${NC}"; \
+	              exit 1; \
+	            fi; \
+		            /bin/bash -lc "set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform destroy $(GOVERNANCE_DESTROY_TARGETS) -var-file=\"environments/$(ENVIRONMENT).tfvars\" -auto-approve 2>&1 | tee \"$(LOG_DIR)/terraform-destroy-governance-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""; \
+	            echo "${GREEN}✓ Vault governance destroy command completed for $(ENVIRONMENT)${NC}"; \
+	    else \
+	            echo "${BLUE}Vault governance destroy operation cancelled.${NC}"; \
 	    fi
 
 # Clean ALL Terraform files and workspaces (nuclear option)
@@ -826,19 +1044,20 @@ clean-all:
 		echo "${BLUE}Complete cleanup cancelled.${NC}"; \
 	fi
 
-# Clean generated artifacts but keep Terraform state and caches
+# Clean generated artifacts but keep Terraform state, backups, and acceptance logs
 clean:
-	@echo "${YELLOW}--- Cleaning generated artifacts (state preserved) ---${NC}"
+	@echo "${YELLOW}--- Cleaning generated artifacts (state, backups, and logs/acceptance preserved) ---${NC}"
 	@rm -rf $(PLAN_DIR)/ 2>/dev/null || true; \
 	 rm -f $(INVENTORY_FILE) 2>/dev/null || true; \
 	 rm -rf $(LEGACY_INVENTORY_DIR) 2>/dev/null || true; \
 	 rm -rf $(SUMMARY_DIR)/ 2>/dev/null || true; \
-	 rm -rf $(LOG_DIR)/ 2>/dev/null || true; \
-	 rm -rf $(BACKUP_DIR)/ 2>/dev/null || true; \
+	 if [ -d "$(LOG_DIR)" ]; then \
+	   find "$(LOG_DIR)" -mindepth 1 -maxdepth 1 ! -name acceptance -exec rm -rf {} +; \
+	 fi; \
 	 rm -rf tmp 2>/dev/null || true; \
 	 rm -rf tmp_venv 2>/dev/null || true; \
-	 rm -f deployment-summary-*.json crash.log 2>/dev/null || true
-	@echo "${GREEN}✓ Clean complete (state preserved)${NC}"
+	 rm -f deployment-summary-*.json crash.log 2>/dev/null || true; \
+	 echo "${GREEN}✓ Clean complete (state and backups preserved)${NC}"
 
 clean-legacy-inventory:
 	@echo "${YELLOW}--- Removing deprecated local inventory directory ---${NC}"

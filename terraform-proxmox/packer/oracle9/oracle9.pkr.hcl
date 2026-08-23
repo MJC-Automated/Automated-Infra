@@ -39,6 +39,18 @@ variable "ssh_host" {
   description = "Static address assigned to the Packer build guest"
 }
 
+variable "ssh_private_key_file" {
+  type        = string
+  description = "Path to SSH private key for guest authentication"
+  default     = "~/.ssh/id_rsa"
+}
+
+variable "ssh_username" {
+  type        = string
+  description = "Guest account used by the Packer SSH communicator"
+  default     = "ansible"
+}
+
 variable "template_name" {
   type    = string
   default = "oracle9"
@@ -68,6 +80,12 @@ variable "memory_mb" {
   default     = 10240
 }
 
+variable "vlan_tag" {
+  type        = number
+  description = "Optional VLAN tag for the build VM NIC. Set -1 to leave untagged."
+  default     = -1
+}
+
 source "proxmox-clone" "oracle9" {
   proxmox_url = var.proxmox_api_url
   // For token auth, username must be in the form user@realm!tokenid
@@ -75,14 +93,16 @@ source "proxmox-clone" "oracle9" {
   token                    = var.proxmox_token
   insecure_skip_tls_verify = var.proxmox_tls_insecure
 
-  node         = var.proxmox_node
-  vm_name      = var.template_name
-  vm_id        = var.vm_id
-  clone_vm_id  = var.clone_vm_id
-  full_clone   = true
-  ssh_username = "ansible"
-  ssh_host     = var.ssh_host
-  ssh_timeout  = "10m"
+  node                 = var.proxmox_node
+  vm_name              = var.template_name
+  vm_id                = var.vm_id
+  clone_vm_id          = var.clone_vm_id
+  full_clone           = true
+  ssh_username         = var.ssh_username
+  ssh_private_key_file = var.ssh_private_key_file
+  ssh_host             = var.ssh_host
+  // First boot of a sanitized base re-runs cloud-init package work; allow headroom.
+  ssh_timeout  = "20m"
   task_timeout = "15m"
 
   // Match the base VM hardware defaults
@@ -96,8 +116,9 @@ source "proxmox-clone" "oracle9" {
   boot            = "order=scsi0"
 
   network_adapters {
-    bridge = "vmbr0"
-    model  = "virtio"
+    bridge   = "vmbr0"
+    model    = "virtio"
+    vlan_tag = var.vlan_tag >= 0 ? var.vlan_tag : null
   }
 
   serials = ["socket"]

@@ -1,0 +1,199 @@
+---
+- name: Resolve web endpoint host in Zabbix
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: host.get
+      params:
+        output:
+          - hostid
+        filter:
+          host:
+            - "{{ zabbix_web_endpoint.host_name }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_host_lookup
+  changed_when: false
+  failed_when: >-
+    zabbix_web_host_lookup.json.error is defined or
+    zabbix_web_host_lookup.json.result | length != 1
+
+- name: Query one managed web scenario
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: httptest.get
+      params:
+        output:
+          - httptestid
+          - name
+        hostids:
+          - "{{ zabbix_web_host_lookup.json.result[0].hostid }}"
+        filter:
+          name:
+            - "{{ zabbix_web_endpoint.scenario_name }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_scenario_lookup
+  changed_when: false
+  failed_when: >-
+    zabbix_web_scenario_lookup.json.error is defined or
+    zabbix_web_scenario_lookup.json.result | length > 1
+
+- name: Build one managed web scenario definition
+  ansible.builtin.set_fact:
+    zabbix_web_scenario_definition:
+      name: "{{ zabbix_web_endpoint.scenario_name }}"
+      hostid: "{{ zabbix_web_host_lookup.json.result[0].hostid }}"
+      delay: "{{ zabbix_web_scenario_delay }}"
+      retries: "1"
+      status: "0"
+      agent: "IaC Zabbix web monitoring"
+      verify_peer: "{{ zabbix_web_endpoint.verify_tls | ternary('1', '0') }}"
+      verify_host: "{{ zabbix_web_endpoint.verify_tls | ternary('1', '0') }}"
+      tags:
+        - tag: iac_managed
+          value: "true"
+        - tag: environment
+          value: "{{ zabbix_web_endpoint.environment }}"
+        - tag: service
+          value: "{{ zabbix_web_endpoint.service }}"
+        - tag: expected_up
+          value: "{{ zabbix_web_endpoint.expected_up | ternary('true', 'false') }}"
+      steps:
+        - name: "{{ zabbix_web_endpoint.service }} endpoint"
+          "no": "1"
+          url: "{{ zabbix_web_endpoint.url }}"
+          status_codes: "{{ zabbix_web_endpoint.status_codes }}"
+          timeout: "{{ zabbix_web_scenario_timeout }}"
+          follow_redirects: "1"
+
+- name: Create missing managed web scenario
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: httptest.create
+      params: "{{ zabbix_web_scenario_definition }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_scenario_create
+  when: zabbix_web_scenario_lookup.json.result | length == 0
+  changed_when: true
+  failed_when: zabbix_web_scenario_create.json.error is defined
+
+- name: Update managed web scenario
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: httptest.update
+      params: >-
+        {{ zabbix_web_scenario_definition
+           | dict2items
+           | rejectattr('key', 'equalto', 'hostid')
+           | items2dict
+           | combine({'httptestid': zabbix_web_scenario_lookup.json.result[0].httptestid}) }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_scenario_update
+  when: zabbix_web_scenario_lookup.json.result | length == 1
+  changed_when: false
+  failed_when: zabbix_web_scenario_update.json.error is defined
+
+- name: Query one managed web outage trigger
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: trigger.get
+      params:
+        output:
+          - triggerid
+          - description
+        hostids:
+          - "{{ zabbix_web_host_lookup.json.result[0].hostid }}"
+        filter:
+          description:
+            - "IaC service unavailable: {{ zabbix_web_endpoint.service }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_trigger_lookup
+  changed_when: false
+  failed_when: >-
+    zabbix_web_trigger_lookup.json.error is defined or
+    zabbix_web_trigger_lookup.json.result | length > 1
+
+- name: Build one managed web outage trigger definition
+  ansible.builtin.set_fact:
+    zabbix_web_trigger_definition:
+      description: "IaC service unavailable: {{ zabbix_web_endpoint.service }}"
+      expression: >-
+        min(/{{ zabbix_web_endpoint.host_name }}/web.test.fail[{{ zabbix_web_endpoint.scenario_name }}],{{ zabbix_web_outage_threshold }})>0
+      priority: "4"
+      status: "0"
+      manual_close: "0"
+      tags:
+        - tag: iac_managed
+          value: "true"
+        - tag: alert_engine
+          value: zabbix
+        - tag: environment
+          value: "{{ zabbix_web_endpoint.environment }}"
+        - tag: service
+          value: "{{ zabbix_web_endpoint.service }}"
+        - tag: service_id
+          value: "{{ zabbix_web_endpoint.service_id }}"
+
+- name: Create missing managed web outage trigger
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: trigger.create
+      params: "{{ zabbix_web_trigger_definition }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_trigger_create
+  when: zabbix_web_trigger_lookup.json.result | length == 0
+  changed_when: true
+  failed_when: zabbix_web_trigger_create.json.error is defined
+
+- name: Update managed web outage trigger
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: trigger.update
+      params: >-
+        {{ zabbix_web_trigger_definition
+           | combine({'triggerid': zabbix_web_trigger_lookup.json.result[0].triggerid}) }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_trigger_update
+  when: zabbix_web_trigger_lookup.json.result | length == 1
+  changed_when: false
+  failed_when: zabbix_web_trigger_update.json.error is defined

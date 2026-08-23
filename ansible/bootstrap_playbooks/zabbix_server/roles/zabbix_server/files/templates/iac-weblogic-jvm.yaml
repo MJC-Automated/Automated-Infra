@@ -1,0 +1,137 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 87f58a1d2f6d4c63a08f5b792d2e1001
+      name: Templates/Applications
+  templates:
+    - uuid: 87f58a1d2f6d4c63a08f5b792d2e1002
+      template: 'IaC WebLogic JVM LLD'
+      name: 'IaC WebLogic JVM LLD'
+      description: 'Manifest-driven process discovery for every declared WebLogic JVM.'
+      groups:
+        - name: Templates/Applications
+      discovery_rules:
+        - uuid: 87f58a1d2f6d4c63a08f5b792d2e1003
+          name: 'Declared WebLogic JVM discovery'
+          type: ZABBIX_ACTIVE
+          key: weblogic.jvm.discovery
+          delay: 1m
+          lifetime: 30d
+          item_prototypes:
+            - uuid: 87f58a1d2f6d4c63a08f5b792d2e1010
+              name: '{#DOMAIN}/{#SERVER}: process health'
+              type: ZABBIX_ACTIVE
+              key: 'weblogic.jvm.status[{#SERVICE}]'
+              delay: 30s
+              tags:
+                - tag: component
+                  value: process
+                - tag: domain
+                  value: '{#DOMAIN}'
+                - tag: server
+                  value: '{#SERVER}'
+              trigger_prototypes:
+                - uuid: 87f58a1d2f6d4c63a08f5b792d2e1011
+                  expression: 'max(/IaC WebLogic JVM LLD/weblogic.jvm.status[{#SERVICE}],2m)=0'
+                  name: '{#DOMAIN}/{#SERVER}: WebLogic process is down'
+                  priority: HIGH
+                  tags:
+                    - tag: alert_engine
+                      value: zabbix
+                    - tag: service_id
+                      value: '{HOST.HOST}'
+    - uuid: 87f58a1d2f6d4c63a08f5b792d2e1100
+      template: 'IaC WebLogic JVM instance'
+      name: 'IaC WebLogic JVM instance'
+      description: 'Authenticated Java Gateway metrics for one inventory-declared WebLogic JVM.'
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: 87f58a1d2f6d4c63a08f5b792d2e1110
+          name: 'JVM: heap memory used'
+          type: JMX
+          key: 'jmx["java.lang:type=Memory","HeapMemoryUsage.used"]'
+          units: B
+          username: '{$WLS.JMX.USER}'
+          password: '{$WLS.JMX.PASSWORD}'
+          jmx_endpoint: 'service:jmx:rmi:///jndi/rmi://{HOST.CONN}:{HOST.PORT}/jmxrmi'
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 87f58a1d2f6d4c63a08f5b792d2e1111
+          name: 'JVM: heap memory committed'
+          type: JMX
+          key: 'jmx["java.lang:type=Memory","HeapMemoryUsage.committed"]'
+          units: B
+          username: '{$WLS.JMX.USER}'
+          password: '{$WLS.JMX.PASSWORD}'
+          jmx_endpoint: 'service:jmx:rmi:///jndi/rmi://{HOST.CONN}:{HOST.PORT}/jmxrmi'
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 87f58a1d2f6d4c63a08f5b792d2e1120
+          name: 'JVM: live threads'
+          type: JMX
+          key: 'jmx["java.lang:type=Threading","ThreadCount"]'
+          username: '{$WLS.JMX.USER}'
+          password: '{$WLS.JMX.PASSWORD}'
+          jmx_endpoint: 'service:jmx:rmi:///jndi/rmi://{HOST.CONN}:{HOST.PORT}/jmxrmi'
+          tags:
+            - tag: component
+              value: threads
+        - uuid: 87f58a1d2f6d4c63a08f5b792d2e1130
+          name: 'JVM: uptime'
+          type: JMX
+          key: 'jmx["java.lang:type=Runtime","Uptime"]'
+          units: ms
+          username: '{$WLS.JMX.USER}'
+          password: '{$WLS.JMX.PASSWORD}'
+          jmx_endpoint: 'service:jmx:rmi:///jndi/rmi://{HOST.CONN}:{HOST.PORT}/jmxrmi'
+          tags:
+            - tag: component
+              value: runtime
+          triggers:
+            - uuid: 87f58a1d2f6d4c63a08f5b792d2e1131
+              expression: 'nodata(/IaC WebLogic JVM instance/jmx["java.lang:type=Runtime","Uptime"],2m)=1'
+              name: 'JVM: authenticated runtime metrics are unavailable'
+              priority: HIGH
+              tags:
+                - tag: alert_engine
+                  value: zabbix
+                - tag: service_id
+                  value: '{HOST.HOST}'
+      discovery_rules:
+        - uuid: 87f58a1d2f6d4c63a08f5b792d2e1140
+          name: 'JVM garbage collector discovery'
+          type: JMX
+          key: 'jmx.discovery["beans","java.lang:name=*,type=GarbageCollector"]'
+          delay: 1h
+          username: '{$WLS.JMX.USER}'
+          password: '{$WLS.JMX.PASSWORD}'
+          jmx_endpoint: 'service:jmx:rmi:///jndi/rmi://{HOST.CONN}:{HOST.PORT}/jmxrmi'
+          item_prototypes:
+            - uuid: 87f58a1d2f6d4c63a08f5b792d2e1141
+              name: 'JVM GC {#JMXNAME}: collection count'
+              type: JMX
+              key: 'jmx["java.lang:name={#JMXNAME},type=GarbageCollector","CollectionCount"]'
+              username: '{$WLS.JMX.USER}'
+              password: '{$WLS.JMX.PASSWORD}'
+              jmx_endpoint: 'service:jmx:rmi:///jndi/rmi://{HOST.CONN}:{HOST.PORT}/jmxrmi'
+              tags:
+                - tag: component
+                  value: garbage-collector
+            - uuid: 87f58a1d2f6d4c63a08f5b792d2e1142
+              name: 'JVM GC {#JMXNAME}: collection time'
+              type: JMX
+              key: 'jmx["java.lang:name={#JMXNAME},type=GarbageCollector","CollectionTime"]'
+              units: ms
+              username: '{$WLS.JMX.USER}'
+              password: '{$WLS.JMX.PASSWORD}'
+              jmx_endpoint: 'service:jmx:rmi:///jndi/rmi://{HOST.CONN}:{HOST.PORT}/jmxrmi'
+              tags:
+                - tag: component
+                  value: garbage-collector
+      macros:
+        - macro: '{$WLS.JMX.USER}'
+        - macro: '{$WLS.JMX.PASSWORD}'
+          type: SECRET_TEXT

@@ -245,6 +245,20 @@ variable "network_model" {
   default     = "virtio"
 }
 
+variable "network_vlan" {
+  description = "Optional VLAN tag for the VM's primary NIC. Use 0 to disable VLAN tagging."
+  type        = number
+  default     = 0
+
+  validation {
+    condition = (
+      var.network_vlan == floor(var.network_vlan) &&
+      (var.network_vlan == 0 || (var.network_vlan >= 1 && var.network_vlan <= 4094))
+    )
+    error_message = "network_vlan must be 0 (untagged) or an integer VLAN ID from 1 through 4094."
+  }
+}
+
 // Disk Settings
 variable "cloudinit_storage" {
   description = "The storage pool for the Cloud-Init disk."
@@ -278,7 +292,7 @@ variable "additional_disks" {
 }
 
 variable "ipconfig0" {
-  description = "IP configuration string for the first network interface (e.g., 'ip=203.0.113.0/24,gw=198.51.100.19')."
+  description = "IP configuration string for the first network interface (e.g., 'ip=192.0.2.0/24,gw=198.51.100.20')."
   type        = string
 }
 

@@ -41,8 +41,60 @@ zabbix_php_timezone: "UTC"
 zabbix_frontend_server_name: ""
 zabbix_allow_http_cidr: "0.0.0.0/0"
 zabbix_allow_server_port_cidr: "0.0.0.0/0"
+zabbix_agent_source_cidr: "127.0.0.1"
 zabbix_server_port: 10051
 zabbix_agent_port: 10050
+zabbix_java_gateway_enabled: true
+zabbix_java_gateway_host: 127.0.0.1
+zabbix_java_gateway_port: 10052
+zabbix_java_pollers: 5
+# The reporting service and pinned browser package path are Ubuntu-only.
+# Keep default runs supported on Oracle Linux while preserving the existing
+# Ubuntu behavior; environments may still override this explicitly.
+zabbix_reporting_enabled: >-
+  {{ ansible_facts.distribution | default('') == 'Ubuntu' }}
+zabbix_web_service_host: 127.0.0.1
+zabbix_web_service_port: 10053
+zabbix_report_writers: 1
+zabbix_reporting_chrome_version: "151.0.7922.34"
+zabbix_reporting_chrome_archive: >-
+  chrome-for-testing-{{ zabbix_reporting_chrome_version }}-linux64.zip
+zabbix_reporting_chrome_sha256: "ae8736ac28bc69278551500f219fc749575648263c43ec5990749eff43b9fcf8"
+zabbix_reporting_resource_dir: /resources
+zabbix_reporting_install_dir: "/opt/zabbix-reporting/{{ zabbix_reporting_chrome_version }}"
+zabbix_reporting_chrome_binary: "{{ zabbix_reporting_install_dir }}/chrome-linux64/chrome"
+zabbix_scheduled_reports_enabled: false
+zabbix_scheduled_report_name_prefix: "IaC "
+# Each entry is reconciled through report.create/report.update after the
+# dashboard and recipient are resolved by name. Keep IDs out of source so
+# dashboard recreation does not silently retarget a report.
+zabbix_scheduled_reports: []
+zabbix_reporting_browser_packages:
+  - unzip
+  - fonts-liberation
+  - libasound2t64
+  - libatk-bridge2.0-0t64
+  - libatk1.0-0t64
+  - libcairo2
+  - libcups2t64
+  - libdbus-1-3
+  - libexpat1
+  - libfontconfig1
+  - libgbm1
+  - libglib2.0-0t64
+  - libgtk-3-0t64
+  - libnspr4
+  - libnss3
+  - libpango-1.0-0
+  - libx11-6
+  - libxcb1
+  - libxcomposite1
+  - libxdamage1
+  - libxext6
+  - libxfixes3
+  - libxkbcommon0
+  - libxrandr2
+  - xdg-utils
 
 # Backups
 zabbix_backup_enabled: true
@@ -55,6 +107,7 @@ zabbix_backup_schedule_minute: 15
 zabbix_backup_require_mount: false
 zabbix_backup_script_path: /usr/local/bin/zabbix-db-backup.sh
 zabbix_backup_log_path: /var/log/zabbix-db-backup.log
+zabbix_backup_log_rotate_count: 12
 
 # Platform matrix aligned with Zabbix official package instructions (7.0)
 zabbix_platform_matrix:
@@ -129,6 +182,122 @@ zabbix_discovery_host_groups:
 zabbix_discovery_templates:
   - "Linux by Zabbix agent"
 
+# Terraform inventory is authoritative. Network discovery remains an enabled
+# fallback for unmanaged recovery scenarios, but exact host state is reconciled
+# below through the API.
+zabbix_inventory_reconciliation_enabled: true
+zabbix_inventory_managed_tag: iac_managed
+zabbix_inventory_managed_value: "true"
+zabbix_inventory_retention_days: 30
+monitoring_central_expected_environments:
+  - "{{ cluster_environment | default('managed') }}"
+monitoring_central_require_authoritative_inventory: true
+zabbix_inventory_expected_down_maintenance_name: "IaC expected-down inventory policy"
+zabbix_web_monitoring_enabled: true
+zabbix_web_retire_absent_enabled: true
+zabbix_web_scenario_delay: 30s
+zabbix_web_scenario_timeout: 10s
+# Page only after a sustained outage; keep this separate from probe cadence so
+# operators can tune alert sensitivity without changing endpoint polling.
+zabbix_web_outage_threshold: 1m
+zabbix_service_monitoring_enabled: true
+zabbix_service_slo: "99.5"
+zabbix_service_sla_period: "1"
+zabbix_service_sla_timezone: "Africa/Nairobi"
+zabbix_web_endpoint_definitions:
+  - group: zabbix_servers
+    service: zabbix
+    scheme: http
+    port: 80
+    path: /zabbix/
+    status_codes: "200"
+    verify_tls: true
+  - group: observability_servers
+    service: grafana
+    scheme: http
+    port: 3000
+    path: /api/health
+    status_codes: "200"
+    verify_tls: true
+  - group: observability_servers
+    service: prometheus
+    scheme: http
+    port: 9090
+    path: /-/ready
+    status_codes: "200"
+    verify_tls: true
+  - group: observability_servers
+    service: loki
+    scheme: http
+    port: 3100
+    path: /ready
+    status_codes: "200"
+    verify_tls: true
+  - group: jenkins_servers
+    service: jenkins
+    scheme: http
+    port: 8080
+    path: /login
+    status_codes: "200"
+    verify_tls: true
+  - group: gitlab_servers
+    service: gitlab
+    scheme: http
+    port: 80
+    path: /users/sign_in
+    status_codes: "200"
+    verify_tls: true
+  - group: keycloak_servers
+    service: keycloak
+    scheme: http
+    port: 8080
+    path: /
+    status_codes: "200,302"
+    verify_tls: true
+  - group: freeipa_servers
+    service: freeipa
+    scheme: https
+    port: 443
+    path: /ipa/ui/
+    status_codes: "200"
+    verify_tls: false
+  - group: zimbra_servers
+    service: zimbra-web
+    scheme: https
+    port: 443
+    path: /
+    status_codes: "200,302"
+    verify_tls: false
+  - group: k8s_control_plane
+    service: kubernetes-api
+    scheme: https
+    port: 6443
+    path: /livez
+    status_codes: "200"
+    verify_tls: false
+# Bump this non-secret marker whenever the encrypted WebLogic monitoring
+# password changes. Zabbix intentionally never returns a secret macro value,
+# so the marker is the safe change detector used by exact reconciliation.
+monitoring_weblogic_secret_version: "1"
+zabbix_inventory_profile_templates:
+  default:
+    - Linux by Zabbix agent active
+  database19c:
+    - Linux by Zabbix agent active
+  database19c_ol9:
+    - Linux by Zabbix agent active
+  database21c:
+    - Linux by Zabbix agent active
+  weblogic12c:
+    - Linux by Zabbix agent active
+    - IaC WebLogic JVM LLD
+  weblogic14c:
+    - Linux by Zabbix agent active
+    - IaC WebLogic JVM LLD
+zabbix_inventory_custom_templates:
+  - iac-oracle-license-safe.yaml
+  - iac-weblogic-jvm.yaml
+
 # Optional email alert path. Recipient usernames must already have media access
 # appropriate for the configured media type.
 zabbix_email_alerts_enabled: false
@@ -144,5 +313,13 @@ zabbix_email_smtp_authentication: true
 zabbix_email_smtp_username: ""
 zabbix_email_smtp_password: ""
 zabbix_email_recipient_users: []
+zabbix_email_recipient_address: ""
+zabbix_email_test_recipient: "{{ zabbix_email_recipient_address }}"
 zabbix_email_min_severity: "warning"
 zabbix_email_action_name: "Email managed infrastructure problems"
+# Alertmanager owns production paging by default. Zabbix keeps media and
+# reporting available, but its broad trigger action stays disabled to avoid
+# duplicate messages for the same host/service outage.
+zabbix_email_trigger_notifications_enabled: false
+monitoring_send_test_alerts: false
+monitoring_test_alerts_confirm: ""

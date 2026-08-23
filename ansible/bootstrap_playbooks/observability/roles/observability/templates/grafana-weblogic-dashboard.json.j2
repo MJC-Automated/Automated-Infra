@@ -1,0 +1,41 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "wls_jvm_heap_size_current", "legendFormat": "{{ "{{" }}domain{{ "}}" }}/{{ "{{" }}server{{ "}}" }} used"}, {"expr": "wls_jvm_heap_size_max", "legendFormat": "{{ "{{" }}domain{{ "}}" }}/{{ "{{" }}server{{ "}}" }} max"}],
+      "title": "WebLogic JVM heap",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "wls_threadpool_stuck_thread_count", "legendFormat": "{{ "{{" }}domain{{ "}}" }}/{{ "{{" }}server{{ "}}" }}"}],
+      "title": "Stuck threads",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "id": 3,
+      "targets": [{"expr": "wls_datasource_active_connections_current_count", "legendFormat": "{{ "{{" }}domain{{ "}}" }}/{{ "{{" }}name{{ "}}" }}"}],
+      "title": "JDBC active connections",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["iac", "weblogic"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "IaC WebLogic Runtime",
+  "uid": "iac-weblogic",
+  "version": 1
+}

@@ -1,0 +1,434 @@
+---
+- name: Build primary WebLogic monitoring domain definition
+  ansible.builtin.set_fact:
+    monitoring_weblogic_domains:
+      - domain_name: "{{ domain_name }}"
+        domain_home: "{{ domain_home }}"
+        admin_port: "{{ admin_port | int }}"
+        admin_server_name: "{{ admin_server_name | default('AdminServer') }}"
+        managed_servers: "{{ managed_servers | default([]) }}"
+  changed_when: false
+
+- name: Add additional WebLogic monitoring domain definitions
+  ansible.builtin.set_fact:
+    monitoring_weblogic_domains: >-
+      {{ monitoring_weblogic_domains + [item | combine({
+           'admin_server_name': item.admin_server_name | default('AdminServer'),
+           'managed_servers': item.managed_servers | default([])
+         })] }}
+  loop: "{{ additional_weblogic_domains | default([]) }}"
+  changed_when: false
+
+- name: Initialize WebLogic JVM manifest
+  ansible.builtin.set_fact:
+    monitoring_weblogic_jvms: []
+  changed_when: false
+
+- name: Add declared WebLogic servers to JVM manifest
+  ansible.builtin.include_tasks: weblogic-domain.yml
+  loop: "{{ monitoring_weblogic_domains }}"
+  loop_control:
+    loop_var: monitoring_weblogic_domain
+
+- name: Validate declared WebLogic monitoring endpoints
+  ansible.builtin.assert:
+    that:
+      - monitoring_weblogic_jvms | length > 0
+      - monitoring_weblogic_domains | map(attribute='domain_name') | unique | length == monitoring_weblogic_domains | length
+      - monitoring_weblogic_jvms | map(attribute='service') | unique | length == monitoring_weblogic_jvms | length
+      - monitoring_weblogic_jvms | map(attribute='jmx_port') | unique | length == monitoring_weblogic_jvms | length
+      - (monitoring_weblogic_jvms | map(attribute='jmx_port') | min) | int > 0
+      - (monitoring_weblogic_jvms | map(attribute='jmx_port') | max) | int <= 65535
+    fail_msg: >-
+      WebLogic monitoring requires unique domains, systemd services, and valid
+      non-colliding JMX ports for every declared JVM.
+
+- name: Initialize declared WebLogic log ACL targets
+  ansible.builtin.set_fact:
+    monitoring_weblogic_log_acl_targets: []
+  changed_when: false
+
+- name: Build declared WebLogic log ACL targets
+  ansible.builtin.set_fact:
+    monitoring_weblogic_log_acl_targets: >-
+      {{ monitoring_weblogic_log_acl_targets + [{
+           'domain': item.domain,
+           'server': item.server,
+           'log_directory': monitoring_weblogic_acl_domain_home
+                            ~ '/servers/' ~ item.server ~ '/logs'
+         }] }}
+  vars:
+    monitoring_weblogic_acl_domain_home: >-
+      {{ monitoring_weblogic_domains
+         | selectattr('domain_name', 'equalto', item.domain)
+         | map(attribute='domain_home')
+         | first }}
+  loop: "{{ monitoring_weblogic_jvms }}"
+  loop_control:
+    label: "{{ item.domain }}/{{ item.server }}"
+  changed_when: false
+
+- name: Build least-privilege WebLogic log traversal paths
+  ansible.builtin.set_fact:
+    monitoring_weblogic_log_traversal_paths: >-
+      {%- set paths = namespace(values=[]) -%}
+      {%- for target in monitoring_weblogic_log_acl_targets -%}
+      {%- set components = target.log_directory.split('/') -%}
+      {%- for component_count in range(1, (components | length) - 1) -%}
+      {%- set paths.values = paths.values
+            + ['/' ~ (components[1:component_count + 1] | join('/'))] -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ paths.values | unique | list }}
+  changed_when: false
+
+- name: Grant Alloy traversal only through declared WebLogic server paths
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: x
+    state: present
+  loop: "{{ monitoring_weblogic_log_traversal_paths }}"
+  notify: Restart Grafana Alloy
+
+- name: Grant Alloy list and traversal access to declared WebLogic log directories
+  ansible.posix.acl:
+    path: "{{ item.log_directory }}"
+    entity: alloy
+    etype: user
+    permissions: rx
+    state: present
+  loop: "{{ monitoring_weblogic_log_acl_targets }}"
+  loop_control:
+    label: "{{ item.domain }}/{{ item.server }}"
+  notify: Restart Grafana Alloy
+
+- name: Grant Alloy inherited read access within declared WebLogic log directories
+  ansible.posix.acl:
+    path: "{{ item.log_directory }}"
+    entity: alloy
+    etype: user
+    permissions: r
+    default: true
+    state: present
+  loop: "{{ monitoring_weblogic_log_acl_targets }}"
+  loop_control:
+    label: "{{ item.domain }}/{{ item.server }}"
+  notify: Restart Grafana Alloy
+
+- name: Discover existing declared WebLogic log files
+  ansible.builtin.find:
+    paths: "{{ item.log_directory }}"
+    patterns: "*.log"
+    file_type: file
+    recurse: false
+  loop: "{{ monitoring_weblogic_log_acl_targets }}"
+  loop_control:
+    label: "{{ item.domain }}/{{ item.server }}"
+  register: monitoring_weblogic_alloy_log_files
+  changed_when: false
+
+- name: Grant Alloy read access to existing declared WebLogic log files
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: r
+    state: present
+  loop: >-
+    {{ monitoring_weblogic_alloy_log_files.results
+       | map(attribute='files')
+       | flatten
+       | map(attribute='path')
+       | list }}
+  notify: Restart Grafana Alloy
+
+- name: Verify Alloy can read existing declared WebLogic log files
+  ansible.builtin.command:
+    argv:
+      - test
+      - -r
+      - "{{ item }}"
+  become: true
+  become_user: alloy
+  loop: >-
+    {{ monitoring_weblogic_alloy_log_files.results
+       | map(attribute='files')
+       | flatten
+       | map(attribute='path')
+       | list }}
+  changed_when: false
+
+- name: Verify Alloy can discover declared WebLogic log files
+  ansible.builtin.find:
+    paths: "{{ item.log_directory }}"
+    patterns: "*.log"
+    file_type: file
+    recurse: false
+  become: true
+  become_user: alloy
+  loop: "{{ monitoring_weblogic_log_acl_targets }}"
+  loop_control:
+    label: "{{ item.domain }}/{{ item.server }}"
+  register: monitoring_weblogic_alloy_readable_log_files
+  changed_when: false
+
+- name: Assert every declared WebLogic JVM has an Alloy-readable log
+  ansible.builtin.assert:
+    that:
+      - item.matched | int > 0
+    fail_msg: >-
+      Alloy cannot discover an allowlisted log for
+      {{ item.item.domain }}/{{ item.item.server }}.
+  loop: "{{ monitoring_weblogic_alloy_readable_log_files.results }}"
+  loop_control:
+    label: "{{ item.item.domain }}/{{ item.item.server }}"
+
+- name: Ensure WebLogic monitoring directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ monitoring_weblogic_exporter_root }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: /etc/weblogic-monitoring
+      owner: root
+      group: "{{ weblogic_user }}"
+      mode: "0750"
+    - path: /etc/zabbix
+      owner: root
+      group: zabbix
+      mode: "0755"
+    - path: /usr/local/libexec
+      owner: root
+      group: root
+      mode: "0755"
+
+- name: Ensure per-domain exporter directories exist
+  ansible.builtin.file:
+    path: >-
+      {{ monitoring_weblogic_exporter_root }}/{{ item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}
+    state: directory
+    owner: root
+    group: "{{ weblogic_user }}"
+    mode: "0750"
+  loop: "{{ monitoring_weblogic_domains }}"
+
+- name: Download checksum-verified WebLogic Monitoring Exporter
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/oracle/weblogic-monitoring-exporter/releases/download/v{{ monitoring_weblogic_exporter_version }}/wls-exporter.war
+    dest: >-
+      {{ monitoring_weblogic_exporter_root }}/wls-exporter-{{ monitoring_weblogic_exporter_version }}.war
+    checksum: "sha256:{{ monitoring_weblogic_exporter_sha256 }}"
+    owner: root
+    group: "{{ weblogic_user }}"
+    mode: "0640"
+  register: monitoring_weblogic_exporter_download
+
+- name: Render WebLogic Monitoring Exporter configuration per domain
+  ansible.builtin.template:
+    src: weblogic-exporter-config.yml.j2
+    dest: >-
+      {{ monitoring_weblogic_exporter_root }}/{{ item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/config.yml
+    owner: root
+    group: "{{ weblogic_user }}"
+    mode: "0640"
+  loop: "{{ monitoring_weblogic_domains }}"
+  register: monitoring_weblogic_exporter_configs
+
+- name: Check per-domain WebLogic exporter archives
+  ansible.builtin.stat:
+    path: >-
+      {{ monitoring_weblogic_exporter_root }}/{{ item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/wls-exporter.war
+  loop: "{{ monitoring_weblogic_domains }}"
+  register: monitoring_weblogic_exporter_archives
+
+- name: Seed missing or upgraded per-domain exporter archives
+  ansible.builtin.copy:
+    src: >-
+      {{ monitoring_weblogic_exporter_root }}/wls-exporter-{{ monitoring_weblogic_exporter_version }}.war
+    dest: >-
+      {{ monitoring_weblogic_exporter_root }}/{{ item.item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/wls-exporter.war
+    remote_src: true
+    owner: root
+    group: "{{ weblogic_user }}"
+    mode: "0640"
+  loop: "{{ monitoring_weblogic_exporter_archives.results }}"
+  when: monitoring_weblogic_exporter_download.changed or not item.stat.exists
+  register: monitoring_weblogic_exporter_seeded
+
+- name: Embed tracked exporter configuration in each domain archive
+  ansible.builtin.command:
+    argv:
+      - zip
+      - -q
+      - -j
+      - -u
+      - >-
+        {{ monitoring_weblogic_exporter_root }}/{{ item.item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/wls-exporter.war
+      - >-
+        {{ monitoring_weblogic_exporter_root }}/{{ item.item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/config.yml
+  loop: "{{ monitoring_weblogic_exporter_configs.results }}"
+  register: monitoring_weblogic_exporter_embedded
+  changed_when: true
+  when: >-
+    item.changed or
+    monitoring_weblogic_exporter_download.changed or
+    not monitoring_weblogic_exporter_archives.results[ansible_loop.index0].stat.exists
+  loop_control:
+    extended: true
+
+- name: Ensure correct permissions on per-domain exporter archives after zip
+  ansible.builtin.file:
+    path: >-
+      {{ monitoring_weblogic_exporter_root }}/{{ item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/wls-exporter.war
+    owner: root
+    group: "{{ weblogic_user }}"
+    mode: "0640"
+  loop: "{{ monitoring_weblogic_domains }}"
+
+- name: Render WebLogic monitoring reconciliation scripts
+  ansible.builtin.template:
+    src: weblogic-monitoring.py.j2
+    dest: >-
+      {{ monitoring_weblogic_exporter_root }}/{{ item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/reconcile.py
+    owner: root
+    group: "{{ weblogic_user }}"
+    mode: "0640"
+  loop: "{{ monitoring_weblogic_domains }}"
+  register: monitoring_weblogic_reconcile_scripts
+
+- name: Reconcile WebLogic Monitor identity, REST management, and exporter deployments
+  ansible.builtin.command:
+    argv:
+      - "{{ oracle_middleware_home }}/oracle_common/common/bin/wlst.sh"
+      - >-
+        {{ monitoring_weblogic_exporter_root }}/{{ item.item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/reconcile.py
+    stdin: |
+      {{ monitoring_weblogic_admin_user | b64encode }}
+      {{ monitoring_weblogic_admin_password | b64encode }}
+      {{ monitoring_weblogic_monitor_user | b64encode }}
+      {{ monitoring_weblogic_monitor_password | b64encode }}
+      {{
+        (item.changed or
+         monitoring_weblogic_exporter_configs.results[ansible_loop.index0].changed or
+         monitoring_weblogic_exporter_download.changed) | ternary('true', 'false')
+      }}
+    stdin_add_newline: true
+  loop: "{{ monitoring_weblogic_reconcile_scripts.results }}"
+  loop_control:
+    extended: true
+  register: monitoring_weblogic_reconcile
+  changed_when: >-
+    'MONITOR_USER_CREATED' in monitoring_weblogic_reconcile.stdout or
+    'MONITOR_PASSWORD_RECONCILED' in monitoring_weblogic_reconcile.stdout or
+    'MONITOR_GROUP_RECONCILED' in monitoring_weblogic_reconcile.stdout or
+    'REST_MANAGEMENT_ENABLED' in monitoring_weblogic_reconcile.stdout or
+    'EXPORTER_DEPLOYED' in monitoring_weblogic_reconcile.stdout or
+    'EXPORTER_REDEPLOYED' in monitoring_weblogic_reconcile.stdout
+  no_log: true
+
+- name: Render non-secret WebLogic JVM discovery manifest
+  ansible.builtin.template:
+    src: weblogic-jvms.json.j2
+    dest: /etc/zabbix/weblogic-jvms.json
+    owner: root
+    group: zabbix
+    mode: "0644"
+  notify: Restart Zabbix Agent 2
+
+- name: Render bounded WebLogic service status helper
+  ansible.builtin.template:
+    src: zabbix-weblogic-status.j2
+    dest: /usr/local/libexec/zabbix-weblogic-status
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart Zabbix Agent 2
+
+- name: Inspect authenticated JMX password files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/weblogic-monitoring/jmxremote.password
+    - /etc/weblogic-monitoring/.jmxremote.password.sha256
+  register: monitoring_weblogic_jmx_password_files
+  no_log: true
+
+- name: Read authenticated JMX desired-password marker
+  ansible.builtin.slurp:
+    path: /etc/weblogic-monitoring/.jmxremote.password.sha256
+  register: monitoring_weblogic_jmx_password_marker
+  when: monitoring_weblogic_jmx_password_files.results[1].stat.exists
+  no_log: true
+
+- name: Derive authenticated JMX desired-password state
+  ansible.builtin.set_fact:
+    monitoring_weblogic_jmx_password_hash: >-
+      {{ monitoring_weblogic_jmx_password | hash('sha256') }}
+    monitoring_weblogic_jmx_password_marker_value: >-
+      {{ (monitoring_weblogic_jmx_password_marker.content | b64decode | trim)
+         if monitoring_weblogic_jmx_password_files.results[1].stat.exists
+         else '' }}
+  no_log: true
+
+- name: Render authenticated JMX password file when its desired secret changes
+  ansible.builtin.template:
+    src: jmxremote.password.j2
+    dest: /etc/weblogic-monitoring/jmxremote.password
+    owner: "{{ weblogic_user }}"
+    group: "{{ weblogic_user }}"
+    mode: "0600"
+  register: monitoring_weblogic_jmx_password_render
+  when: >-
+    not monitoring_weblogic_jmx_password_files.results[0].stat.exists or
+    monitoring_weblogic_jmx_password_marker_value != monitoring_weblogic_jmx_password_hash
+  notify: Apply WebLogic JMX configuration
+  no_log: true
+
+- name: Persist authenticated JMX desired-password marker
+  ansible.builtin.copy:
+    content: "{{ monitoring_weblogic_jmx_password_hash }}\n"
+    dest: /etc/weblogic-monitoring/.jmxremote.password.sha256
+    owner: root
+    group: root
+    mode: "0600"
+  when: >-
+    not monitoring_weblogic_jmx_password_files.results[1].stat.exists or
+    monitoring_weblogic_jmx_password_marker_value != monitoring_weblogic_jmx_password_hash
+  no_log: true
+
+- name: Render authenticated JMX access file
+  ansible.builtin.template:
+    src: jmxremote.access.j2
+    dest: /etc/weblogic-monitoring/jmxremote.access
+    owner: "{{ weblogic_user }}"
+    group: "{{ weblogic_user }}"
+    mode: "0600"
+  notify: Apply WebLogic JMX configuration
+
+- name: Ensure WebLogic JVM systemd drop-in directories exist
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item.service }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ monitoring_weblogic_jvms }}"
+
+- name: Configure authenticated, fixed-port JMX for WebLogic JVMs
+  ansible.builtin.template:
+    src: weblogic-jmx-systemd.conf.j2
+    dest: "/etc/systemd/system/{{ item.service }}.d/monitoring.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ monitoring_weblogic_jvms }}"
+  notify: Apply WebLogic JMX configuration

@@ -1,5 +1,7 @@
 # Host-group overrides for WebLogic 12c nodes in dev.
 # Tuned to match the multi-domain service naming/ports pattern.
+oracle_base: /u01/app/oracle
+oracle_middleware_home: "{{ oracle_base }}/product/12.2.1"
 
 # ==============================================================================
 # 1. Primary Domain Configuration (LifeCo_domain)

@@ -68,12 +68,47 @@
     - zimbra_manage_firewall | bool
     - item.rc == 1
 
+- name: Query obsolete managed Zimbra web ports
+  ansible.builtin.command: "firewall-cmd --permanent --query-port={{ item }}"
+  register: zimbra_firewall_obsolete_web_port_query
+  changed_when: false
+  failed_when: zimbra_firewall_obsolete_web_port_query.rc not in [0, 1]
+  loop: >-
+    {{
+      zimbra_firewall_managed_web_ports
+      | difference(zimbra_firewall_allowed_ports)
+    }}
+  when: zimbra_manage_firewall | bool
+
+- name: Remove obsolete managed Zimbra web ports
+  ansible.builtin.command: "firewall-cmd --permanent --remove-port={{ item.item }}"
+  loop: "{{ zimbra_firewall_obsolete_web_port_query.results | default([]) }}"
+  changed_when: true
+  when:
+    - zimbra_manage_firewall | bool
+    - item.rc == 0
+
 - name: Reload firewalld after port updates
   ansible.builtin.command: firewall-cmd --reload
   changed_when: true
   when:
     - zimbra_manage_firewall | bool
-    - (zimbra_firewall_port_query.results | default([]) | selectattr('rc', 'equalto', 1) | list | length) > 0
+    - >-
+      (
+        zimbra_firewall_port_query.results
+        | default([])
+        | selectattr('rc', 'equalto', 1)
+        | list
+        | length
+      ) > 0
+      or
+      (
+        zimbra_firewall_obsolete_web_port_query.results
+        | default([])
+        | selectattr('rc', 'equalto', 0)
+        | list
+        | length
+      ) > 0
 
 - name: Set SELinux runtime mode to permissive
   ansible.builtin.command: setenforce 0

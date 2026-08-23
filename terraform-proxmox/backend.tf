@@ -70,5 +70,7 @@ terraform {
 //   }
 // }
 
-// Default: Local backend (current behavior)
-// No backend configuration = local backend
+// Active backend: Cloudflare R2 via the S3-compatible block above.
+// Local backend is not the default. To force local state temporarily, comment
+// out the active terraform { backend "s3" { ... } } block and run
+// `terraform init -reconfigure` (and understand you are leaving shared R2 state).

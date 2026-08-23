@@ -2,7 +2,7 @@
 # WLST online script: ensure primary-domain managed servers exist in a running domain.
 
 admin_user = '{{ weblogic_admin_user }}'
-admin_password = '{{ weblogic_password }}'
+admin_password = {{ weblogic_password | to_json }}
 admin_url = 't3://{{ admin_listen_address | default(ansible_host | default(inventory_hostname), true) }}:{{ admin_port }}'
 managed_servers = {{ managed_servers | default([]) | to_json }}
 tunneling_enabled = {{ 'True' if weblogic_tunneling_enabled else 'False' }}

@@ -624,59 +624,53 @@
       when: rcu_enabled | bool
       tags: [rcu]
 
-    - name: Transfer RCU response file to target
-      ansible.builtin.template:
-        src: templates/rcu.rsp.j2
-        dest: "{{ rcu_response_file_path }}"
-        owner: "{{ weblogic_user }}"
-        group: "{{ weblogic_group }}"
-        mode: "0644"
+    - name: Run RCU silent schema creation
       when: rcu_enabled | bool
       tags: [rcu]
-      no_log: true
+      block:
+        - name: Transfer RCU response file to target
+          ansible.builtin.template:
+            src: templates/rcu.rsp.j2
+            dest: "{{ rcu_response_file_path }}"
+            owner: "{{ weblogic_user }}"
+            group: "{{ weblogic_group }}"
+            mode: "0600"
+          no_log: true
 
-    - name: Create RCU password file
-      ansible.builtin.template:
-        src: templates/rcu_passwords.txt.j2
-        dest: "/tmp/rcu_passwords.txt"
-        owner: "{{ weblogic_user }}"
-        group: "{{ weblogic_group }}"
-        mode: "0600"
-      when: rcu_enabled | bool
-      tags: [rcu]
-      no_log: true
+        - name: Create RCU password file
+          ansible.builtin.template:
+            src: templates/rcu_passwords.txt.j2
+            dest: "/tmp/rcu_passwords.txt"
+            owner: "{{ weblogic_user }}"
+            group: "{{ weblogic_group }}"
+            mode: "0600"
+          no_log: true
 
-    - name: Create RCU expect script
-      ansible.builtin.template:
-        src: templates/run_rcu_expect.exp.j2
-        dest: "/tmp/run_rcu_expect.exp"
-        owner: "{{ weblogic_user }}"
-        group: "{{ weblogic_group }}"
-        mode: "0755"
-      when: rcu_enabled | bool
-      tags: [rcu]
-      no_log: true
+        - name: Create RCU expect script
+          ansible.builtin.template:
+            src: templates/run_rcu_expect.exp.j2
+            dest: "/tmp/run_rcu_expect.exp"
+            owner: "{{ weblogic_user }}"
+            group: "{{ weblogic_group }}"
+            mode: "0755"
+          no_log: true
 
-    - name: Run RCU silent schema creation using expect script
-      ansible.builtin.command: "/usr/bin/expect /tmp/run_rcu_expect.exp"
-      args:
-        creates: "{{ oracle_inventory_dir }}/ContentsXML/comps.xml"
-      become: true
-      become_user: "{{ weblogic_user }}"
-      when: rcu_enabled | bool
-      tags: [rcu]
-      no_log: true
-
-    - name: Clean up RCU files
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ rcu_response_file_path }}"
-        - "/tmp/rcu_passwords.txt"
-        - "/tmp/run_rcu_expect.exp"
-      when: rcu_enabled | bool
-      tags: [rcu]
+        - name: Run RCU silent schema creation using expect script
+          ansible.builtin.command: "/usr/bin/expect /tmp/run_rcu_expect.exp"
+          args:
+            creates: "{{ oracle_inventory_dir }}/ContentsXML/comps.xml"
+          become: true
+          become_user: "{{ weblogic_user }}"
+          no_log: true
+      always:
+        - name: Clean up RCU files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ rcu_response_file_path }}"
+            - "/tmp/rcu_passwords.txt"
+            - "/tmp/run_rcu_expect.exp"
 
     # --- Task 8: WebLogic Domain Creation ---
     - name: "Create WebLogic domains with temporary WLST scripts"
@@ -1019,6 +1013,7 @@
       loop: "{{ managed_servers }}"
       vars:
         managed_server_name: "{{ item.name }}"
+        managed_server_listen_port: "{{ item.listen_port }}"
         managed_server_logs_dir: "{{ managed_logs_dir_base }}/{{ item.name }}"
       when: managed_server_enable | bool
       tags: [systemd_service]
@@ -1033,6 +1028,7 @@
       loop: "{{ managed_servers }}"
       vars:
         managed_server_name: "{{ item.name }}"
+        managed_server_listen_port: "{{ item.listen_port }}"
         managed_server_logs_dir: "{{ managed_logs_dir_base }}/{{ item.name }}"
       when: managed_server_enable | bool
       tags: [systemd_service]
@@ -1165,8 +1161,10 @@
         service_working_dir: "{{ domain_home }}/bin"
         service_after: "{{ admin_systemd_service_name }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
         service_wants: "{{ admin_systemd_service_name }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
-        service_type: "simple"
-        service_remain_after_exit: false
+        service_type: "oneshot"
+        service_remain_after_exit: true
+        service_timeout_start_sec: 1800
+        service_timeout_stop_sec: 600
       notify: "reload systemd"
       tags: [systemd_service]
 
@@ -1465,6 +1463,7 @@
         wlst_domain_name: "{{ item.domain_name }}"
         wlst_domain_home: "{{ item.domain_home }}"
         wlst_admin_server_name: "{{ item.admin_server_name | default('AdminServer') }}"
+        wlst_admin_port: "{{ item.admin_port }}"
         wlst_admin_logs_dir: "{{ item.admin_logs_dir | default(logs_base_dir + '/' + item.domain_name + '/admin') }}"
         wlst_admin_user: "{{ item.weblogic_admin_user | default(weblogic_admin_user) }}"
       tags: [systemd_service]
@@ -1482,6 +1481,7 @@
         wlst_domain_name: "{{ item.0.domain_name }}"
         wlst_domain_home: "{{ item.0.domain_home }}"
         managed_server_name: "{{ item.1.name }}"
+        managed_server_listen_port: "{{ item.1.listen_port }}"
         managed_server_logs_dir: "{{ (item.0.managed_logs_dir_base | default(logs_base_dir + '/' + item.0.domain_name + '/managed')) + '/' + item.1.name }}"
         wlst_admin_url: "{{ item.0.admin_url | default('t3://' + (item.0.admin_listen_address | default(ansible_host | default(inventory_hostname), true)) + ':' +
           (item.0.admin_port | string)) }}"
@@ -1506,6 +1506,7 @@
         wlst_domain_name: "{{ item.0.domain_name }}"
         wlst_domain_home: "{{ item.0.domain_home }}"
         managed_server_name: "{{ item.1.name }}"
+        managed_server_listen_port: "{{ item.1.listen_port }}"
         managed_server_logs_dir: "{{ (item.0.managed_logs_dir_base | default(logs_base_dir + '/' + item.0.domain_name + '/managed')) + '/' + item.1.name }}"
         wlst_admin_url: "{{ item.0.admin_url | default('t3://' + (item.0.admin_listen_address | default(ansible_host | default(inventory_hostname), true)) + ':' +
           (item.0.admin_port | string)) }}"
@@ -1578,8 +1579,10 @@
         service_after: "{{ _extra_admin_service }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
         service_wants: "{{ _extra_admin_service }}{% if nodemanager_enabled | bool %} {{ nodemanager_systemd_service_name }}{% endif %}"
         wlst_domain_home: "{{ item.0.domain_home }}"
-        service_type: "simple"
-        service_remain_after_exit: false
+        service_type: "oneshot"
+        service_remain_after_exit: true
+        service_timeout_start_sec: 1800
+        service_timeout_stop_sec: 600
       notify: "reload systemd"
       tags: [systemd_service]
 

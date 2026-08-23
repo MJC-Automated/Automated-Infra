@@ -1,0 +1,2 @@
+[Service]
+Environment="JAVA_OPTIONS=-Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.port={{ item.jmx_port }} -Dcom.sun.management.jmxremote.rmi.port={{ item.jmx_port }} -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.authenticate=true -Dcom.sun.management.jmxremote.password.file=/etc/weblogic-monitoring/jmxremote.password -Dcom.sun.management.jmxremote.access.file=/etc/weblogic-monitoring/jmxremote.access -Djava.rmi.server.hostname={{ ansible_host }}"

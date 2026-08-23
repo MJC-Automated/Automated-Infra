@@ -198,4 +198,4 @@ curl -I http://<weblogic12c-host>:8001/console
 
 DB-first CRUD and WebLogic validation runbook:
 
-- [`../../docs/oracle-db-weblogic-crud-scenario.md`](../../docs/oracle-db-weblogic-crud-scenario.md)
+- [`../../../docs/oracle-db-weblogic-crud-scenario.md`](../../../docs/oracle-db-weblogic-crud-scenario.md)

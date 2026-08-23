@@ -11,6 +11,19 @@
     port: 9090
     timeout: 180
 
+- name: Wait for Alertmanager HTTP endpoint
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 9093
+    timeout: 180
+
+- name: Wait for kube-state-metrics telemetry endpoint
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 8081
+    timeout: 180
+  when: observability_kube_state_metrics_enabled | bool
+
 - name: Wait for Loki HTTP endpoint
   ansible.builtin.wait_for:
     host: 127.0.0.1
@@ -199,6 +212,187 @@
   until: prometheus_ready.status == 200
   retries: 24
   delay: 5
+
+- name: Check Alertmanager readiness
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:9093/-/ready"
+    method: GET
+    status_code:
+      - 200
+      - 503
+  register: alertmanager_ready
+  until: alertmanager_ready.status == 200
+  retries: 24
+  delay: 5
+
+- name: Check kube-state-metrics readiness and Kubernetes API access
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/readyz"
+    method: GET
+    status_code:
+      - 200
+      - 503
+  register: observability_kube_state_metrics_ready
+  until: observability_kube_state_metrics_ready.status == 200
+  retries: 24
+  delay: 5
+  when: observability_kube_state_metrics_enabled | bool
+  changed_when: false
+
+- name: Validate weekly report systemd units
+  ansible.builtin.command:
+    argv:
+      - systemd-analyze
+      - verify
+      - "/etc/systemd/system/{{ observability_weekly_report_service_name }}"
+      - "/etc/systemd/system/{{ observability_weekly_report_timer_name }}"
+  register: observability_weekly_report_unit_verify
+  changed_when: false
+  failed_when: >-
+    observability_weekly_report_unit_verify.rc != 0 or
+    'Unknown key name' in
+    (observability_weekly_report_unit_verify.stdout ~
+    observability_weekly_report_unit_verify.stderr)
+  when: observability_weekly_report_enabled | bool
+
+- name: Inspect weekly report secret and browser paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
+  loop:
+    - "{{ observability_weekly_report_env_path }}"
+    - "{{ observability_weekly_report_chrome_binary }}"
+    - "{{ observability_weekly_report_script }}"
+  register: observability_weekly_report_runtime_paths
+  when: observability_weekly_report_enabled | bool
+  no_log: true
+
+- name: Require protected weekly report runtime paths
+  ansible.builtin.assert:
+    that:
+      - observability_weekly_report_runtime_paths.results[0].stat.exists
+      - observability_weekly_report_runtime_paths.results[0].stat.uid | int == 0
+      - observability_weekly_report_runtime_paths.results[0].stat.gid | int == 0
+      - observability_weekly_report_runtime_paths.results[0].stat.mode == '0600'
+      - observability_weekly_report_runtime_paths.results[1].stat.exists
+      - observability_weekly_report_runtime_paths.results[1].stat.executable
+      - observability_weekly_report_runtime_paths.results[2].stat.exists
+      - observability_weekly_report_runtime_paths.results[2].stat.executable
+    fail_msg: >-
+      Weekly report credentials must remain root-only and both the pinned
+      browser and report generator must be executable.
+  when: observability_weekly_report_enabled | bool
+  no_log: true
+
+- name: Verify weekly report timer is enabled
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-enabled
+      - "{{ observability_weekly_report_timer_name }}"
+  changed_when: false
+  when: observability_weekly_report_enabled | bool
+
+- name: Verify weekly report timer is active
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "{{ observability_weekly_report_timer_name }}"
+  changed_when: false
+  when: observability_weekly_report_enabled | bool
+
+- name: Read weekly report timer schedule
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - show
+      - "{{ observability_weekly_report_timer_name }}"
+      - --property=NextElapseUSecRealtime
+      - --property=TimersCalendar
+  register: observability_weekly_report_timer_schedule
+  changed_when: false
+  failed_when: >-
+    observability_weekly_report_timer_schedule.rc != 0 or
+    'NextElapseUSecRealtime=' not in observability_weekly_report_timer_schedule.stdout or
+    observability_weekly_report_timezone not in observability_weekly_report_timer_schedule.stdout
+  when: observability_weekly_report_enabled | bool
+
+- name: Check weekly report command interface
+  ansible.builtin.command:
+    argv:
+      - "{{ observability_weekly_report_script }}"
+      - --help
+  changed_when: false
+  when: observability_weekly_report_enabled | bool
+
+- name: Validate Prometheus configuration and rule files
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - prometheus
+      - promtool
+      - check
+      - config
+      - /etc/prometheus/prometheus.yml
+  changed_when: false
+
+- name: Validate Alertmanager configuration
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - alertmanager
+      - amtool
+      - check-config
+      - /etc/alertmanager/alertmanager.yml
+  changed_when: false
+  no_log: "{{ observability_email_alerts_enabled | bool }}"
+
+- name: Verify provisioned Grafana dashboards
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:3000/api/search?query=IaC"
+    method: GET
+    force_basic_auth: true
+    url_username: "{{ observability_grafana_admin_user }}"
+    url_password: "{{ observability_grafana_admin_password }}"
+    status_code: 200
+  register: observability_grafana_dashboards
+  failed_when: >-
+    observability_grafana_dashboards.status != 200 or
+    observability_grafana_dashboards.json
+    | selectattr('uid', 'in', ['iac-weblogic', 'iac-oracle', 'iac-observability-health'])
+    | list
+    | length != 3
+  no_log: true
+
+- name: Send the single Alertmanager acceptance message
+  ansible.builtin.uri:
+    url: http://127.0.0.1:9093/api/v2/alerts
+    method: POST
+    body_format: json
+    body:
+      - labels:
+          alertname: IaCAlertmanagerAcceptanceTest
+          severity: warning
+          acceptance_test: "true"
+          environment: "{{ cluster_environment | default('managed') }}"
+          instance: "{{ inventory_hostname }}"
+          service: alertmanager
+        annotations:
+          summary: >-
+            Timestamped IaC Alertmanager acceptance test at
+            {{ ansible_facts['date_time']['iso8601'] }}
+    status_code: 200
+  when:
+    - monitoring_send_test_alerts | default(false) | bool
+    - monitoring_test_alerts_confirm | default('') == 'SEND_EXACTLY_TWO'
+  register: observability_alertmanager_test
+  changed_when: true
+  no_log: true
 
 - name: Check Loki readiness
   ansible.builtin.uri:

@@ -9,7 +9,7 @@
           'acl',
           'curl',
           'tar',
-          'firewalld'
+          'ufw'
         ]
         +
         (

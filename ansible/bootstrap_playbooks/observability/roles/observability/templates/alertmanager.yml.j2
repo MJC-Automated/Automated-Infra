@@ -1,0 +1,68 @@
+global:
+  resolve_timeout: 5m
+{% if observability_email_alerts_enabled | bool %}
+  smtp_smarthost: {{ observability_smtp_smarthost | to_json }}
+  smtp_from: {{ (observability_smtp_display_name ~ ' <' ~ observability_smtp_from ~ '>') | to_json }}
+  smtp_hello: {{ observability_smtp_helo | to_json }}
+  smtp_auth_username: {{ observability_smtp_auth_username | to_json }}
+  smtp_auth_password: {{ observability_smtp_auth_password | to_json }}
+  smtp_require_tls: true
+{% endif %}
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  group_by: [alertname, environment, instance, service]
+  group_wait: {{ observability_alert_group_wait }}
+  group_interval: {{ observability_alert_group_interval }}
+  receiver: {{ ((observability_email_alerts_enabled | bool) | ternary('email-warning', 'null')) | to_json }}
+  routes:
+{% if observability_email_alerts_enabled | bool %}
+    - receiver: email-acceptance-test
+      matchers:
+        - acceptance_test="true"
+      group_wait: 0s
+      repeat_interval: 24h
+{% endif %}
+    - receiver: {{ ((observability_email_alerts_enabled | bool) | ternary('email-critical', 'null')) | to_json }}
+      matchers:
+        - severity="critical"
+      repeat_interval: {{ observability_alert_repeat_interval_critical }}
+    - receiver: {{ ((observability_email_alerts_enabled | bool) | ternary('email-warning', 'null')) | to_json }}
+      matchers:
+        - severity=~"warning|info"
+      repeat_interval: {{ observability_alert_repeat_interval_warning }}
+
+inhibit_rules:
+  - source_matchers:
+      - alertname="HostDown"
+    target_matchers:
+      - alertname!="HostDown"
+    equal: [environment, instance]
+
+receivers:
+  - name: 'null'
+{% if observability_email_alerts_enabled | bool %}
+  - name: email-warning
+    email_configs:
+      - to: {{ observability_alert_recipient | to_json }}
+        send_resolved: true
+        headers:
+          Subject: '[WARNING] {{ "{{" }} .CommonLabels.alertname {{ "}}" }} on {{ "{{" }} .CommonLabels.instance {{ "}}" }}'
+        html: '{{ "{{" }} template "email.html" . {{ "}}" }}'
+  - name: email-critical
+    email_configs:
+      - to: {{ observability_alert_recipient | to_json }}
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ "{{" }} .CommonLabels.alertname {{ "}}" }} on {{ "{{" }} .CommonLabels.instance {{ "}}" }}'
+        html: '{{ "{{" }} template "email.html" . {{ "}}" }}'
+  - name: email-acceptance-test
+    email_configs:
+      - to: {{ observability_alert_recipient | to_json }}
+        send_resolved: false
+        headers:
+          Subject: '[TEST] IaC Alertmanager acceptance'
+        html: '{{ "{{" }} template "email.html" . {{ "}}" }}'
+{% endif %}

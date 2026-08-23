@@ -5,27 +5,33 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+CLOUD_IMAGE_CATALOG="${CLOUD_IMAGE_CATALOG:-${REPO_ROOT}/config/cloud-images.env}"
+if [[ -r "${CLOUD_IMAGE_CATALOG}" ]]; then
+  # shellcheck disable=SC1090
+  source "${CLOUD_IMAGE_CATALOG}"
+fi
 
 PROXMOX_HOST="${PROXMOX_HOST:-}"
 PROXMOX_USER="${PROXMOX_USER:-root}"
 LOCAL_SCRIPT="${LOCAL_SCRIPT:-${REPO_ROOT}/scripts/create-cloudinit-vm_stable.sh}"
 REMOTE_SCRIPT="${REMOTE_SCRIPT:-/tmp/create-cloudinit-vm_stable.sh}"
+REMOTE_ENV_FILE="${REMOTE_ENV_FILE:-/root/scripts/.env}"
 SSH_CONNECT_TIMEOUT="${SSH_CONNECT_TIMEOUT:-10}"
 SSH_OPTIONS_RAW="${SSH_OPTIONS:-}"
 AUTO_DOWNLOAD_IMAGE="${AUTO_DOWNLOAD_IMAGE:-true}"
-UBUNTU_IMAGE_URL="${UBUNTU_IMAGE_URL:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}"
+UBUNTU_IMAGE_URL="${UBUNTU_IMAGE_URL:-${CLOUD_IMAGE_UBUNTU24_URL:-https://cloud-images.ubuntu.com/noble/20260801/noble-server-cloudimg-amd64.img}}"
 UBUNTU24_IMAGE_URL="${UBUNTU24_IMAGE_URL:-${UBUNTU_IMAGE_URL}}"
-ORACLE8_IMAGE_URL="${ORACLE8_IMAGE_URL:-https://yum.oracle.com/templates/OracleLinux/OL8/u10/x86_64/OL8U10_x86_64-kvm-b271.qcow2}"
-ORACLE9_IMAGE_URL="${ORACLE9_IMAGE_URL:-https://yum.oracle.com/templates/OracleLinux/OL9/u7/x86_64/OL9U7_x86_64-kvm-b269.qcow2}"
+ORACLE8_IMAGE_URL="${ORACLE8_IMAGE_URL:-${CLOUD_IMAGE_ORACLE8_URL:-https://yum.oracle.com/templates/OracleLinux/OL8/u10/x86_64/OL8U10_x86_64-kvm-b287.qcow2}}"
+ORACLE9_IMAGE_URL="${ORACLE9_IMAGE_URL:-${CLOUD_IMAGE_ORACLE9_URL:-https://yum.oracle.com/templates/OracleLinux/OL9/u8/x86_64/OL9U8_x86_64-kvm-b293.qcow2}}"
 DOWNLOAD_IMAGE_SCRIPT="${DOWNLOAD_IMAGE_SCRIPT:-${REPO_ROOT}/scripts/download-cloud-image.sh}"
 
-ORACLE8_IMAGE_SHA256="${ORACLE8_IMAGE_SHA256:-}"
-ORACLE9_IMAGE_SHA256="${ORACLE9_IMAGE_SHA256:-}"
-UBUNTU24_IMAGE_SHA256="${UBUNTU24_IMAGE_SHA256:-}"
+ORACLE8_IMAGE_SHA256="${ORACLE8_IMAGE_SHA256:-${CLOUD_IMAGE_ORACLE8_SHA256:-}}"
+ORACLE9_IMAGE_SHA256="${ORACLE9_IMAGE_SHA256:-${CLOUD_IMAGE_ORACLE9_SHA256:-}}"
+UBUNTU24_IMAGE_SHA256="${UBUNTU24_IMAGE_SHA256:-${CLOUD_IMAGE_UBUNTU24_SHA256:-}}"
 
-ORACLE8_CHECKSUM_URL="${ORACLE8_CHECKSUM_URL:-}"
-ORACLE9_CHECKSUM_URL="${ORACLE9_CHECKSUM_URL:-}"
-UBUNTU24_CHECKSUM_URL="${UBUNTU24_CHECKSUM_URL:-}"
+ORACLE8_CHECKSUM_URL="${ORACLE8_CHECKSUM_URL:-${CLOUD_IMAGE_ORACLE8_CHECKSUM_URL:-}}"
+ORACLE9_CHECKSUM_URL="${ORACLE9_CHECKSUM_URL:-${CLOUD_IMAGE_ORACLE9_CHECKSUM_URL:-}}"
+UBUNTU24_CHECKSUM_URL="${UBUNTU24_CHECKSUM_URL:-${CLOUD_IMAGE_UBUNTU24_CHECKSUM_URL:-}}"
 
 SSH_OPTS_DEFAULT=(-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout="${SSH_CONNECT_TIMEOUT}" -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 SSH_OPTS=()
@@ -40,6 +46,8 @@ Options:
   --user <name>           SSH user (default: root).
   --local-script <path>   Local create-cloudinit script path.
   --remote-script <path>  Remote temporary script path.
+  --remote-env <path>     Existing root-only environment file on the PVE
+                          (default: /root/scripts/.env).
   -h, --help              Show this help.
 
 Required VM overrides (via env vars or current shell):
@@ -47,17 +55,18 @@ Required VM overrides (via env vars or current shell):
 
 Optional VM overrides:
   DOMAIN FORCE DRY_RUN
-  ORACLE_LINUX_IMAGE UBUNTU_IMAGE ROCKY_LINUX_IMAGE ALMA_LINUX_IMAGE DEBIAN_IMAGE FEDORA_IMAGE
+  SOURCE_IMAGE ORACLE_LINUX_IMAGE UBUNTU_IMAGE ROCKY_LINUX_IMAGE ALMA_LINUX_IMAGE DEBIAN_IMAGE FEDORA_IMAGE
   AUTO_DOWNLOAD_IMAGE
   ORACLE8_IMAGE_URL ORACLE9_IMAGE_URL UBUNTU24_IMAGE_URL
   ORACLE8_IMAGE_SHA256 ORACLE9_IMAGE_SHA256 UBUNTU24_IMAGE_SHA256
   ORACLE8_CHECKSUM_URL ORACLE9_CHECKSUM_URL UBUNTU24_CHECKSUM_URL
-  BRIDGE IPCIDR GATEWAY DNS
+  BRIDGE NETWORK_VLAN IPCIDR GATEWAY DNS
   CORES MEM CPU_TYPE
   OS_STORAGE DATA_STORAGE EFI_STORAGE CI_STORAGE SNIPPET_STORAGE
   OS_DISK_SIZE DATA_DISK_ENABLED DATA_DISK_SIZE
   CIUSER PASSWORD SSH_KEYS_FILE
-  DO_OS_UPDATE
+  ZABBIX_SERVER ZABBIX_SERVER_PASSIVE ZABBIX_SERVER_ACTIVE ZABBIX_AGENT_PORT
+  DO_OS_UPDATE SANITIZE_TEMPLATE_BASE SHUTDOWN_FINAL_VM
 EOF
 }
 
@@ -77,6 +86,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --remote-script)
       REMOTE_SCRIPT="${2:-}"
+      shift 2
+      ;;
+    --remote-env)
+      REMOTE_ENV_FILE="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -120,14 +133,15 @@ else
 fi
 
 pass_vars=(
-  VMID NAME DOMAIN FORCE DRY_RUN OS_TYPE
+  VMID NAME DOMAIN FORCE DRY_RUN OS_TYPE ENV_FILE SOURCE_IMAGE
   ORACLE_LINUX_IMAGE UBUNTU_IMAGE ROCKY_LINUX_IMAGE ALMA_LINUX_IMAGE DEBIAN_IMAGE FEDORA_IMAGE
-  BRIDGE IPCIDR GATEWAY DNS
+  BRIDGE NETWORK_VLAN IPCIDR GATEWAY DNS
   CORES MEM CPU_TYPE
   OS_STORAGE DATA_STORAGE EFI_STORAGE CI_STORAGE SNIPPET_STORAGE
   OS_DISK_SIZE DATA_DISK_ENABLED DATA_DISK_SIZE
   CIUSER PASSWORD SSH_KEYS_FILE
-  DO_OS_UPDATE
+  ZABBIX_SERVER ZABBIX_SERVER_PASSIVE ZABBIX_SERVER_ACTIVE ZABBIX_AGENT_PORT
+  DO_OS_UPDATE SANITIZE_TEMPLATE_BASE SHUTDOWN_FINAL_VM
 )
 
 build_remote_prefix() {
@@ -143,8 +157,6 @@ build_remote_prefix() {
   printf '%s' "${prefix}"
 }
 
-remote_prefix="$(build_remote_prefix)"
-
 remote_file_exists() {
   local path="$1"
   local escaped
@@ -152,13 +164,28 @@ remote_file_exists() {
   ssh "${SSH_OPTS[@]}" "${PROXMOX_USER}@${PROXMOX_HOST}" "test -f ${escaped}"
 }
 
+remote_file_readable() {
+  local path="$1"
+  local escaped
+  escaped="$(printf '%q' "${path}")"
+  ssh "${SSH_OPTS[@]}" "${PROXMOX_USER}@${PROXMOX_HOST}" "test -r ${escaped}"
+}
+
 resolve_required_image_path() {
+  if [[ -n "${SOURCE_IMAGE:-}" ]]; then
+    printf '%s\n' "${SOURCE_IMAGE}"
+    return 0
+  fi
+
   case "${OS_TYPE}" in
-    ubuntu)
-      printf '%s\n' "${UBUNTU_IMAGE:-/var/lib/vz/template/iso/noble-server-cloudimg-amd64.img}"
+    ubuntu|ubuntu-24|ubuntu24)
+      printf '%s\n' "${UBUNTU_IMAGE:-/var/lib/vz/template/iso/${CLOUD_IMAGE_UBUNTU24_FILENAME:-noble-server-cloudimg-amd64.img}}"
       ;;
-    oracle-linux)
-      printf '%s\n' "${ORACLE_LINUX_IMAGE:-/var/lib/vz/template/iso/OL9U7_x86_64-kvm-b269.qcow2}"
+    oracle-linux-8|oracle8|ol8)
+      printf '%s\n' "${ORACLE_LINUX_IMAGE:-/var/lib/vz/template/iso/${CLOUD_IMAGE_ORACLE8_FILENAME:-OL8U10_x86_64-kvm-b287.qcow2}}"
+      ;;
+    oracle-linux|oracle-linux-9|oracle9|ol9)
+      printf '%s\n' "${ORACLE_LINUX_IMAGE:-/var/lib/vz/template/iso/${CLOUD_IMAGE_ORACLE9_FILENAME:-OL9U8_x86_64-kvm-b293.qcow2}}"
       ;;
     rocky-linux)
       printf '%s\n' "${ROCKY_LINUX_IMAGE:-/var/lib/vz/template/iso/Rocky-9-GenericCloud.latest.x86_64.qcow2}"
@@ -251,6 +278,17 @@ if [[ -n "${required_image_path}" ]] && ! remote_file_exists "${required_image_p
     echo "Provide image path env override for ${OS_TYPE} or place the image on Proxmox before continuing." >&2
     exit 1
 fi
+
+SOURCE_IMAGE="${SOURCE_IMAGE:-${required_image_path}}"
+ENV_FILE="${REMOTE_ENV_FILE}"
+
+if ! remote_file_readable "${REMOTE_ENV_FILE}"; then
+  echo "Error: remote environment file is not readable on ${PROXMOX_HOST}: ${REMOTE_ENV_FILE}" >&2
+  echo "Create it from scripts/.env.example with mode 600 before running the builder." >&2
+  exit 1
+fi
+
+remote_prefix="$(build_remote_prefix)"
 
 echo "Copying ${LOCAL_SCRIPT} to ${PROXMOX_USER}@${PROXMOX_HOST}:${REMOTE_SCRIPT}..."
 scp "${SSH_OPTS[@]}" "${LOCAL_SCRIPT}" "${PROXMOX_USER}@${PROXMOX_HOST}:${REMOTE_SCRIPT}"

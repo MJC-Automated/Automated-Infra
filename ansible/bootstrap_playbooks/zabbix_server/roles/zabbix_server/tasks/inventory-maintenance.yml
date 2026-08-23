@@ -1,0 +1,145 @@
+---
+- name: Build expected-down Zabbix host-name set
+  ansible.builtin.set_fact:
+    zabbix_inventory_expected_down_host_names: >-
+      {{ zabbix_inventory_desired_hosts
+         | rejectattr('expected_up', 'equalto', true)
+         | map(attribute='host_name')
+         | list }}
+
+- name: Resolve expected-down Zabbix host IDs
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: host.get
+      params:
+        output:
+          - hostid
+          - host
+        filter:
+          host: "{{ zabbix_inventory_expected_down_host_names }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_expected_down_hosts
+  when: zabbix_inventory_expected_down_host_names | length > 0
+  changed_when: false
+  failed_when: zabbix_inventory_expected_down_hosts.json.error is defined
+
+- name: Query managed expected-down maintenance
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: maintenance.get
+      params:
+        output:
+          - maintenanceid
+          - name
+        filter:
+          name:
+            - "{{ zabbix_inventory_expected_down_maintenance_name }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_expected_down_maintenance
+  changed_when: false
+  failed_when: >-
+    zabbix_inventory_expected_down_maintenance.json.error is defined or
+    zabbix_inventory_expected_down_maintenance.json.result | length > 1
+
+- name: Initialize expected-down host references
+  ansible.builtin.set_fact:
+    zabbix_inventory_expected_down_host_refs: []
+
+- name: Build expected-down host references
+  ansible.builtin.set_fact:
+    zabbix_inventory_expected_down_host_refs: >-
+      {{ zabbix_inventory_expected_down_host_refs
+         + [{'hostid': item.hostid}] }}
+  loop: "{{ zabbix_inventory_expected_down_hosts.json.result | default([]) }}"
+
+- name: Build expected-down maintenance definition
+  ansible.builtin.set_fact:
+    zabbix_inventory_expected_down_definition:
+      name: "{{ zabbix_inventory_expected_down_maintenance_name }}"
+      maintenance_type: "0"
+      active_since: 1577836800
+      active_till: 2147483647
+      description: >-
+        IaC-managed indefinite maintenance with data collection. Hosts remain
+        observable, but problems are suppressed while Terraform inventory sets
+        monitoring_expected_up=false.
+      hosts: "{{ zabbix_inventory_expected_down_host_refs }}"
+      timeperiods:
+        - timeperiod_type: "2"
+          every: "1"
+          start_time: "0"
+          period: "86400"
+
+- name: Create expected-down maintenance
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: maintenance.create
+      params: "{{ zabbix_inventory_expected_down_definition }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_expected_down_create
+  when:
+    - zabbix_inventory_expected_down_host_refs | length > 0
+    - zabbix_inventory_expected_down_maintenance.json.result | length == 0
+  changed_when: true
+  failed_when: zabbix_inventory_expected_down_create.json.error is defined
+
+- name: Update expected-down maintenance
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: maintenance.update
+      params: >-
+        {{ zabbix_inventory_expected_down_definition
+           | combine({
+               'maintenanceid': zabbix_inventory_expected_down_maintenance.json.result[0].maintenanceid
+             }) }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_expected_down_update
+  when:
+    - zabbix_inventory_expected_down_host_refs | length > 0
+    - zabbix_inventory_expected_down_maintenance.json.result | length == 1
+  changed_when: false
+  failed_when: zabbix_inventory_expected_down_update.json.error is defined
+
+- name: Remove empty expected-down maintenance
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: maintenance.delete
+      params:
+        - "{{ zabbix_inventory_expected_down_maintenance.json.result[0].maintenanceid }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_expected_down_delete
+  when:
+    - zabbix_inventory_expected_down_host_refs | length == 0
+    - zabbix_inventory_expected_down_maintenance.json.result | length == 1
+  changed_when: true
+  failed_when: zabbix_inventory_expected_down_delete.json.error is defined

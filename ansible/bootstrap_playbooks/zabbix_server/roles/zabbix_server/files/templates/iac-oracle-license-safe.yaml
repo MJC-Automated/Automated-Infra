@@ -1,0 +1,158 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 95449c8b2b6747718c9f3268db2f2001
+      name: Templates/Databases
+  templates:
+    - uuid: 95449c8b2b6747718c9f3268db2f2002
+      template: 'IaC Oracle CDB license safe'
+      name: 'IaC Oracle CDB license safe'
+      description: |
+        License-safe Oracle Agent 2 profile managed by IaC-Homelab.
+        The allowlist excludes oracle.sessions.stats and every ASH/AWR/DBA_HIST query.
+      groups:
+        - name: Templates/Databases
+      items:
+        - uuid: 95449c8b2b6747718c9f3268db2f2010
+          name: 'Oracle: connection ping'
+          key: 'oracle.ping["{$ORACLE.CONNSTRING}"]'
+          delay: 30s
+          triggers:
+            - uuid: 95449c8b2b6747718c9f3268db2f2011
+              expression: 'max(/IaC Oracle CDB license safe/oracle.ping["{$ORACLE.CONNSTRING}"],2m)=0'
+              name: 'Oracle: CDB connection is unavailable'
+              priority: HIGH
+              tags:
+                - tag: alert_engine
+                  value: zabbix
+                - tag: service_id
+                  value: '{HOST.HOST}'
+          tags:
+            - tag: component
+              value: availability
+        - uuid: 95449c8b2b6747718c9f3268db2f2020
+          name: 'Oracle: version'
+          key: 'oracle.version["{$ORACLE.CONNSTRING}"]'
+          value_type: CHAR
+          trends: '0'
+          delay: 1h
+          tags:
+            - tag: component
+              value: inventory
+        - uuid: 95449c8b2b6747718c9f3268db2f2030
+          name: 'Oracle: instance information'
+          key: 'oracle.instance.info["{$ORACLE.CONNSTRING}"]'
+          value_type: TEXT
+          trends: '0'
+          tags:
+            - tag: component
+              value: instance
+        - uuid: 95449c8b2b6747718c9f3268db2f2040
+          name: 'Oracle: safe session summary'
+          key: 'oracle.custom.query["{$ORACLE.CONNSTRING}",,,,"sessions_safe"]'
+          value_type: TEXT
+          trends: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: 95449c8b2b6747718c9f3268db2f2041
+          name: 'Oracle: sessions total'
+          type: DEPENDENT
+          key: oracle.safe.sessions.total
+          delay: '0'
+          master_item:
+            key: 'oracle.custom.query["{$ORACLE.CONNSTRING}",,,,"sessions_safe"]'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[0].total'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: 95449c8b2b6747718c9f3268db2f2042
+          name: 'Oracle: active sessions'
+          type: DEPENDENT
+          key: oracle.safe.sessions.active
+          delay: '0'
+          master_item:
+            key: 'oracle.custom.query["{$ORACLE.CONNSTRING}",,,,"sessions_safe"]'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[0].active'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: 95449c8b2b6747718c9f3268db2f2043
+          name: 'Oracle: blocked sessions'
+          type: DEPENDENT
+          key: oracle.safe.sessions.blocked
+          delay: '0'
+          master_item:
+            key: 'oracle.custom.query["{$ORACLE.CONNSTRING}",,,,"sessions_safe"]'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[0].blocked'
+          triggers:
+            - uuid: 95449c8b2b6747718c9f3268db2f2044
+              expression: 'min(/IaC Oracle CDB license safe/oracle.safe.sessions.blocked,5m)>0'
+              name: 'Oracle: blocked sessions detected'
+              priority: WARNING
+              tags:
+                - tag: alert_engine
+                  value: zabbix
+                - tag: service_id
+                  value: '{HOST.HOST}'
+          tags:
+            - tag: component
+              value: sessions
+      discovery_rules:
+        - uuid: 95449c8b2b6747718c9f3268db2f2050
+          name: 'Oracle database discovery'
+          key: 'oracle.db.discovery["{$ORACLE.CONNSTRING}"]'
+          delay: 15m
+          item_prototypes:
+            - uuid: 95449c8b2b6747718c9f3268db2f2051
+              name: "Oracle database {#DBNAME}: CDB information"
+              key: 'oracle.cdb.info["{$ORACLE.CONNSTRING}",,,,"{#DBNAME}"]'
+              value_type: TEXT
+              trends: '0'
+              tags:
+                - tag: cdb
+                  value: '{#DBNAME}'
+        - uuid: 95449c8b2b6747718c9f3268db2f2060
+          name: 'Oracle PDB discovery'
+          key: 'oracle.pdb.discovery["{$ORACLE.CONNSTRING}"]'
+          delay: 5m
+          filter:
+            conditions:
+              - macro: '{#DBNAME}'
+                value: '^(?!PDB[$]SEED$).*$'
+                formulaid: A
+          item_prototypes:
+            - uuid: 95449c8b2b6747718c9f3268db2f2061
+              name: "Oracle PDB {#DBNAME}: information"
+              key: 'oracle.pdb.info["{$ORACLE.CONNSTRING}",,,,"{#DBNAME}"]'
+              value_type: TEXT
+              trends: '0'
+              tags:
+                - tag: pdb
+                  value: '{#DBNAME}'
+        - uuid: 95449c8b2b6747718c9f3268db2f2070
+          name: 'Oracle tablespace discovery'
+          key: 'oracle.ts.discovery["{$ORACLE.CONNSTRING}"]'
+          delay: 15m
+          item_prototypes:
+            - uuid: 95449c8b2b6747718c9f3268db2f2071
+              name: "Oracle {#CON_NAME} tablespace {#TABLESPACE}: statistics"
+              key: 'oracle.ts.stats["{$ORACLE.CONNSTRING}",,,,"{#TABLESPACE}","{#CONTENTS}","{#CON_NAME}"]'
+              value_type: TEXT
+              trends: '0'
+              tags:
+                - tag: cdb
+                  value: '{#CON_NAME}'
+                - tag: component
+                  value: tablespace
+      macros:
+        - macro: '{$ORACLE.CONNSTRING}'

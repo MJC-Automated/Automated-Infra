@@ -54,6 +54,71 @@ is_true() {
   [[ "${val}" == "true" || "${val}" == "1" || "${val}" == "yes" ]]
 }
 
+confirm_destroy() {
+  local red_alert=""
+  local confirm=""
+
+  if [[ ! -t 0 ]]; then
+    echo "Error: Packer destruction requires an interactive terminal for both confirmation phrases." >&2
+    exit 1
+  fi
+
+  read -r -p "RED ALERT: type 'red alert ${ENVIRONMENT}' to continue: " red_alert
+  if [[ "${red_alert}" != "red alert ${ENVIRONMENT}" ]]; then
+    echo "Packer destroy operation cancelled."
+    exit 0
+  fi
+
+  read -r -p "Type 'packer-destroy-all ${ENVIRONMENT}' to confirm Packer VM destruction: " confirm
+  if [[ "${confirm}" != "packer-destroy-all ${ENVIRONMENT}" ]]; then
+    echo "Packer destroy operation cancelled."
+    exit 0
+  fi
+}
+
+ensure_vault_tls_env() {
+  local candidate
+
+  if [[ "${VAULT_ADDR:-}" != https://* ]]; then
+    return 0
+  fi
+
+  if [[ -n "${VAULT_CACERT:-}" && ! -r "${VAULT_CACERT}" ]]; then
+    if is_true "${VAULT_SKIP_VERIFY:-}"; then
+      echo "Warning: VAULT_CACERT is unreadable (${VAULT_CACERT}); continuing with VAULT_SKIP_VERIFY=${VAULT_SKIP_VERIFY}." >&2
+      unset VAULT_CACERT
+    else
+      echo "Error: VAULT_CACERT is unreadable: ${VAULT_CACERT}" >&2
+      exit 1
+    fi
+  fi
+
+  if [[ -z "${VAULT_CACERT:-}" ]] && ! is_true "${VAULT_SKIP_VERIFY:-}"; then
+    for candidate in /etc/vault.d/vault-cert.pem /etc/vault.d/tls/vault-cert.pem; do
+      if [[ -r "${candidate}" ]]; then
+        export VAULT_CACERT="${candidate}"
+        break
+      fi
+    done
+  fi
+}
+
+load_vault_env_if_needed() {
+  local env_file="${ENV_FILE:-${REPO_ROOT}/.env}"
+
+  # Match with-vault-token.sh: only load .env when Vault identity is incomplete so
+  # an exported/rotated VAULT_TOKEN is not clobbered by a stale file value.
+  if [[ -f "${env_file}" ]]; then
+    if [[ -z "${VAULT_ADDR:-}" || ( -z "${VAULT_TOKEN:-}" && -z "${VAULT_ROLE_ID:-}" ) ]]; then
+      set -a
+      # shellcheck disable=SC1090
+      source "${env_file}"
+      set +a
+    fi
+  fi
+  ensure_vault_tls_env
+}
+
 VAULT_PROXMOX_API_URL=""
 VAULT_PROXMOX_TOKEN_ID=""
 VAULT_PROXMOX_TOKEN_SECRET=""
@@ -64,6 +129,9 @@ load_vault_credentials() {
     echo "Error: vault CLI is required when PACKER_USE_VAULT_CREDS=true." >&2
     exit 1
   fi
+
+  load_vault_env_if_needed
+
   if [[ -z "${VAULT_ADDR:-}" ]]; then
     echo "Error: VAULT_ADDR is not set (required when PACKER_USE_VAULT_CREDS=true)." >&2
     exit 1
@@ -304,6 +372,8 @@ if is_true "${DRY_RUN}"; then
   echo "DRY_RUN=1 set; no API calls made."
   exit 0
 fi
+
+confirm_destroy
 
 errors=0
 deleted=0

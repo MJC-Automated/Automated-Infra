@@ -7,6 +7,53 @@
       Unsupported distribution {{ ansible_facts.distribution }}. Supported:
       {{ zabbix_platform_matrix.keys() | list | join(', ') }}.
 
+- name: Initialize central inventory environment audit
+  ansible.builtin.set_fact:
+    monitoring_central_inventory_environments: []
+
+- name: Validate explicit monitoring policy on every central target
+  ansible.builtin.assert:
+    that:
+      - hostvars[item].monitoring_environment is defined
+      - hostvars[item].monitoring_environment | string | trim | length > 0
+      - hostvars[item].monitoring_expected_up is defined
+      - hostvars[item].monitoring_environment in monitoring_central_expected_environments
+    fail_msg: >-
+      {{ item }} lacks an explicit monitoring_environment/monitoring_expected_up
+      policy or belongs to an environment outside the declared authoritative
+      union {{ monitoring_central_expected_environments }}. Regenerate every
+      inventory and invoke the central play with the complete inventory union.
+  loop: "{{ groups.monitoring_clients | default([]) }}"
+  when:
+    - zabbix_inventory_reconciliation_enabled | bool
+    - monitoring_central_require_authoritative_inventory | bool
+
+- name: Collect central inventory environments
+  ansible.builtin.set_fact:
+    monitoring_central_inventory_environments: >-
+      {{ monitoring_central_inventory_environments
+         + [hostvars[item].monitoring_environment] }}
+  loop: "{{ groups.monitoring_clients | default([]) }}"
+  when:
+    - zabbix_inventory_reconciliation_enabled | bool
+    - monitoring_central_require_authoritative_inventory | bool
+
+- name: Require the exact authoritative environment union
+  ansible.builtin.assert:
+    that:
+      - monitoring_central_expected_environments | length > 0
+      - monitoring_central_expected_environments | unique | length == monitoring_central_expected_environments | length
+      - monitoring_central_inventory_environments | unique | sort == monitoring_central_expected_environments | sort
+    fail_msg: >-
+      Central reconciliation is fail-closed. Inventory contains environments
+      {{ monitoring_central_inventory_environments | unique | sort }}, but the
+      authoritative set is {{ monitoring_central_expected_environments | sort }}.
+      Supply the complete generated inventory union before reconciling shared
+      Zabbix state.
+  when:
+    - zabbix_inventory_reconciliation_enabled | bool
+    - monitoring_central_require_authoritative_inventory | bool
+
 - name: Set platform metadata
   ansible.builtin.set_fact:
     zabbix_platform: "{{ zabbix_platform_matrix[ansible_facts.distribution] }}"
@@ -90,9 +137,10 @@
       - zabbix_backup_schedule_hour | int <= 23
       - zabbix_backup_schedule_minute | int >= 0
       - zabbix_backup_schedule_minute | int <= 59
+      - zabbix_backup_log_rotate_count | int >= 1
     fail_msg: >-
       Invalid backup settings. Ensure schedule is valid and keep_max is at least
-      keep_archived + 1.
+      keep_archived + 1, and retain at least one backup log rotation.
   when: zabbix_backup_enabled | bool
 
 - name: Validate backup mount is present when required
@@ -109,7 +157,66 @@
 - name: Set computed runtime values
   ansible.builtin.set_fact:
     zabbix_db_host_effective: "{{ (zabbix_db_mode == 'external') | ternary(zabbix_db_host, '127.0.0.1') }}"
-    zabbix_runtime_services: "{{ ['zabbix-server', 'zabbix-agent2'] + (zabbix_platform.http_services | default([])) }}"
+    zabbix_runtime_services: >-
+      {{ ['zabbix-server', 'zabbix-agent2']
+         + (['zabbix-java-gateway'] if zabbix_java_gateway_enabled | bool else [])
+         + (['zabbix-web-service'] if zabbix_reporting_enabled | bool else [])
+         + (zabbix_platform.http_services | default([])) }}
+    zabbix_disabled_optional_services: >-
+      {{ ([] if zabbix_java_gateway_enabled | bool else ['zabbix-java-gateway'])
+         + ([] if zabbix_reporting_enabled | bool else ['zabbix-web-service']) }}
+
+- name: Validate scheduled reports require the reporting service
+  ansible.builtin.assert:
+    that:
+      - not (zabbix_scheduled_reports_enabled | bool) or zabbix_reporting_enabled | bool
+    fail_msg: >-
+      zabbix_scheduled_reports_enabled=true requires
+      zabbix_reporting_enabled=true.
+
+- name: Validate Java Gateway settings
+  ansible.builtin.assert:
+    that:
+      - zabbix_java_gateway_port | int > 0
+      - zabbix_java_gateway_port | int <= 65535
+      - zabbix_java_pollers | int > 0
+    fail_msg: "Java Gateway requires a valid port and at least one Java poller."
+  when: zabbix_java_gateway_enabled | bool
+
+- name: Validate web outage threshold
+  ansible.builtin.assert:
+    that:
+      - zabbix_web_outage_threshold is match('^[0-9]+[smhd]$')
+    fail_msg: >-
+      zabbix_web_outage_threshold must be a simple Zabbix duration such as
+      60s, 1m, 5m, or 1h.
+  when: zabbix_web_monitoring_enabled | bool
+
+- name: Require authoritative inventory for web object retirement
+  ansible.builtin.assert:
+    that:
+      - monitoring_central_require_authoritative_inventory | bool
+    fail_msg: >-
+      zabbix_web_retire_absent_enabled requires fail-closed authoritative
+      central inventory validation. Disable retirement for a partial-inventory
+      run or supply the complete declared environment union.
+  when:
+    - zabbix_inventory_reconciliation_enabled | bool
+    - zabbix_web_retire_absent_enabled | bool
+
+- name: Validate scheduled-reporting settings
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - zabbix_web_service_host in ['127.0.0.1', 'localhost']
+      - zabbix_web_service_port | int > 0
+      - zabbix_web_service_port | int <= 65535
+      - zabbix_report_writers | int > 0
+      - zabbix_reporting_chrome_sha256 is match('^[a-f0-9]{64}$')
+    fail_msg: >-
+      Scheduled reports require the supported Ubuntu package path, a local-only
+      web service, at least one report writer, and a pinned browser checksum.
+  when: zabbix_reporting_enabled | bool
 
 - name: Validate optional email alert settings
   ansible.builtin.assert:
@@ -121,6 +228,7 @@
       - zabbix_email_security in ['None', 'STARTTLS', 'SSL/TLS']
       - zabbix_email_min_severity in ['not classified', 'information', 'warning', 'average', 'high', 'disaster']
       - zabbix_email_recipient_users | length > 0
+      - zabbix_email_recipient_address | string | trim | length > 0
       - not (zabbix_email_smtp_authentication | bool) or (zabbix_email_smtp_username | string | trim | length > 0)
       - not (zabbix_email_smtp_authentication | bool) or (zabbix_email_smtp_password | string | length > 0)
     fail_msg: >-

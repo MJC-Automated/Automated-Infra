@@ -1,0 +1,76 @@
+import base64
+import sys
+
+if hasattr(base64, "b64decode"):
+    decode_base64 = base64.b64decode
+else:
+    decode_base64 = base64.decodestring
+
+
+def read_secret():
+    return decode_base64(sys.stdin.readline().strip())
+
+admin_url = "t3://127.0.0.1:{{ item.admin_port }}"
+domain_name = "{{ item.domain_name }}"
+app_name = "wls-exporter"
+war_path = "{{ monitoring_weblogic_exporter_root }}/{{ item.domain_name | regex_replace('[^A-Za-z0-9_.-]', '_') }}/wls-exporter.war"
+targets = "{{ ([item.admin_server_name | default('AdminServer')] + (item.managed_servers | default([]) | map(attribute='name') | list)) | join(',') }}"
+
+admin_user = read_secret()
+admin_password = read_secret()
+monitor_user = read_secret()
+monitor_password = read_secret()
+redeploy_exporter = sys.stdin.readline().strip().lower() == "true"
+
+# WebLogic's authenticator does not expose password hashes.  Prove that the
+# desired credential works before opening the administrative connection, then
+# reset it only when an existing identity still has the old credential.
+monitor_password_valid = False
+try:
+    connect(monitor_user, monitor_password, admin_url)
+    monitor_password_valid = True
+    disconnect()
+except:
+    try:
+        disconnect()
+    except:
+        pass
+
+connect(admin_user, admin_password, admin_url)
+serverConfig()
+
+realm = cmo.getSecurityConfiguration().getDefaultRealm()
+authenticator = realm.lookupAuthenticationProvider("DefaultAuthenticator")
+if not authenticator.userExists(monitor_user):
+    authenticator.createUser(monitor_user, monitor_password, "IaC monitoring identity")
+    print("MONITOR_USER_CREATED")
+elif not monitor_password_valid:
+    authenticator.resetUserPassword(monitor_user, monitor_password)
+    print("MONITOR_PASSWORD_RECONCILED")
+if not authenticator.isMember("Monitors", monitor_user, True):
+    authenticator.addMemberToGroup("Monitors", monitor_user)
+    print("MONITOR_GROUP_RECONCILED")
+
+edit()
+startEdit()
+cd("/")
+rest_mbean = cmo.getRestfulManagementServices()
+if rest_mbean is not None and not rest_mbean.isEnabled():
+    rest_mbean.setEnabled(True)
+    save()
+    activate(block="true")
+    print("REST_MANAGEMENT_ENABLED")
+else:
+    cancelEdit("y")
+
+serverConfig()
+deployment = getMBean("/AppDeployments/%s" % app_name)
+if deployment is None:
+    deploy(app_name, war_path, targets=targets, upload="false", remote="true", block="true")
+    print("EXPORTER_DEPLOYED")
+elif redeploy_exporter:
+    redeploy(app_name, appPath=war_path, targets=targets, upload="false", remote="true", block="true")
+    print("EXPORTER_REDEPLOYED")
+
+disconnect()
+exit()

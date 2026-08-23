@@ -21,6 +21,9 @@ Automates single-node Zimbra FOSS installation on Oracle Linux 9 using a local i
 - Runs unattended installer from the uploaded artifact.
 - Keeps `imapd` unchanged by default, but can auto-disable it only when
   `zmcontrol status` failure points to `imapd`.
+- Defaults public web access to HTTPS, reconciles the effective Zimbra proxy
+  mode after installation, and retires obsolete managed HTTP/HTTPS firewall
+  ports when the selected mode changes.
 - Verifies `zmcontrol status` and reports effective domain/admin data.
 
 ## Random Defaults
@@ -51,6 +54,8 @@ Important keys:
 - `ZIMBRA_PLATFORM_OVERRIDE` (keep `false` for Oracle Linux 9)
 - `ZIMBRA_HOSTNAME`, `ZIMBRA_MAIL_DOMAIN`, `ZIMBRA_ADMIN_EMAIL`
 - `ZIMBRA_ADMIN_PASSWORD` + LDAP password keys
+- `ZIMBRA_SERVICE_MODE` (`https` by default; also supports `http`, `both`,
+  `mixed`, and `redirect`)
 - `ZIMBRA_MANAGE_FIREWALL`, `ZIMBRA_FIREWALL_ALLOWED_PORTS`
 - `ZIMBRA_INSTALL_PACKAGES` (comma-separated)
 - `ZIMBRA_USE_ZIMBRA_PACKAGE_SERVER` (default `yes`)
@@ -105,6 +110,8 @@ ansible-inventory --graph
 ## Notes
 
 - First install can take several minutes.
+- A cold boot can keep the generated `zimbra.service` in `activating` state
+  for several minutes; wait for both the unit and `zmcontrol status` to become
+  healthy before testing listeners.
 - Installer logs are available on target under `/tmp/install.log` and `/opt/zimbra/log/`.
 - Re-runs are idempotent at the role level (`/opt/zimbra/bin/zmcontrol` gate skips reinstall).
-- Operational notes from the first successful `example` deployment are in [`OPERATIONS.md`](./OPERATIONS.md).

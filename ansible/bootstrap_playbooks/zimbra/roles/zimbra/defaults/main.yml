@@ -20,17 +20,37 @@ zimbra_install_oracle_epel: true
 zimbra_install_timeout: 7200
 zimbra_verify_timeout: 600
 zimbra_manage_firewall: true
-zimbra_firewall_allowed_ports:
+zimbra_firewall_base_ports:
   - 25/tcp
-  - 80/tcp
   - 110/tcp
   - 143/tcp
-  - 443/tcp
   - 465/tcp
   - 587/tcp
   - 993/tcp
   - 995/tcp
   - 7071/tcp
+zimbra_firewall_managed_web_ports:
+  - 80/tcp
+  - 443/tcp
+zimbra_firewall_web_ports_by_mode:
+  http:
+    - 80/tcp
+  https:
+    - 443/tcp
+  both:
+    - 80/tcp
+    - 443/tcp
+  mixed:
+    - 80/tcp
+    - 443/tcp
+  redirect:
+    - 80/tcp
+    - 443/tcp
+zimbra_firewall_allowed_ports: >-
+  {{
+    zimbra_firewall_base_ports
+    + zimbra_firewall_web_ports_by_mode[zimbra_service_mode]
+  }}
 
 # Host preparation
 zimbra_required_packages:
@@ -64,7 +84,7 @@ zimbra_webapps:
   - admin
   - zimlet
 
-zimbra_service_mode: "http"
+zimbra_service_mode: "https"
 zimbra_allow_self_signed: "yes"
 zimbra_start_servers: "yes"
 zimbra_enable_av: "yes"

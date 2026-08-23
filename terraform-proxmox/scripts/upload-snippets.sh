@@ -11,6 +11,48 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 VAULT_AUTH_SCRIPT="${VAULT_AUTH_SCRIPT:-${REPO_ROOT}/scripts/vault-auth.sh}"
 SSH_STRICT_HOST_KEY_CHECKING="${SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
+TFVARS_FILE="${TFVARS_FILE:-${REPO_ROOT}/environments/${ENVIRONMENT}.tfvars}"
+VAULT_PATH="${VAULT_PATH:-}"
+
+trim_slashes() {
+    local value="$1"
+    value="${value#/}"
+    value="${value%/}"
+    printf '%s\n' "${value}"
+}
+
+read_tfvars_value() {
+    local key="$1"
+    local file="$2"
+
+    [[ -f "${file}" ]] || return 1
+    awk -F= -v k="${key}" '
+      $1 ~ "^[[:space:]]*" k "[[:space:]]*$" {
+        value = $2
+        sub(/[[:space:]]*(\/\/|#).*/, "", value)
+        sub(/[[:space:]]*\/\*.*\*\/[[:space:]]*$/, "", value)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        sub(/^"/, "", value)
+        sub(/"$/, "", value)
+        print value
+        exit
+      }
+    ' "${file}"
+}
+
+resolve_vault_path() {
+    if [[ -n "${VAULT_PATH}" ]]; then
+        printf '%s\n' "${VAULT_PATH}"
+        return 0
+    fi
+
+    local kv_mount secret_prefix
+    kv_mount="$(trim_slashes "${VAULT_KV_MOUNT_PATH:-$(read_tfvars_value "vault_kv_mount_path" "${TFVARS_FILE}" || true)}")"
+    secret_prefix="$(trim_slashes "${VAULT_SECRET_PREFIX:-$(read_tfvars_value "vault_secret_prefix" "${TFVARS_FILE}" || true)}")"
+    kv_mount="${kv_mount:-secret}"
+    secret_prefix="${secret_prefix:-terraform}"
+    printf '%s/%s/%s/creds\n' "${kv_mount}" "${secret_prefix}" "${ENVIRONMENT}"
+}
 
 resolve_proxmox_host() {
     if [[ -n "${PROXMOX_HOST:-}" ]]; then
@@ -42,8 +84,9 @@ resolve_proxmox_host() {
         fi
     fi
     if command -v vault >/dev/null 2>&1 && [[ -n "${VAULT_ADDR:-}" && -n "${VAULT_TOKEN:-}" ]]; then
-        local url
-        url="$(vault kv get -field=proxmox_config_api_url "secret/terraform/${ENVIRONMENT}/creds" 2>/dev/null || true)"
+        local url vault_path
+        vault_path="$(resolve_vault_path)"
+        url="$(vault kv get -field=proxmox_config_api_url "${vault_path}" 2>/dev/null || true)"
         if [[ -n "${url}" ]]; then
             echo "${url}" | sed -E 's#^https?://##; s#[:/].*$##'
             return 0

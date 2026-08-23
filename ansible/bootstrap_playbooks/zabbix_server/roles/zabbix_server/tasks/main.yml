@@ -31,7 +31,28 @@
   ansible.builtin.include_tasks: discovery.yml
   tags: [discovery]
 
+- name: Reconcile Terraform inventory through the Zabbix API
+  ansible.builtin.include_tasks: inventory.yml
+  when: zabbix_inventory_reconciliation_enabled | bool
+  tags: [inventory_reconcile]
+
+- name: Reconcile inventory-derived Zabbix web monitoring
+  ansible.builtin.include_tasks: web.yml
+  when: zabbix_inventory_reconciliation_enabled | bool
+  tags: [web_monitoring]
+
+- name: Reconcile inventory-derived Zabbix services and SLAs
+  ansible.builtin.include_tasks: services.yml
+  when:
+    - zabbix_inventory_reconciliation_enabled | bool
+    - zabbix_service_monitoring_enabled | bool
+  tags: [services, sla]
+
 - name: Configure email alerts
   ansible.builtin.include_tasks: alerts.yml
   when: zabbix_email_alerts_enabled | bool
   tags: [alerts]
+
+- name: Reconcile scheduled dashboard reports
+  ansible.builtin.include_tasks: reports.yml
+  tags: [reports]

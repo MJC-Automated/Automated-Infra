@@ -1,6 +1,6 @@
 # Automated IT Infrastructure
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Ansible](https://img.shields.io/badge/Automation-Ansible-EE0000?logo=ansible&logoColor=white)](https://www.ansible.com/)
 [![Terraform](https://img.shields.io/badge/IaC-Terraform-623CE4?logo=terraform&logoColor=white)](https://www.terraform.io/)
 [![Kubernetes](https://img.shields.io/badge/Container--Orchestration-Kubernetes-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
@@ -58,6 +58,7 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 ## Standard Entry Points
 
 - Terraform/Packer workflow: run from `terraform-proxmox/` via `make` targets.
+  Start with the scenario-oriented [Terraform operator guide](terraform-proxmox/README.md).
 - Ansible project entrypoints:
   - `ansible/bootstrap_playbooks/oracle819c/main.yml`
   - `ansible/bootstrap_playbooks/oracle919c/main.yml`
@@ -354,18 +355,15 @@ Do not hand-edit the generated Kubespray groups. `inventories/aliases.ini` maps 
 ## 9. Public Mirror Automation
 
 - GitHub visibility is repository-wide; branches cannot be private inside a public repository.
-- This project includes a sanitize-and-publish workflow to mirror selected private branches into a public repository:
-  - Workflow: `.github/workflows/public-mirror.yml`
-  - Scripts: `scripts/public-release/`
+- The active sanitize-and-publish workflow mirrors private `main` to
+  `MJC-Automated/Automated-Infra:main`:
+  - Workflow: `.github/workflows/publish-sanitized-snapshot.yml`
+  - Exporter: `scripts/export_sanitized_snapshot.py`
   - Rules: `.github/sanitize/`
-- Supported source branches:
-  - `main`
-  - `develop`
-  - `terraform-proxmox-automated-infra`
-- Configure these in the private source repo:
-  - Variable: `PUBLIC_MIRROR_REPO` (format: `owner/repo`)
-  - Variable: `PUBLIC_MIRROR_APP_ID` (GitHub App ID used for mirror publishing)
-  - Secret: `PUBLIC_MIRROR_APP_PRIVATE_KEY` (GitHub App private key PEM)
+- Configure `SANITIZER_APP_ID` (repository variable) and
+  `SANITIZER_APP_PRIVATE_KEY` (repository secret) in the private source repo.
+- `scripts/public-release/` remains an alternate operator-run local mirror
+  helper, not the active GitHub Actions entrypoint.
 
 ---
 
@@ -399,5 +397,6 @@ Do not hand-edit the generated Kubespray groups. `inventories/aliases.ini` maps 
 - `ansible/user-man/README.md`
 - `ansible/time_sync/README.md`
 - `inventories/README.md`
+- `docs/project_overview/README.md`
 - `docs/oracle-db-weblogic-crud-scenario.md`
 - `docs/public-mirror.md`

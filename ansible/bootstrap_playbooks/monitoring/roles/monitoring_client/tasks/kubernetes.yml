@@ -1,0 +1,163 @@
+---
+# Control-plane: least-privilege ServiceAccount token for local apiserver
+# /metrics scrapes by Alloy. Observability kube-state-metrics uses a separate
+# managed kubeconfig on the central host.
+- name: Ensure Alloy credential directory exists for Kubernetes scrapes
+  ansible.builtin.file:
+    path: /etc/alloy
+    state: directory
+    owner: root
+    group: alloy
+    mode: "0750"
+  when: >-
+    (monitoring_kubernetes_apiserver_scrape_enabled | bool)
+    or (monitoring_kubernetes_etcd_scrape_enabled | bool)
+
+- name: Render ClusterRole for Alloy apiserver metrics access
+  ansible.builtin.copy:
+    dest: /etc/kubernetes/iac-monitoring-metrics-rbac.yaml
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: {{ monitoring_kubernetes_metrics_service_account }}
+        namespace: {{ monitoring_kubernetes_metrics_namespace }}
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: iac-monitoring-metrics
+      rules:
+        - nonResourceURLs:
+            - /metrics
+          verbs:
+            - get
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: iac-monitoring-metrics
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: iac-monitoring-metrics
+      subjects:
+        - kind: ServiceAccount
+          name: {{ monitoring_kubernetes_metrics_service_account }}
+          namespace: {{ monitoring_kubernetes_metrics_namespace }}
+  when: monitoring_kubernetes_apiserver_scrape_enabled | bool
+
+- name: Apply Alloy apiserver metrics RBAC
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ monitoring_kubernetes_kubeconfig }}"
+      - apply
+      - -f
+      - /etc/kubernetes/iac-monitoring-metrics-rbac.yaml
+  register: monitoring_kubernetes_metrics_rbac_apply
+  changed_when: >-
+    'created' in (monitoring_kubernetes_metrics_rbac_apply.stdout | default(''))
+    or 'configured' in (monitoring_kubernetes_metrics_rbac_apply.stdout | default(''))
+  when: monitoring_kubernetes_apiserver_scrape_enabled | bool
+
+- name: Stat existing Alloy apiserver metrics token
+  ansible.builtin.stat:
+    path: "{{ monitoring_kubernetes_metrics_token_path }}"
+  register: monitoring_kubernetes_metrics_token_stat
+  when: monitoring_kubernetes_apiserver_scrape_enabled | bool
+
+- name: Read existing Alloy apiserver metrics token
+  ansible.builtin.slurp:
+    src: "{{ monitoring_kubernetes_metrics_token_path }}"
+  register: monitoring_kubernetes_metrics_token_slurp
+  no_log: true
+  when:
+    - monitoring_kubernetes_apiserver_scrape_enabled | bool
+    - monitoring_kubernetes_metrics_token_stat.stat.exists | default(false)
+    - monitoring_kubernetes_metrics_token_stat.stat.size | default(0) | int > 0
+
+- name: Probe apiserver metrics with the existing Alloy token
+  ansible.builtin.uri:
+    url: "{{ monitoring_kubernetes_apiserver_metrics_url }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ monitoring_kubernetes_metrics_token_slurp.content | b64decode | trim }}"
+    validate_certs: false
+    status_code: [200]
+  register: monitoring_kubernetes_metrics_token_probe
+  failed_when: false
+  no_log: true
+  when:
+    - monitoring_kubernetes_apiserver_scrape_enabled | bool
+    - monitoring_kubernetes_metrics_token_slurp is defined
+    - monitoring_kubernetes_metrics_token_slurp.content is defined
+
+- name: Issue Alloy ServiceAccount token for apiserver metrics
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - "{{ monitoring_kubernetes_kubeconfig }}"
+      - --namespace
+      - "{{ monitoring_kubernetes_metrics_namespace }}"
+      - create
+      - token
+      - "{{ monitoring_kubernetes_metrics_service_account }}"
+      - --duration={{ monitoring_kubernetes_metrics_token_duration }}
+  register: monitoring_kubernetes_metrics_token
+  changed_when: false
+  no_log: true
+  when:
+    - monitoring_kubernetes_apiserver_scrape_enabled | bool
+    - >-
+      (not (monitoring_kubernetes_metrics_token_stat.stat.exists | default(false)))
+      or ((monitoring_kubernetes_metrics_token_stat.stat.size | default(0) | int) == 0)
+      or ((monitoring_kubernetes_metrics_token_probe.status | default(0) | int) != 200)
+
+- name: Install Alloy-readable apiserver metrics token
+  ansible.builtin.copy:
+    dest: "{{ monitoring_kubernetes_metrics_token_path }}"
+    content: "{{ monitoring_kubernetes_metrics_token.stdout | trim }}\n"
+    owner: root
+    group: alloy
+    mode: "0640"
+  no_log: true
+  notify: Restart Grafana Alloy
+  when:
+    - monitoring_kubernetes_apiserver_scrape_enabled | bool
+    - monitoring_kubernetes_metrics_token is defined
+    - monitoring_kubernetes_metrics_token.stdout is defined
+    - (monitoring_kubernetes_metrics_token.stdout | trim | length) > 0
+
+- name: Grant Alloy traverse access to etcd TLS ancestors
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: x
+    state: present
+  loop:
+    - /etc/ssl
+    - /etc/ssl/etcd
+    - "{{ monitoring_kubernetes_etcd_ssl_dir }}"
+  notify: Restart Grafana Alloy
+  when: monitoring_kubernetes_etcd_scrape_enabled | bool
+
+- name: Grant Alloy read access to etcd TLS material for metrics
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: alloy
+    etype: user
+    permissions: r
+    state: present
+  loop:
+    - "{{ monitoring_kubernetes_etcd_ca_file }}"
+    - "{{ monitoring_kubernetes_etcd_cert_file }}"
+    - "{{ monitoring_kubernetes_etcd_key_file }}"
+  notify: Restart Grafana Alloy
+  when: monitoring_kubernetes_etcd_scrape_enabled | bool

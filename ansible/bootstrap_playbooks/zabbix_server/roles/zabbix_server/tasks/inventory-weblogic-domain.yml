@@ -1,0 +1,71 @@
+---
+- name: Add WebLogic admin JVM logical host
+  ansible.builtin.set_fact:
+    zabbix_inventory_desired_hosts: >-
+      {{ zabbix_inventory_desired_hosts + [{
+           'host_name': zabbix_inventory_weblogic_host ~ '--jvm--' ~ zabbix_inventory_weblogic_domain.domain_name ~ '--' ~ (zabbix_inventory_weblogic_domain.admin_server_name | default('AdminServer')),
+           'visible_name': zabbix_inventory_weblogic_host ~ ' ' ~ zabbix_inventory_weblogic_domain.domain_name ~ '/' ~ (zabbix_inventory_weblogic_domain.admin_server_name | default('AdminServer')),
+           'ip': hostvars[zabbix_inventory_weblogic_host].ansible_host,
+           'port': (10000 + (zabbix_inventory_weblogic_domain.admin_port | int)) | string,
+           'environment': hostvars[zabbix_inventory_weblogic_host].monitoring_environment,
+           'expected_up': hostvars[zabbix_inventory_weblogic_host].monitoring_expected_up | bool,
+           'interface_type': 'jmx',
+           'autoregister': false,
+           'groups': ['IaC managed', 'IaC/' ~ hostvars[zabbix_inventory_weblogic_host].monitoring_environment, 'IaC/role/weblogic', 'WebLogic JVMs'],
+           'templates': ['IaC WebLogic JVM instance'],
+           'tags': [
+             {'tag': zabbix_inventory_managed_tag, 'value': zabbix_inventory_managed_value},
+             {'tag': 'environment', 'value': hostvars[zabbix_inventory_weblogic_host].monitoring_environment},
+             {'tag': 'expected_up', 'value': (hostvars[zabbix_inventory_weblogic_host].monitoring_expected_up | bool) | ternary('true', 'false')},
+             {'tag': 'alert_owner', 'value': 'zabbix'},
+             {'tag': 'role', 'value': 'weblogic'},
+             {'tag': 'domain', 'value': zabbix_inventory_weblogic_domain.domain_name},
+             {'tag': 'server', 'value': zabbix_inventory_weblogic_domain.admin_server_name | default('AdminServer')},
+             {'tag': 'physical_host', 'value': zabbix_inventory_weblogic_host},
+             {'tag': 'retention_days', 'value': zabbix_inventory_retention_days | string}
+           ],
+           'macros': [
+             {'macro': '{$WLS.JMX.USER}', 'value': monitoring_weblogic_monitor_user | default('iac_monitor')}
+           ],
+           'secret_macros': [
+             {'macro': '{$WLS.JMX.PASSWORD}', 'value': vault_monitoring_weblogic_password | default(''), 'type': 1, 'description': 'Encrypted inventory monitoring credential version ' ~ monitoring_weblogic_secret_version}
+           ]
+         }] }}
+  run_once: true
+  no_log: true
+
+- name: Add WebLogic managed JVM logical hosts
+  ansible.builtin.set_fact:
+    zabbix_inventory_desired_hosts: >-
+      {{ zabbix_inventory_desired_hosts + [{
+           'host_name': zabbix_inventory_weblogic_host ~ '--jvm--' ~ zabbix_inventory_weblogic_domain.domain_name ~ '--' ~ item.name,
+           'visible_name': zabbix_inventory_weblogic_host ~ ' ' ~ zabbix_inventory_weblogic_domain.domain_name ~ '/' ~ item.name,
+           'ip': hostvars[zabbix_inventory_weblogic_host].ansible_host,
+           'port': (10000 + (item.listen_port | int)) | string,
+           'environment': hostvars[zabbix_inventory_weblogic_host].monitoring_environment,
+           'expected_up': hostvars[zabbix_inventory_weblogic_host].monitoring_expected_up | bool,
+           'interface_type': 'jmx',
+           'autoregister': false,
+           'groups': ['IaC managed', 'IaC/' ~ hostvars[zabbix_inventory_weblogic_host].monitoring_environment, 'IaC/role/weblogic', 'WebLogic JVMs'],
+           'templates': ['IaC WebLogic JVM instance'],
+           'tags': [
+             {'tag': zabbix_inventory_managed_tag, 'value': zabbix_inventory_managed_value},
+             {'tag': 'environment', 'value': hostvars[zabbix_inventory_weblogic_host].monitoring_environment},
+             {'tag': 'expected_up', 'value': (hostvars[zabbix_inventory_weblogic_host].monitoring_expected_up | bool) | ternary('true', 'false')},
+             {'tag': 'alert_owner', 'value': 'zabbix'},
+             {'tag': 'role', 'value': 'weblogic'},
+             {'tag': 'domain', 'value': zabbix_inventory_weblogic_domain.domain_name},
+             {'tag': 'server', 'value': item.name},
+             {'tag': 'physical_host', 'value': zabbix_inventory_weblogic_host},
+             {'tag': 'retention_days', 'value': zabbix_inventory_retention_days | string}
+           ],
+           'macros': [
+             {'macro': '{$WLS.JMX.USER}', 'value': monitoring_weblogic_monitor_user | default('iac_monitor')}
+           ],
+           'secret_macros': [
+             {'macro': '{$WLS.JMX.PASSWORD}', 'value': vault_monitoring_weblogic_password | default(''), 'type': 1, 'description': 'Encrypted inventory monitoring credential version ' ~ monitoring_weblogic_secret_version}
+           ]
+         }] }}
+  loop: "{{ zabbix_inventory_weblogic_domain.managed_servers | default([]) }}"
+  run_once: true
+  no_log: true

@@ -1,0 +1,169 @@
+---
+- name: Initialize exact managed web object keys
+  ansible.builtin.set_fact:
+    zabbix_web_desired_scenario_keys: []
+    zabbix_web_desired_trigger_keys: []
+
+- name: Build exact managed web object keys
+  ansible.builtin.set_fact:
+    zabbix_web_desired_scenario_keys: >-
+      {{ zabbix_web_desired_scenario_keys
+         + [item.host_name ~ '::' ~ item.scenario_name] }}
+    zabbix_web_desired_trigger_keys: >-
+      {{ zabbix_web_desired_trigger_keys
+         + [item.host_name ~ '::IaC service unavailable: ' ~ item.service] }}
+  loop: "{{ zabbix_web_desired_endpoints }}"
+
+- name: Validate exact managed web object keys are unique
+  ansible.builtin.assert:
+    that:
+      - >-
+        zabbix_web_desired_scenario_keys | unique | length
+        == zabbix_web_desired_scenario_keys | length
+      - >-
+        zabbix_web_desired_trigger_keys | unique | length
+        == zabbix_web_desired_trigger_keys | length
+    fail_msg: >-
+      Duplicate host/scenario or host/service definitions would make managed
+      web object ownership ambiguous. Make each endpoint unique before central
+      reconciliation.
+
+- name: Query IaC-managed web outage triggers for retirement
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: trigger.get
+      params:
+        output:
+          - triggerid
+          - description
+          - status
+        selectHosts:
+          - hostid
+          - host
+        inherited: false
+        templated: false
+        evaltype: 0
+        tags:
+          - tag: iac_managed
+            value: "true"
+            operator: 1
+          - tag: alert_engine
+            value: zabbix
+            operator: 1
+        search:
+          description: "IaC service unavailable: "
+        startSearch: true
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_managed_triggers
+  changed_when: false
+  failed_when: zabbix_web_managed_triggers.json.error is defined
+  no_log: true
+
+- name: Validate managed web outage trigger ownership shape
+  ansible.builtin.assert:
+    that:
+      - item.hosts | default([]) | length == 1
+    fail_msg: >-
+      Refusing web-trigger retirement because managed trigger
+      {{ item.triggerid | default('unknown') }} does not resolve to exactly one
+      host.
+  loop: "{{ zabbix_web_managed_triggers.json.result }}"
+
+- name: Disable managed web outage triggers absent from desired state
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: trigger.update
+      params:
+        triggerid: "{{ item.triggerid }}"
+        status: "1"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: "{{ zabbix_web_managed_triggers.json.result }}"
+  register: zabbix_web_trigger_retire
+  when:
+    - item.status | string == '0'
+    - >-
+      (item.hosts[0].host ~ '::' ~ item.description)
+      not in zabbix_web_desired_trigger_keys
+  changed_when: true
+  failed_when: zabbix_web_trigger_retire.json.error is defined
+  no_log: true
+
+- name: Query IaC-managed web scenarios for retirement
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: httptest.get
+      params:
+        output:
+          - httptestid
+          - name
+          - status
+        selectHosts:
+          - hostid
+          - host
+        inherited: false
+        templated: false
+        tags:
+          - tag: iac_managed
+            value: "true"
+            operator: 1
+        search:
+          name: "IaC "
+        startSearch: true
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_web_managed_scenarios
+  changed_when: false
+  failed_when: zabbix_web_managed_scenarios.json.error is defined
+  no_log: true
+
+- name: Validate managed web scenario ownership shape
+  ansible.builtin.assert:
+    that:
+      - item.hosts | default([]) | length == 1
+    fail_msg: >-
+      Refusing web-scenario retirement because managed scenario
+      {{ item.httptestid | default('unknown') }} does not resolve to exactly one
+      host.
+  loop: "{{ zabbix_web_managed_scenarios.json.result }}"
+
+- name: Disable managed web scenarios absent from desired state
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: httptest.update
+      params:
+        httptestid: "{{ item.httptestid }}"
+        status: "1"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  loop: "{{ zabbix_web_managed_scenarios.json.result }}"
+  register: zabbix_web_scenario_retire
+  when:
+    - item.status | string == '0'
+    - >-
+      (item.hosts[0].host ~ '::' ~ item.name)
+      not in zabbix_web_desired_scenario_keys
+  changed_when: true
+  failed_when: zabbix_web_scenario_retire.json.error is defined
+  no_log: true

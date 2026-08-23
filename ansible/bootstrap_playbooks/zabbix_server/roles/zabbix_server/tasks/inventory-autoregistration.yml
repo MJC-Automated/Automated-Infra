@@ -1,0 +1,113 @@
+---
+- name: Query one IaC active-autoregistration action
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: action.get
+      params:
+        output:
+          - actionid
+          - name
+        filter:
+          name:
+            - "{{ zabbix_inventory_autoreg_host.autoreg_action_name }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_autoreg_existing
+  changed_when: false
+  failed_when: zabbix_inventory_autoreg_existing.json.error is defined
+  no_log: true
+
+- name: Build one IaC active-autoregistration API definition
+  ansible.builtin.set_fact:
+    zabbix_inventory_autoreg_definition:
+      name: "{{ zabbix_inventory_autoreg_host.autoreg_action_name }}"
+      eventsource: "2"
+      status: "0"
+      filter:
+        evaltype: "0"
+        conditions:
+          - conditiontype: "22"
+            operator: "8"
+            value: "^{{ zabbix_inventory_autoreg_host.host_name | regex_escape }}$"
+          - conditiontype: "24"
+            operator: "2"
+            value: >-
+              iac_managed=true environment={{ zabbix_inventory_autoreg_host.environment }}
+      operations:
+        - operationtype: "2"
+        - operationtype: "4"
+          opgroup:
+            - groupid: "{{ zabbix_inventory_autoreg_group.json.result[0].groupid }}"
+        - operationtype: "6"
+          optemplate:
+            - templateid: "{{ zabbix_inventory_autoreg_template.json.result[0].templateid }}"
+        - operationtype: "13"
+          optag:
+            - tag: "{{ zabbix_inventory_managed_tag }}"
+              value: "{{ zabbix_inventory_managed_value }}"
+            - tag: environment
+              value: "{{ zabbix_inventory_autoreg_host.environment }}"
+            - tag: expected_up
+              value: "{{ zabbix_inventory_autoreg_host.expected_up | ternary('true', 'false') }}"
+  no_log: true
+
+- name: Create missing IaC active-autoregistration action
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: action.create
+      params: "{{ zabbix_inventory_autoreg_definition }}"
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_autoreg_create
+  when: zabbix_inventory_autoreg_existing.json.result | length == 0
+  changed_when: true
+  failed_when: false
+  no_log: true
+
+- name: Validate IaC active-autoregistration create response
+  ansible.builtin.assert:
+    that:
+      - zabbix_inventory_autoreg_create.json.error is not defined
+    fail_msg: >-
+      Zabbix API action.create rejected the tracked definition:
+      {{ zabbix_inventory_autoreg_create.json.error.data
+         | default(zabbix_inventory_autoreg_create.json.error.message)
+         | default('unknown API error') }}
+  when: zabbix_inventory_autoreg_existing.json.result | length == 0
+
+- name: Reconcile existing IaC active-autoregistration action
+  ansible.builtin.uri:
+    url: http://127.0.0.1/zabbix/api_jsonrpc.php
+    method: POST
+    body_format: json
+    body:
+      jsonrpc: "2.0"
+      method: action.update
+      params: >-
+        {{ zabbix_inventory_autoreg_definition
+           | combine({
+               'actionid': zabbix_inventory_autoreg_existing.json.result[0].actionid
+             })
+           | dict2items
+           | rejectattr('key', 'equalto', 'eventsource')
+           | items2dict }}
+      auth: "{{ zabbix_reconciled_login.json.result }}"
+      id: 1
+    status_code: 200
+  register: zabbix_inventory_autoreg_update
+  when: zabbix_inventory_autoreg_existing.json.result | length == 1
+  # Zabbix accepts an exact replacement as a no-op. The desired model is
+  # reconciled on every run without manufacturing idempotency changes.
+  changed_when: false
+  failed_when: zabbix_inventory_autoreg_update.json.error is defined
+  no_log: true

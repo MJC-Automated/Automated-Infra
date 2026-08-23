@@ -1,4 +1,19 @@
 services:
+{% if observability_kube_state_metrics_enabled | bool %}
+  kube-state-metrics:
+    image: "{{ observability_kube_state_metrics_image }}"
+    container_name: kube-state-metrics
+    user: "{{ observability_kube_state_metrics_uid }}:{{ observability_kube_state_metrics_gid }}"
+    command:
+      - "--kubeconfig=/etc/kubernetes/kubeconfig"
+      - "--telemetry-host=0.0.0.0"
+      - "--telemetry-port=8081"
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - "{{ observability_kubeconfig_path }}:/etc/kubernetes/kubeconfig:ro"
+    restart: unless-stopped
+{% endif %}
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: prometheus
@@ -6,13 +21,40 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time={{ observability_prometheus_retention }}"
+      - "--web.enable-remote-write-receiver"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "9090:9090"
     volumes:
       - "{{ observability_stack_dir }}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "{{ observability_stack_dir }}/prometheus/rules:/etc/prometheus/rules:ro"
       - "/var/lib/prometheus:/prometheus"
+    restart: unless-stopped
+
+  alertmanager:
+    image: "prom/alertmanager:v{{ observability_alertmanager_version }}@{{ observability_alertmanager_amd64_digest }}"
+    container_name: alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - "{{ observability_stack_dir }}/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"
+      - "{{ observability_stack_dir }}/alertmanager/templates:/etc/alertmanager/templates:ro"
+      - "/var/lib/prometheus/alertmanager:/alertmanager"
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: "prom/blackbox-exporter:v{{ observability_blackbox_exporter_version }}"
+    container_name: blackbox-exporter
+    command:
+      - "--config.file=/etc/blackbox_exporter/config.yml"
+    cap_add:
+      - NET_RAW
+    volumes:
+      - "{{ observability_stack_dir }}/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro"
     restart: unless-stopped
 
   loki:
@@ -48,6 +90,8 @@ services:
     volumes:
       - "/var/lib/grafana:/var/lib/grafana"
       - "{{ observability_stack_dir }}/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro"
+      - "{{ observability_stack_dir }}/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro"
+      - "{{ observability_stack_dir }}/grafana/dashboards:/var/lib/grafana/dashboards:ro"
     restart: unless-stopped
 
   otel-collector:
@@ -59,15 +103,4 @@ services:
       - "4318:4318"
     volumes:
       - "{{ observability_stack_dir }}/otel/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml:ro"
-    restart: unless-stopped
-
-  node-exporter:
-    image: prom/node-exporter:v1.8.2
-    container_name: node-exporter
-    command:
-      - "--path.rootfs=/host"
-    network_mode: host
-    pid: host
-    volumes:
-      - "/:/host:ro,rslave"
     restart: unless-stopped

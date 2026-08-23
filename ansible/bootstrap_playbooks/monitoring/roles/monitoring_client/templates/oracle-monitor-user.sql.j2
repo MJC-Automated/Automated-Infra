@@ -1,0 +1,35 @@
+whenever sqlerror exit failure rollback
+set serveroutput on feedback off heading off echo off
+declare
+  user_count number;
+begin
+  select count(*) into user_count from dba_users
+   where username = upper('{{ monitoring_oracle_user }}');
+  if user_count = 0 then
+    execute immediate 'create user {{ monitoring_oracle_user }} identified by "{{ monitoring_oracle_password | replace('"', '""') }}" container=all';
+    dbms_output.put_line('MONITORING_USER_CREATED');
+{% if monitoring_oracle_password_reconcile | bool %}
+  else
+    execute immediate 'alter user {{ monitoring_oracle_user }} identified by "{{ monitoring_oracle_password | replace('"', '""') }}" account unlock container=all';
+    dbms_output.put_line('MONITORING_PASSWORD_RECONCILED');
+{% else %}
+  else
+    dbms_output.put_line('MONITORING_USER_PRESENT');
+{% endif %}
+  end if;
+end;
+/
+alter user {{ monitoring_oracle_user }} set container_data=all container=current;
+grant create session to {{ monitoring_oracle_user }} container=all;
+grant select on sys.v_$instance to {{ monitoring_oracle_user }};
+grant select on sys.v_$database to {{ monitoring_oracle_user }};
+grant select on sys.v_$pdbs to {{ monitoring_oracle_user }};
+grant select on sys.v_$system_parameter to {{ monitoring_oracle_user }};
+grant select on sys.v_$parameter to {{ monitoring_oracle_user }};
+grant select on sys.v_$sort_segment to {{ monitoring_oracle_user }};
+grant select on sys.v_$session to {{ monitoring_oracle_user }};
+grant select on sys.cdb_tablespaces to {{ monitoring_oracle_user }};
+grant select on sys.cdb_data_files to {{ monitoring_oracle_user }};
+grant select on sys.cdb_free_space to {{ monitoring_oracle_user }};
+grant select on sys.cdb_temp_files to {{ monitoring_oracle_user }};
+exit success

@@ -1,0 +1,41 @@
+---
+- name: Add declared CDBs for one Oracle inventory host
+  ansible.builtin.set_fact:
+    zabbix_inventory_desired_hosts: >-
+      {{ zabbix_inventory_desired_hosts + [{
+           'host_name': zabbix_inventory_oracle_host ~ '--oracle--' ~ (item.sid | lower),
+           'visible_name': zabbix_inventory_oracle_host ~ ' Oracle ' ~ (item.sid | upper),
+           'ip': hostvars[zabbix_inventory_oracle_host].ansible_host,
+           'port': zabbix_agent_port | string,
+           'environment': hostvars[zabbix_inventory_oracle_host].monitoring_environment,
+           'expected_up': hostvars[zabbix_inventory_oracle_host].monitoring_expected_up | bool,
+           'groups': [
+             'IaC managed',
+             'IaC/' ~ hostvars[zabbix_inventory_oracle_host].monitoring_environment,
+             'IaC/role/oracle',
+             'Oracle databases'
+           ],
+           'templates': ['IaC Oracle CDB license safe'],
+           'tags': [
+             {'tag': zabbix_inventory_managed_tag, 'value': zabbix_inventory_managed_value},
+             {'tag': 'environment', 'value': hostvars[zabbix_inventory_oracle_host].monitoring_environment},
+             {'tag': 'expected_up', 'value': (hostvars[zabbix_inventory_oracle_host].monitoring_expected_up | bool) | ternary('true', 'false')},
+             {'tag': 'alert_owner', 'value': 'zabbix'},
+             {'tag': 'role', 'value': 'oracle'},
+             {'tag': 'cdb', 'value': item.sid | upper},
+             {'tag': 'physical_host', 'value': zabbix_inventory_oracle_host},
+             {'tag': 'retention_days', 'value': zabbix_inventory_retention_days | string}
+           ],
+           'interface_type': 'agent',
+           'autoregister': false,
+           'macros': [
+             {'macro': '{$ORACLE.CONNSTRING}', 'value': 'oracle_' ~ (item.sid | lower)}
+           ],
+           'secret_macros': []
+         }] }}
+  loop: >-
+    {{ hostvars[zabbix_inventory_oracle_host].oracle_servers[zabbix_inventory_oracle_host].oracle_cdbs
+       | default([])
+       if hostvars[zabbix_inventory_oracle_host].oracle_servers is defined else [] }}
+  run_once: true
+  no_log: true

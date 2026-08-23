@@ -4,6 +4,63 @@
     name: "{{ zabbix_platform.server_packages }}"
     state: present
 
+- name: Install Zabbix Java Gateway
+  ansible.builtin.package:
+    name: zabbix-java-gateway
+    state: present
+  when: zabbix_java_gateway_enabled | bool
+
+- name: Install Zabbix reporting service and browser runtime libraries
+  ansible.builtin.package:
+    name: "{{ ['zabbix-web-service'] + zabbix_reporting_browser_packages }}"
+    state: present
+  when: zabbix_reporting_enabled | bool
+
+- name: Verify controller-owned reporting browser checksum
+  ansible.builtin.command:
+    argv:
+      - sha256sum
+      - "{{ zabbix_reporting_resource_dir }}/{{ zabbix_reporting_chrome_archive }}"
+  delegate_to: localhost
+  become: false
+  register: zabbix_reporting_chrome_checksum
+  changed_when: false
+  failed_when: >-
+    zabbix_reporting_chrome_checksum.rc != 0 or
+    not zabbix_reporting_chrome_checksum.stdout.startswith(zabbix_reporting_chrome_sha256 ~ '  ')
+  when: zabbix_reporting_enabled | bool
+
+- name: Ensure versioned Zabbix reporting browser directory exists
+  ansible.builtin.file:
+    path: "{{ zabbix_reporting_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: zabbix_reporting_enabled | bool
+
+- name: Install pinned Zabbix reporting browser artifact
+  ansible.builtin.unarchive:
+    src: "{{ zabbix_reporting_resource_dir }}/{{ zabbix_reporting_chrome_archive }}"
+    dest: "{{ zabbix_reporting_install_dir }}"
+    owner: root
+    group: root
+    creates: "{{ zabbix_reporting_chrome_binary }}"
+  when: zabbix_reporting_enabled | bool
+
+- name: Expose pinned reporting browser on supported service PATH names
+  ansible.builtin.file:
+    src: "{{ zabbix_reporting_chrome_binary }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    owner: root
+    group: root
+  loop:
+    - google-chrome
+    - chromium
+    - chromium-browser
+  when: zabbix_reporting_enabled | bool
+
 - name: Install optional Zabbix agent2 plugin packages
   ansible.builtin.package:
     name: "{{ zabbix_platform.plugin_packages }}"
