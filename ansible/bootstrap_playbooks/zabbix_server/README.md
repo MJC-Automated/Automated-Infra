@@ -164,7 +164,7 @@ Example: external DB mode with pre-existing DB:
 
 ```bash
 ZABBIX_DB_MODE=external
-ZABBIX_DB_HOST=198.51.100.25
+ZABBIX_DB_HOST=198.51.100.49
 ZABBIX_DB_MANAGE_USER_AND_DB=false
 ZABBIX_DB_IMPORT_SCHEMA=false
 ```

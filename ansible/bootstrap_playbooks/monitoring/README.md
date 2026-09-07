@@ -440,7 +440,7 @@ The snapshot must be non-empty, readable by Alloy, and contain no credentials.
 Central Prometheus examples:
 
 ```bash
-OBSERVABILITY_IP=198.51.100.30
+OBSERVABILITY_IP=198.51.100.48
 
 curl -fsS --get \
   --data-urlencode 'query=up{job="alloy"}' \

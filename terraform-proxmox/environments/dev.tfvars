@@ -123,7 +123,7 @@ node_groups = {
       name           = "public-weblogic14c-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.15"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.19"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -159,7 +159,7 @@ node_groups = {
       name           = "public-weblogic12c-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.15"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.19"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -186,7 +186,7 @@ node_groups = {
       name           = "public-database19c-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.15"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.19"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -211,7 +211,7 @@ node_groups = {
       name           = "public-database19c-ol9-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.15"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.19"
       os_profile     = "oracle9"
       cores          = 6
       memory         = 10240
@@ -237,7 +237,7 @@ node_groups = {
       name           = "public-database21c-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.15"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.19"
       cores          = 6
       memory         = 10240
       disk_size      = "50G"
@@ -262,7 +262,7 @@ node_groups = {
       name                   = "public-zabbix-01"
       backup                 = true
       backup_storage         = "backups"
-      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.51"
+      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.44"
       cores                  = 6
       memory                 = 10240
       disk_size              = "50G"
@@ -287,7 +287,7 @@ node_groups = {
       name           = "public-freeipa-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
       os_profile     = "oracle9"
       cores          = 4
       memory         = 8192
@@ -314,7 +314,7 @@ node_groups = {
       name           = "public-keycloak-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 8192
@@ -341,7 +341,7 @@ node_groups = {
       name                   = "public-observability-01"
       backup                 = true
       backup_storage         = "backups"
-      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.51"
+      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.44"
       os_profile             = "ubuntu2404"
       cores                  = 6
       memory                 = 16384
@@ -370,7 +370,7 @@ node_groups = {
       name           = "public-zimbra-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
       os_profile     = "oracle9"
       cores          = 6
       memory         = 16384
@@ -395,7 +395,7 @@ node_groups = {
       name           = "public-jenkins-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -420,7 +420,7 @@ node_groups = {
       name           = "public-gitlab-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -445,7 +445,7 @@ node_groups = {
       name           = "public-jenkins-agent-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -470,7 +470,7 @@ node_groups = {
       name           = "public-gitlab-runner-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -502,7 +502,7 @@ node_groups = {
       name           = "public-k8s-cp-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 4096
@@ -530,7 +530,7 @@ node_groups = {
       name           = "public-k8s-etcd-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096
@@ -555,7 +555,7 @@ node_groups = {
       name           = "public-k8s-worker-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096
@@ -577,7 +577,7 @@ node_groups = {
       name           = "public-k8s-worker-02"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.51"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.44"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096
