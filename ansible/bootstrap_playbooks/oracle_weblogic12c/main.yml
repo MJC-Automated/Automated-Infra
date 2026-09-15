@@ -37,6 +37,12 @@
       loop: "{{ query('fileglob', inventory_dir + '/group_vars/weblogic12c.yml') }}"
       tags: [always]
 
+    - name: Load WebLogic host overrides from host_vars
+      ansible.builtin.include_vars:
+        file: "{{ item }}"
+      loop: "{{ query('fileglob', inventory_dir + '/host_vars/' + inventory_hostname + '.yml', inventory_dir + '/host_vars/' + inventory_hostname + '/*.yml', inventory_dir + '/host_vars/' + inventory_hostname + '.yaml') }}"
+      tags: [always]
+
     - name: Validate required WebLogic admin password input
       ansible.builtin.assert:
         that:

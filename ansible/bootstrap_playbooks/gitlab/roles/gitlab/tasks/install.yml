@@ -15,6 +15,61 @@
   retries: 3
   delay: 10
 
+- name: Query installed GitLab package version before repository upgrade
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - -W
+      - -f=${Version}
+      - "{{ gitlab_edition }}"
+  register: gitlab_installed_version
+  changed_when: false
+  failed_when: false
+
+- name: Check whether selected GitLab target is after the required stop
+  ansible.builtin.command:
+    argv:
+      - dpkg
+      - --compare-versions
+      - "{{ gitlab_version }}"
+      - gt
+      - "{{ gitlab_required_upgrade_stop_version }}"
+  register: gitlab_target_after_required_stop
+  changed_when: false
+  failed_when: false
+
+- name: Check whether installed GitLab is before the required stop
+  ansible.builtin.command:
+    argv:
+      - dpkg
+      - --compare-versions
+      - "{{ gitlab_installed_version.stdout | trim }}"
+      - lt
+      - "{{ gitlab_required_upgrade_stop_version }}"
+  register: gitlab_installed_before_required_stop
+  changed_when: false
+  failed_when: false
+  when:
+    - gitlab_installed_version.rc == 0
+    - gitlab_target_after_required_stop.rc == 0
+
+- name: Block GitLab upgrades that skip the required 19.2 stop
+  ansible.builtin.assert:
+    that:
+      - gitlab_installed_before_required_stop.rc != 0
+    fail_msg: >-
+      Installed {{ gitlab_edition }} {{ gitlab_installed_version.stdout | trim }}
+      must first upgrade to {{ gitlab_required_upgrade_stop_version }} before
+      {{ gitlab_version }}. Run with -e gitlab_version={{ gitlab_required_upgrade_stop_version }}
+      (or update GITLAB_VERSION in .env), wait for all GitLab background
+      migrations to finish, back up again, then rerun with
+      -e gitlab_version={{ gitlab_version }}. Use a matching local package or
+      clear gitlab_package_path to use the repository at each stop.
+  when:
+    - gitlab_installed_version.rc == 0
+    - gitlab_target_after_required_stop.rc == 0
+    - gitlab_installed_before_required_stop.rc == 0
+
 - name: Check local GitLab package on controller
   ansible.builtin.stat:
     path: "{{ gitlab_package_path }}"
@@ -36,6 +91,27 @@
     src: "{{ gitlab_package_path }}"
     dest: "/tmp/{{ gitlab_package_path | basename }}"
     mode: "0644"
+  when: gitlab_package_path | length > 0
+
+- name: Read local GitLab package version
+  ansible.builtin.command:
+    argv:
+      - dpkg-deb
+      - --field
+      - "/tmp/{{ gitlab_package_path | basename }}"
+      - Version
+  register: gitlab_local_package_version
+  changed_when: false
+  when: gitlab_package_path | length > 0
+
+- name: Require local GitLab package to match the configured version
+  ansible.builtin.assert:
+    that:
+      - gitlab_local_package_version.stdout | trim == gitlab_version
+    fail_msg: >-
+      Local GitLab package version {{ gitlab_local_package_version.stdout | trim }}
+      does not match configured gitlab_version {{ gitlab_version }}. Update
+      both values together and preserve the required GitLab upgrade stops.
   when: gitlab_package_path | length > 0
 
 - name: Install GitLab from local package

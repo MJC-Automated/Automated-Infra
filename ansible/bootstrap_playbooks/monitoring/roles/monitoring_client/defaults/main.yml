@@ -352,10 +352,15 @@ monitoring_oracle_metrics_timer: iac-oracle-metrics.timer
 monitoring_oracle_home: >-
   {{ monitoring_profile_effective.oracle_home | default('') }}
 monitoring_oracle_server_definition: >-
-  {{ oracle_servers[inventory_hostname] | default({})
-     if oracle_servers is defined else {} }}
+  {{ oracle_servers[inventory_hostname]
+     if (oracle_servers is defined and inventory_hostname in oracle_servers)
+     else (hostvars[inventory_hostname].oracle_servers[inventory_hostname]
+           if (hostvars[inventory_hostname].oracle_servers is defined and inventory_hostname in hostvars[inventory_hostname].oracle_servers)
+           else (hostvars[inventory_hostname].oracle_server_definition | default({}))) }}
 monitoring_oracle_cdbs: >-
-  {{ monitoring_oracle_server_definition.oracle_cdbs | default([]) }}
+  {{ monitoring_oracle_server_definition.oracle_cdbs
+     if (monitoring_oracle_server_definition is mapping and monitoring_oracle_server_definition.oracle_cdbs is defined)
+     else (hostvars[inventory_hostname].oracle_cdbs | default([])) }}
 monitoring_oracle_safe_keys:
   - oracle.ping
   - oracle.version

@@ -9,6 +9,13 @@ Deploys a unified observability stack on Ubuntu 24.04 using Docker:
 - OpenTelemetry Collector
 - Node Exporter
 
+The image pins are deliberately kept separate from the reviewed current
+upstream releases. See the [service upgrade compatibility
+runbook](../../../docs/service-upgrade-compatibility.md) before changing them:
+the proposed Grafana, Prometheus, Loki, Tempo, collector, and
+kube-state-metrics updates cross major or multiple minor versions and require
+a data-copy test.
+
 Package reconciliation accepts apt metadata updated within the prior hour.
 This keeps routine idempotent runs independent of a transient Ubuntu mirror
 outage while still refreshing stale package indexes before installation.

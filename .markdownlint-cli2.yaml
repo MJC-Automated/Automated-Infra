@@ -9,6 +9,10 @@ config:
       - details
       - summary
       - b
+      # terraform-docs generates named anchors and multi-line type cells.
+      - a
+      - pre
+      - br
   MD040: false
 
 ignores:

@@ -114,4 +114,9 @@ ansible-inventory --graph
   for several minutes; wait for both the unit and `zmcontrol status` to become
   healthy before testing listeners.
 - Installer logs are available on target under `/tmp/install.log` and `/opt/zimbra/log/`.
-- Re-runs are idempotent at the role level (`/opt/zimbra/bin/zmcontrol` gate skips reinstall).
+- The installed-version preflight runs `zmcontrol -v` in the `zimbra` login
+  context because Zimbra command-line tools reject execution as `root`.
+- Re-runs are idempotent for the selected Zimbra release. If `/opt/zimbra` is
+  a different release, the role fails instead of silently skipping an unsafe
+  in-place upgrade. Back up, complete the vendor release-specific upgrade,
+  verify `zmcontrol status`, then rerun with the matching artifact.

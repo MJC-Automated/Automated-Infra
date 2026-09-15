@@ -99,3 +99,32 @@
   ansible.builtin.stat:
     path: /opt/zimbra/bin/zmcontrol
   register: zimbra_installed_bin
+
+- name: Read installed Zimbra version before reconciliation
+  ansible.builtin.command:
+    argv:
+      - su
+      - "-"
+      - zimbra
+      - -c
+      - /opt/zimbra/bin/zmcontrol -v
+  register: zimbra_installed_version
+  changed_when: false
+  when: zimbra_installed_bin.stat.exists
+
+- name: Block an implicit Zimbra in-place upgrade
+  ansible.builtin.assert:
+    that:
+      - >-
+        zimbra_allow_in_place_upgrade | bool or
+        zimbra_installed_version.stdout is search(
+          'Release ' ~ (zimbra_target_version | regex_escape)
+        )
+    fail_msg: >-
+      Installed Zimbra {{ zimbra_installed_version.stdout | trim }} does not
+      match selected target {{ zimbra_target_version }}. This playbook does not
+      automate in-place upgrades. Back up the instance, follow the vendor
+      release-specific upgrade procedure, validate zmcontrol status, then rerun
+      this playbook. Set zimbra_allow_in_place_upgrade=true only after that
+      procedure has completed.
+  when: zimbra_installed_bin.stat.exists

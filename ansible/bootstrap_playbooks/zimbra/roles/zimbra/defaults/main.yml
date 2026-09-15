@@ -1,6 +1,10 @@
 ---
 # Artifact + staging
 zimbra_artifact_path: "/resources/zcs-10.1.15_GA_4200001.RHEL9_64.20260110181427.tgz"
+zimbra_target_version: "10.1.15"
+# This role provisions a new single-node instance; it must not silently treat
+# an existing, different Zimbra release as current.
+zimbra_allow_in_place_upgrade: false
 zimbra_install_base_dir: "/zimbra/zimbra-installer"
 zimbra_install_dir_name: "{{ zimbra_artifact_path | basename | regex_replace('\\.tgz$', '') }}"
 zimbra_install_dir: "{{ zimbra_install_base_dir }}/{{ zimbra_install_dir_name }}"

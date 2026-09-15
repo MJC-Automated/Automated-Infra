@@ -12,6 +12,7 @@ acceptance evidence, see:
 
 - [Zabbix server documentation](../zabbix_server/README.md)
 - [Observability documentation](../observability/README.md)
+- [Service upgrade compatibility runbook](../../../docs/service-upgrade-compatibility.md)
 
 ## Execution Model
 
@@ -440,7 +441,7 @@ The snapshot must be non-empty, readable by Alloy, and contain no credentials.
 Central Prometheus examples:
 
 ```bash
-OBSERVABILITY_IP=198.51.100.48
+OBSERVABILITY_IP=198.51.100.24
 
 curl -fsS --get \
   --data-urlencode 'query=up{job="alloy"}' \

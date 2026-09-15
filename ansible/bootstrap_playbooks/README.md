@@ -32,6 +32,33 @@ Service bootstrap playbooks are grouped here to keep app/db automation modular a
 - `ansible/bootstrap_playbooks/jenkins/main.yml`
 - `ansible/bootstrap_playbooks/gitlab/main.yml`
 
+## Controller Compatibility
+
+All entry points use the shared controller dependency set in
+`ansible/requirements.txt` and collections in `ansible/requirements.yml`.
+The supported baseline is Ansible `14.3.1`, ansible-core `2.21.3`, and
+cryptography `50.0.1` on Python 3.13. Install the files together rather than
+upgrading a single package in an existing controller environment; CI validates
+the playbooks with the production ansible-lint profile and deprecated fact
+injection disabled.
+
+## Upgrade Regression Checks
+
+Use the [service upgrade compatibility runbook](../../docs/service-upgrade-compatibility.md)
+for staged upgrades, backups, and version overrides. GitLab one-run version
+overrides use Ansible `-e` arguments, not shell environment assignments.
+
+From the repository root, run the controller-side regression checks with the
+shared Python environment:
+
+```bash
+PYENV_VERSION=v3.13.14 python -m unittest discover -s ansible/tests -v
+```
+
+These tests use disposable local fixtures, not inventory hosts. They check
+upgrade behavior but do not replace a backed-up staging upgrade and service
+health checks.
+
 ## Inventory Convention
 
 From inside `ansible/bootstrap_playbooks/*`, committed defaults use the tracked `dev` inventory shape:
@@ -60,5 +87,9 @@ The desired source model is the 18-node `dev` scaffold in `terraform-proxmox/env
 - External DNS mode does not retrofit records into an outside authority. Publish the required A, SRV, URI, and `ipa-ca` records in your zone before expecting FreeIPA verification to pass.
 - If Pi-hole/dnsmasq is authoritative for the zone, manage those records as static dnsmasq entries. Pi-hole does not support `nsupdate`, so FreeIPA cannot push zone changes into it during playbook runs.
 - Jenkins and GitLab are configured for local-network homelab use by default. Put pre-downloaded JDK, Jenkins, GitLab, GitLab Runner, and Jenkins plugin-manager artifacts under `/resources` and set the matching `.env` paths when you want to avoid live repository downloads.
+  - **Jenkins APT Repository**: Uses the official Debian deb822 flat repository specification (`Suites: binary/` with trailing slash, and no `Components` field). Malformed `.sources` files with empty `Components:` or legacy `/etc/apt/sources.list.d/jenkins.list` entries are automatically purged before package cache updates.
+  - **GitLab Runner Offline Bundle**: Modern GitLab Runner packages strictly depend on `gitlab-runner-helper-images (= ${binary:Version})`. Offline installations require both `gitlab_runner_package_path` and `gitlab_runner_helper_images_package_path`. Both packages are verified for version parity and checksum before installation as an offline bundle.
+  - **GitLab Runner Service Health**: Runner systemd service state is enforced unconditionally (`started` and `enabled`) regardless of registration state, followed by `gitlab-runner verify` to detect daemon or registration failures without leaking credentials.
+  - **Inventory Variable Shadowing**: When passing multiple `-i` inventory flags, run `terraform-proxmox/scripts/validate-inventory-shadowing.sh` to ensure no stale `group_vars` from migrated hosts clobber active configurations. Monitoring client definitions incorporate fallback to `hostvars[inventory_hostname]` to guarantee CDB mapping preservation.
 - Jenkins standalone mode is supported: omit `jenkins_agent`/`jenkins_agents` inventory hosts, keep `JENKINS_AGENT_*` unset, or set `JENKINS_MANAGE_AGENTS=false`. Multiple Jenkins agents are supported by adding multiple hosts to `jenkins_agent` and overriding per-host values in `host_vars` when needed. Externally managed agents not present in inventory require `JENKINS_ALLOW_EXTERNAL_AGENTS=true`.
 - GitLab standalone mode is supported: omit `gitlab_runner`/`gitlab_runners` inventory hosts. Multiple GitLab runner VMs are supported by adding multiple `gitlab_runner` hosts; runner names default to each inventory hostname unless overridden in host vars.

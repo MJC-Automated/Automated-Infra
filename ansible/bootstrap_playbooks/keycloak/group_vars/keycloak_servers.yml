@@ -1,5 +1,6 @@
 ---
-keycloak_version: "26.2.0"
+keycloak_version: "26.7.3"
+keycloak_archive_sha256: "77657f30b7e90d70f727712ce1c967f430fd6a5e9f458d32d8c6df0635345f47"
 keycloak_user: "keycloak"
 keycloak_group: "keycloak"
 keycloak_install_base_dir: "/opt"

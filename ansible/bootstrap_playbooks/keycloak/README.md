@@ -1,5 +1,24 @@
 # Keycloak Playbook (`keycloak`)
 
+## Upgrade Safety
+
+The selected Keycloak archive is SHA-256 verified. Before a minor or major
+upgrade, stop all Keycloak nodes using the database and back up both PostgreSQL
+and the active installation. The role copies `providers/` and `themes/`
+(including hidden files) into the extracted new distribution **before**
+replacing a mounted installation or switching a version symlink. A failed
+preservation copy aborts before replacement. The new distribution is rebuilt
+with the preserved providers before the service restarts; a same-version
+rerun does not invalidate its optimized build.
+
+Preservation does not make old extensions compatible automatically. Migrate
+custom code/templates as required by the [Keycloak upgrade guide](https://www.keycloak.org/docs/latest/upgrading/)
+and test health, login, hostname/proxy behavior, and custom providers/themes
+before promotion. A database rollback requires restoring the pre-upgrade
+backup; retaining the old binaries alone is insufficient. See the repository [service upgrade
+compatibility runbook](../../../docs/service-upgrade-compatibility.md) for the
+reviewed target and artifact requirements.
+
 Automates Keycloak on Ubuntu 24.04 with local PostgreSQL and systemd service management.
 
 ## Files

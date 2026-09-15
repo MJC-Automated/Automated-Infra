@@ -388,7 +388,7 @@ Execution results:
 
 ### Common Issues
 
-- **Python interpreter not found:** Ensure Python 3.9+ is installed, or set `ansible_python_interpreter=/usr/bin/python3` in the Terraform inventory output if you must override.
+- **Python interpreter not found:** Ensure Python 3.9+ is installed (e.g. `/usr/bin/python3.9` on Oracle Linux 8 or `/usr/bin/python3` on Ubuntu / Oracle Linux 9), or set `ansible_python_interpreter` in the inventory output if you must override.
 - **SSH connection issues:** Adjust `ansible_ssh_common_args` via Terraform inventory inputs or in `ansible.cfg` if you need legacy SSH algorithms.
 - **SSH drop-ins exist but are ineffective:** Check the main config for `Include /etc/ssh/sshd_config.d/*.conf`, run `sshd -t`, and inspect the per-user result with `sshd -T -C`; Oracle Linux 8 lacks the include in its stock main config.
 - **Permission denied:** Ensure the `ansible_user` has `sudo` privileges and that `ansible_become=true` is set.

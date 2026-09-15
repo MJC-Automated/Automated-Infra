@@ -1,6 +1,6 @@
 ---
 # defaults file for jenkins role
-jenkins_version: "2.555.3"
+jenkins_version: "2.568.3"
 jenkins_package_path: ""
 jenkins_repo_url: "https://pkg.jenkins.io/debian-stable"
 jenkins_repo_key_url: "{{ jenkins_repo_url }}/jenkins.io-2026.key"
@@ -13,10 +13,13 @@ jenkins_controller_executors: 0
 jenkins_java_opts: "-Xms512m -Xmx2048m -Djenkins.install.runSetupWizard=false -Djenkins.model.Jenkins.slaveAgentPort=-1"
 jenkins_required_password_length: 16
 
-# Jenkins 2.555.x requires Java 21 or 25 on the controller and agents.
+# Jenkins 2.555.1+ requires Java 21 or 25 on the controller and every agent.
 jenkins_java_install_method: "apt" # apt, local, or auto
 jenkins_java_package: "openjdk-21-jdk"
 jenkins_java_home: "/usr/lib/jvm/java-21-openjdk-amd64"
+jenkins_java_allowed_majors:
+  - 21
+  - 25
 
 # Optional local JDK settings from /resources. Set jenkins_java_install_method
 # to local or auto after placing a Java 21 archive on the controller.

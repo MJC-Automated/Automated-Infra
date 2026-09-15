@@ -51,9 +51,17 @@ output "all_vm_host_ips" {
   description = "Parsed host IP addresses (without CIDR/gateway) of all VMs (corresponding to sorted names)."
   value = [
     for name in local.sorted_vm_names :
-    split("/", split("=", split(",", local.vm_name_to_ip[name])[0])[1])[0]
+    try(
+      regex("(?:^|[,[:space:]])ip=([0-9]{1,3}(?:\\.[0-9]{1,3}){3})", local.vm_name_to_ip[name])[0],
+      split("/", split("=", split(",", local.vm_name_to_ip[name])[0])[1])[0]
+    )
   ]
   sensitive = true
+}
+
+output "all_vm_vlans" {
+  description = "Effective VLAN tags for all VMs (0 = untagged)."
+  value       = local.vm_network_vlan
 }
 
 output "vm_backup_policy" {
@@ -148,7 +156,10 @@ output "connection_info" {
     // Parsed host IP addresses (without CIDR) for direct SSH tooling.
     group_host_ips = {
       for group, nodes in var.node_groups : group => [
-        for vm in local.flattened_vms : split("/", split("=", split(",", vm.config.ipconfig0)[0])[1])[0] if vm.group == group
+        for vm in local.flattened_vms : try(
+          regex("(?:^|[,[:space:]])ip=([0-9]{1,3}(?:\\.[0-9]{1,3}){3})", vm.config.ipconfig0)[0],
+          split("/", split("=", split(",", vm.config.ipconfig0)[0])[1])[0]
+        ) if vm.group == group
       ]
     }
   }

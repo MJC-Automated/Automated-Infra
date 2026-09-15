@@ -76,7 +76,7 @@ variable "os_profiles" {
       clone_template             = "oracle8"
       fs_type                    = "xfs"
       os_family                  = "oracle"
-      ansible_python_interpreter = "/usr/bin/python3"
+      ansible_python_interpreter = "/usr/bin/python3.9"
     }
     oracle9 = {
       clone_template             = "oracle9"
@@ -281,6 +281,7 @@ variable "vm_defaults" {
     nameserver            = optional(string, "")
     searchdomain          = optional(string, "")
     skip_ipv6             = optional(bool, false)
+    network_vlan          = optional(number, null)
   })
   default = {}
   validation {
@@ -301,6 +302,15 @@ variable "vm_defaults" {
       can(regex("^[A-Za-z0-9._-]+$", trimspace(var.vm_defaults.efi_disk_storage)))
     )
     error_message = "vm_defaults.efi_disk_storage must be empty or a valid Proxmox storage name (letters, numbers, dot, underscore, hyphen)."
+  }
+  validation {
+    condition = (
+      var.vm_defaults.network_vlan == null || (
+        var.vm_defaults.network_vlan == floor(var.vm_defaults.network_vlan) &&
+        (var.vm_defaults.network_vlan == 0 || (var.vm_defaults.network_vlan >= 1 && var.vm_defaults.network_vlan <= 4094))
+      )
+    )
+    error_message = "vm_defaults.network_vlan must be null, 0 (untagged), or an integer VLAN ID from 1 through 4094."
   }
 }
 
@@ -366,6 +376,7 @@ variable "node_groups" {
     nameserver                  = optional(string, "")
     searchdomain                = optional(string, "")
     skip_ipv6                   = optional(bool)
+    network_vlan                = optional(number)
     monitoring_enabled          = optional(bool, true)
     monitoring_profile          = optional(string, "")
     monitoring_expected_up      = optional(bool)
@@ -514,6 +525,87 @@ variable "node_groups" {
       ]
     ]))
     error_message = "node_groups.*.*.ha_group requires ha_state either per-VM or via vm_defaults.ha_state."
+  }
+  validation {
+    condition = (
+      length(compact(flatten([
+        for _, group in var.node_groups : [
+          for _, vm in group : try(
+            regex("(?:^|[,[:space:]])ip=([0-9]{1,3}(?:\\.[0-9]{1,3}){3})", vm.ipconfig0)[0],
+            null
+          )
+        ]
+        ]))) == length(distinct(compact(flatten([
+          for _, group in var.node_groups : [
+            for _, vm in group : try(
+              regex("(?:^|[,[:space:]])ip=([0-9]{1,3}(?:\\.[0-9]{1,3}){3})", vm.ipconfig0)[0],
+              null
+            )
+          ]
+      ]))))
+    )
+    error_message = "Overlapping IPv4 address allocation detected in node_groups ipconfig0 configurations. Every VM must have a unique static IPv4 address."
+  }
+  validation {
+    condition = (
+      length(compact(flatten([
+        for _, group in var.node_groups : [
+          for _, vm in group : try(
+            regex("(?:^|[,[:space:]])ip6=([0-9a-fA-F:]*:[0-9a-fA-F:]*)", vm.ipconfig0)[0],
+            null
+          )
+        ]
+        ]))) == length(distinct(compact(flatten([
+          for _, group in var.node_groups : [
+            for _, vm in group : try(
+              regex("(?:^|[,[:space:]])ip6=([0-9a-fA-F:]*:[0-9a-fA-F:]*)", vm.ipconfig0)[0],
+              null
+            )
+          ]
+      ]))))
+    )
+    error_message = "Overlapping IPv6 address allocation detected in node_groups ipconfig0 configurations. Every VM must have a unique static IPv6 address."
+  }
+  validation {
+    condition = (
+      length(flatten([
+        for _, group in var.node_groups : [
+          for _, vm in group : vm.vmid
+        ]
+        ])) == length(distinct(flatten([
+          for _, group in var.node_groups : [
+            for _, vm in group : vm.vmid
+          ]
+      ])))
+    )
+    error_message = "Duplicate VMID detected in node_groups. Each VM must have a unique vmid."
+  }
+  validation {
+    condition = (
+      length(flatten([
+        for _, group in var.node_groups : [
+          for _, vm in group : trimspace(vm.name)
+        ]
+        ])) == length(distinct(flatten([
+          for _, group in var.node_groups : [
+            for _, vm in group : trimspace(vm.name)
+          ]
+      ])))
+    )
+    error_message = "Duplicate VM name detected in node_groups. Each VM must have a unique name."
+  }
+  validation {
+    condition = alltrue(flatten([
+      for _, group in var.node_groups : [
+        for _, vm in group : (
+          try(vm.network_vlan, null) == null || (
+            try(vm.network_vlan, null) == floor(try(vm.network_vlan, 0)) &&
+            (try(vm.network_vlan, 0) == 0 || (try(vm.network_vlan, 0) >= 1 && try(vm.network_vlan, 0) <= 4094))
+          )
+        )
+      ]
+    ]))
+    error_message = "node_groups.*.*.network_vlan must be null, 0 (untagged), or an integer VLAN ID from 1 through 4094."
   }
 }
 

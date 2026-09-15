@@ -18,7 +18,9 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 
 ---
 
-<img src="./project-wallpaper.png" alt="isolated" width="1000"/>
+<img src="./project-wallpaper.png" alt="IaC-Homelab: Proxmox infrastructure with Terraform, Ansible, Vault, Kubernetes, and observability" width="1000"/>
+
+[Artwork and generation prompt](docs/project-wallpaper.md)
 
 ---
 
@@ -56,6 +58,9 @@ Environment-aware infrastructure automation platform for Proxmox-based homelab o
 - The committed `inventories/example/inventory.ini` is generated output and can lag `dev.tfvars`; validate and regenerate it through a reviewed Terraform apply before using newly added groups.
 
 ## Standard Entry Points
+
+For the reviewed service-version matrix, artifact requirements, and safe
+upgrade sequences, see [Service Upgrade Compatibility](docs/service-upgrade-compatibility.md).
 
 - Terraform/Packer workflow: run from `terraform-proxmox/` via `make` targets.
   Start with the scenario-oriented [Terraform operator guide](terraform-proxmox/README.md).
@@ -100,6 +105,10 @@ All Ansible automation uses the repository-wide pyenv virtualenv declared in `an
 - Control-node pyenv virtualenv: `v3.13.14`
 - Python packages: `ansible/requirements.txt`
 - Ansible collections: `ansible/requirements.yml`
+
+The pinned controller baseline is Ansible `14.3.1` / ansible-core `2.21.3`
+with cryptography `50.0.1`. Keep these pins together: the repository CI runs
+the production Ansible lint profile against this exact requirements file.
 
 Setup example:
 

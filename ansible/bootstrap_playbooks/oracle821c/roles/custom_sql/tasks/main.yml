@@ -86,7 +86,7 @@
 - name: APP SQL | Render SQL template per target
   ansible.builtin.template:
     src: "{{ item.sql_template | default(oracle_app_sql_default_template) }}"
-    dest: "{{ oracle_app_sql_stage_dir }}/{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.sql"
+    dest: "{{ oracle_app_sql_stage_dir }}/{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default(oracle_app_sql_default_sql_id) }}.sql"
     owner: "{{ oracle_user }}"
     group: "{{ oracle_group_inventory }}"
     mode: "0600"
@@ -107,7 +107,7 @@
   ansible.builtin.command:
     argv:
       - cat
-      - "{{ oracle_app_sql_stage_dir }}/.applied_{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.ok"
+      - "{{ oracle_app_sql_stage_dir }}/.applied_{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default(oracle_app_sql_default_sql_id) }}.ok"
   become: true
   become_user: "{{ oracle_user }}"
   loop: "{{ oracle_app_sql_targets_resolved }}"
@@ -227,11 +227,11 @@
     set define off
     set verify off
     alter session set container = {{ item.container | default(item.pdb_name) | upper }};
-    @{{ oracle_app_sql_stage_dir }}/{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.sql
+    @{{ oracle_app_sql_stage_dir }}/{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default(oracle_app_sql_default_sql_id) }}.sql
     exit;
     EOF
 
-    printf '%s\n' "{{ oracle_app_sql_render.results[oracle_app_sql_idx].checksum }}" > "{{ oracle_app_sql_stage_dir }}/.applied_{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default('app_bootstrap') }}.ok"
+    printf '%s\n' "{{ oracle_app_sql_render.results[oracle_app_sql_idx].checksum }}" > "{{ oracle_app_sql_stage_dir }}/.applied_{{ item.cdb_sid | upper }}_{{ item.pdb_name | upper }}_{{ item.sql_id | default(oracle_app_sql_default_sql_id) }}.ok"
   become: true
   become_user: "{{ oracle_user }}"
   loop: "{{ oracle_app_sql_targets_resolved }}"

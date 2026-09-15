@@ -67,8 +67,8 @@ oracle_servers:
       - cdb_sid: "cdb1"
         pdb_name: "pdb1"
         database_name: "pdb1"
-        sql_id: "tq_app_bootstrap"
-        sql_template: "tq_app_bootstrap_minimal.sql.j2"
+        sql_id: "app_bootstrap"
+        sql_template: "app_bootstrap_minimal.sql.j2"
 ```
 
 ## Add More CDBs/PDBs
@@ -117,13 +117,13 @@ Notes:
 - The per-target marker stores the rendered SQL checksum. A changed template or credential map runs once; unchanged SQL is skipped unless `oracle_app_sql_force: true`.
 - Before template SQL runs, the role ensures a `USERS` tablespace exists in the target PDB.
 - Full and minimal templates rotate existing application accounts as well as creating missing accounts.
-- `vault_oracle_app_user_passwords` or per-host `oracle_app_user_passwords` can supply a complete explicit map. Every value must be distinct from its username, 12-30 characters, and limited to letters, digits, `!@#%_+=.-`. Otherwise, distinct stable `TQ_*` passwords are derived from the resolved database administrator secret; username-equals-password defaults are not used.
+- `vault_oracle_app_user_passwords` or per-host `oracle_app_user_passwords` can supply a complete explicit map. Every value must be distinct from its username, 12-30 characters, and limited to letters, digits, `!@#%_+=.-`. Otherwise, distinct stable `APP_*` passwords are derived from the resolved database administrator secret; username-equals-password defaults are not used.
 - Rendered SQL is owner-only mode `0600`, and rendering/execution results are protected with `no_log`.
 
 Template options:
 
-- `tq_app_bootstrap_full.sql.j2`: full `TQ_*` users/tablespaces/grants bootstrap
-- `tq_app_bootstrap_minimal.sql.j2`: minimal bootstrap (core tablespaces + baseline user/grants)
+- `app_bootstrap_full.sql.j2`: full `APP_*` users/tablespaces/grants bootstrap
+- `app_bootstrap_minimal.sql.j2`: minimal bootstrap (core tablespaces + baseline user/grants)
 
 ## Credential Handling
 
@@ -192,7 +192,7 @@ ansible-playbook main.yml -l database19c_ol9 --tags verify
 
 ## CRUD Scenario
 
-End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `TQ_*` logins, delete/reconcile) plus WebLogic follow-up checks:
+End-to-end DB CRUD (add CDB/PDB, listener/firewall checks, remote SYS and `APP_*` logins, delete/reconcile) plus WebLogic follow-up checks:
 
 - Admin Console validation should target AdminServer ports.
 - Managed-server `/console` endpoints returning HTTP `404` are expected.

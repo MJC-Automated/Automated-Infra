@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 ENVIRONMENT="${ENVIRONMENT:-${1:-dev}}"
+BOOTSTRAP_TF_WORKSPACE="${TF_WORKSPACE:-${ENVIRONMENT}}"
 ENV_FILE="${ENV_FILE:-${REPO_ROOT}/.env}"
 TFVARS_FILE="${TFVARS_FILE:-${REPO_ROOT}/environments/${ENVIRONMENT}.tfvars}"
 VAULT_AUTH_SCRIPT="${VAULT_AUTH_SCRIPT:-${REPO_ROOT}/scripts/vault-auth.sh}"
@@ -249,6 +250,9 @@ if [[ -f "${ENV_FILE}" ]]; then
   source "${ENV_FILE}"
   set +a
 fi
+# A dotenv default must not redirect governance imports or applies to another
+# workspace after Make has verified the explicitly requested environment.
+export TF_WORKSPACE="${BOOTSTRAP_TF_WORKSPACE}"
 if [[ -n "${explicit_vault_token}" ]]; then
   VAULT_TOKEN="${explicit_vault_token}"
 fi

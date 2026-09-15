@@ -16,9 +16,19 @@
 - name: Check if Keycloak archive exists in local resources
   ansible.builtin.stat:
     path: "/resources/{{ keycloak_archive }}"
+    checksum_algorithm: sha256
   delegate_to: localhost
   become: false
   register: keycloak_local_archive
+
+- name: Verify local Keycloak archive checksum
+  ansible.builtin.assert:
+    that:
+      - keycloak_local_archive.stat.checksum == keycloak_archive_sha256
+    fail_msg: >-
+      Local Keycloak archive /resources/{{ keycloak_archive }} does not match
+      the configured SHA-256 for Keycloak {{ keycloak_version }}.
+  when: keycloak_local_archive.stat.exists | default(false)
 
 - name: Copy Keycloak archive from local resources
   ansible.builtin.copy:
@@ -32,6 +42,7 @@
     url: "{{ keycloak_download_base_url }}/{{ keycloak_version }}/{{ keycloak_archive }}"
     dest: "/tmp/{{ keycloak_archive }}"
     mode: "0644"
+    checksum: "sha256:{{ keycloak_archive_sha256 }}"
   when: not (keycloak_local_archive.stat.exists | default(false))
 
 - name: Extract Keycloak archive
@@ -91,6 +102,34 @@
       }}
   changed_when: false
   when: keycloak_install_dir_mountpoint.rc == 0
+
+- name: Preserve Keycloak providers and themes before replacing the active distribution
+  ansible.builtin.shell: |
+    set -euo pipefail
+    source_dir={{ keycloak_install_dir | quote }}
+    target_dir={{ keycloak_extract_dir | quote }}
+    if [ "$(readlink -f -- "$source_dir")" = "$(readlink -f -- "$target_dir")" ]; then
+      exit 0
+    fi
+    for customization in providers themes; do
+      if [ -d "$source_dir/$customization" ]; then
+        mkdir -p -- "$target_dir/$customization"
+        cp -a -- "$source_dir/$customization/." "$target_dir/$customization/"
+      fi
+    done
+    # A retried upgrade may have an optimized build made before these providers
+    # were copied. Configure must rebuild it before the service is restarted.
+    rm -f -- "$target_dir/.built"
+  args:
+    executable: /bin/bash
+  when:
+    - keycloak_install_dir_stat.stat.exists
+    - >-
+      (keycloak_install_dir_mountpoint.rc == 0 and
+       keycloak_mount_install_needs_refresh | default(false)) or
+      (keycloak_install_dir_stat.stat.islnk | default(false) and
+       keycloak_install_dir_stat.stat.lnk_source != keycloak_extract_dir)
+  changed_when: true
 
 - name: Refresh mounted Keycloak install directory from selected version
   ansible.builtin.shell: |

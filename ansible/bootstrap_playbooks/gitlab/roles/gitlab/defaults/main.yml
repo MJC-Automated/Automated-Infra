@@ -1,7 +1,11 @@
 ---
 # defaults file for gitlab role
 gitlab_edition: "gitlab-ce"
-gitlab_version: "19.1.2-ce.0"
+gitlab_version: "19.3.1-ce.0"
+# GitLab 19 requires 19.2 as a mandatory stop before a later minor release.
+# Use the latest 19.2 patch, complete its background migrations, then rerun at
+# the desired target version.
+gitlab_required_upgrade_stop_version: "19.2.5-ce.0"
 gitlab_package_path: ""
 gitlab_server_inventory_host: "{{ groups['gitlab_servers'] | first }}"
 gitlab_external_url: >-
@@ -70,6 +74,10 @@ gitlab_runner_docker_allowed_pull_policies:
 gitlab_runner_install_docker: true
 gitlab_runner_docker_package_source: "ubuntu" # ubuntu or docker
 gitlab_runner_package_path: ""
+gitlab_runner_helper_images_package_path: ""
+gitlab_runner_package_checksum: ""
+gitlab_runner_helper_images_package_checksum: ""
+gitlab_runner_version: "19.3.1-1"
 gitlab_runner_template_path: "/etc/gitlab-runner/runner-template.toml"
 
 # Admin API token. Leave unset to generate ansible/bootstrap_playbooks/gitlab/files/gitlab_api_token.

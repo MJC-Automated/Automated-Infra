@@ -36,6 +36,12 @@
       loop: "{{ query('fileglob', inventory_dir + '/group_vars/weblogic14c.yml') }}"
       tags: [always]
 
+    - name: Load WebLogic host overrides from host_vars
+      ansible.builtin.include_vars:
+        file: "{{ item }}"
+      loop: "{{ query('fileglob', inventory_dir + '/host_vars/' + inventory_hostname + '.yml', inventory_dir + '/host_vars/' + inventory_hostname + '/*.yml', inventory_dir + '/host_vars/' + inventory_hostname + '.yaml') }}"
+      tags: [always]
+
     - name: Validate required WebLogic admin password input
       ansible.builtin.assert:
         that:
@@ -57,24 +63,6 @@
       when: rcu_enabled | bool
       no_log: true
       tags: [always]
-
-    - name: Bootstrap python3 on target host (if missing)
-      ansible.builtin.raw: |
-        if command -v python3 >/dev/null 2>&1; then
-          exit 0
-        fi
-        if command -v dnf >/dev/null 2>&1; then
-          dnf install -y python3 python3-dnf
-        elif command -v yum >/dev/null 2>&1; then
-          yum install -y python3
-        elif command -v apt-get >/dev/null 2>&1; then
-          apt-get update -y && apt-get install -y python3 python3-apt
-        else
-          echo "No supported package manager found. Install python3 manually." >&2
-          exit 1
-        fi
-      changed_when: false
-      when: bootstrap_python | bool
 
     - name: Gather facts
       ansible.builtin.setup:

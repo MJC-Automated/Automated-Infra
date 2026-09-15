@@ -8,7 +8,10 @@
       "details",
       "summary",
       "b",
-      "img"
+      "img",
+      "a",
+      "pre",
+      "br"
     ]
   }
 }

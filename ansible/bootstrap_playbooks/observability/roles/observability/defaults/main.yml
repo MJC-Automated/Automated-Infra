@@ -17,8 +17,14 @@ observability_tempo_retention: "24h"
  # environment/cluster.
 observability_kube_state_metrics_enabled: false
 observability_kube_state_metrics_manage_kubeconfig: false
+observability_ksm_control_plane_host: "localhost"
 observability_kubeconfig_path: "/etc/observability/kube-state-metrics.kubeconfig"
 observability_kube_state_metrics_image: "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.14.0"
+observability_prometheus_image: "prom/prometheus:v2.54.1"
+observability_loki_image: "grafana/loki:3.2.1"
+observability_tempo_image: "grafana/tempo:2.6.1"
+observability_grafana_image: "grafana/grafana:11.2.0"
+observability_otel_collector_image: "otel/opentelemetry-collector-contrib:0.108.0"
 observability_kube_state_metrics_cluster: "{{ cluster_name | default('example') }}"
 observability_kube_state_metrics_namespace: kube-system
 observability_kube_state_metrics_service_account: iac-kube-state-metrics

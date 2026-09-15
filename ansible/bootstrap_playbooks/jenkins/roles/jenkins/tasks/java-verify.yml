@@ -1,0 +1,22 @@
+---
+- name: Read Jenkins runtime Java version
+  ansible.builtin.command:
+    argv:
+      - "{{ java_home }}/bin/java"
+      - -version
+  register: jenkins_runtime_java
+  changed_when: false
+
+- name: Require a Jenkins-supported Java runtime on controller and agents
+  ansible.builtin.assert:
+    that:
+      - jenkins_runtime_java.rc == 0
+      - >-
+        jenkins_runtime_java.stderr is search(
+          'version "(' ~ (jenkins_java_allowed_majors | join('|')) ~ ')([.\"]|$)'
+        )
+    fail_msg: >-
+      Jenkins {{ jenkins_version }} requires Java
+      {{ jenkins_java_allowed_majors | join(' or ') }} on every controller and
+      agent. {{ java_home }}/bin/java reported:
+      {{ jenkins_runtime_java.stderr | default(jenkins_runtime_java.stdout, true) }}

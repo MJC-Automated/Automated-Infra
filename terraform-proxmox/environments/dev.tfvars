@@ -25,6 +25,7 @@ clone_template = "ubuntu2404" // Fallback template (per-group OS profile overrid
 storage_pool    = "shared-storage"
 snippet_storage = "local"
 network_bridge  = "vmbr0"
+network_vlan    = 0 // Optional default VLAN tag for primary workload NICs (0 = untagged)
 timeout         = 300
 force_create    = true
 
@@ -108,7 +109,8 @@ vm_defaults = {
   // HA/power/protection defaults for all VMs (optional):
   // ha_state           = ""
   // ha_group           = ""
-  // power_state           = "running"
+  // network_vlan       = 0
+  // power_state        = "running"
   // start_at_node_boot = false
   // protection         = false
   // balloon            = 0
@@ -132,10 +134,12 @@ node_groups = {
       // Optional HA/power/protection per-VM overrides:
       // ha_state           = "started"
       // ha_group           = "platform-ha"
-      // power_state           = "running"
+      // power_state        = "running"
       // start_at_node_boot = true
       // protection         = true
       // balloon            = 8192
+      // Optional per-VM VLAN tag override (0 = untagged, omitted = inherit default):
+      // network_vlan       = 100
       tags      = "weblogic14c"
       data_disk = { size = "60G" }
       partitioning = {
@@ -258,15 +262,17 @@ node_groups = {
   // Ubuntu 24.04: Zabbix
   "zabbix" = {
     "zabbix-dot84" = {
-      vmid                   = 10004
-      name                   = "public-zabbix-01"
-      backup                 = true
-      backup_storage         = "backups"
-      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.44"
-      cores                  = 6
-      memory                 = 10240
-      disk_size              = "50G"
-      tags                   = "zabbix"
+      vmid           = 10004
+      name           = "public-zabbix-01"
+      backup         = true
+      backup_storage = "backups"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.48"
+      cores          = 6
+      memory         = 10240
+      disk_size      = "50G"
+      tags           = "zabbix"
+      // Optional per-VM VLAN tag override (0 = untagged, omitted = inherit default):
+      // network_vlan          = 200
       monitoring_expected_up = true
       data_disk              = { size = "8G" }
       partitioning = {
@@ -287,7 +293,7 @@ node_groups = {
       name           = "public-freeipa-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.48"
       os_profile     = "oracle9"
       cores          = 4
       memory         = 8192
@@ -314,7 +320,7 @@ node_groups = {
       name           = "public-keycloak-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 8192
@@ -341,7 +347,7 @@ node_groups = {
       name                   = "public-observability-01"
       backup                 = true
       backup_storage         = "backups"
-      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.44"
+      ipconfig0              = "ip=203.0.113.0/24,gw=198.51.100.48"
       os_profile             = "ubuntu2404"
       cores                  = 6
       memory                 = 16384
@@ -370,7 +376,7 @@ node_groups = {
       name           = "public-zimbra-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.48"
       os_profile     = "oracle9"
       cores          = 6
       memory         = 16384
@@ -395,7 +401,7 @@ node_groups = {
       name           = "public-jenkins-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -420,7 +426,7 @@ node_groups = {
       name           = "public-gitlab-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -445,7 +451,7 @@ node_groups = {
       name           = "public-jenkins-agent-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -470,7 +476,7 @@ node_groups = {
       name           = "public-gitlab-runner-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 15360
@@ -502,13 +508,15 @@ node_groups = {
       name           = "public-k8s-cp-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 4
       memory         = 4096
       disk_size      = "50G"
       tags           = "kubernetes,k8s,control-plane,etcd"
-      data_disk      = { size = "40G" }
+      // Optional per-VM VLAN tag override (0 = untagged, omitted = inherit default):
+      // network_vlan  = 300
+      data_disk = { size = "40G" }
       partitioning = {
         enabled     = true
         disk_device = "/dev/vda"
@@ -530,7 +538,7 @@ node_groups = {
       name           = "public-k8s-etcd-01"
       backup         = true
       backup_storage = "backups"
-      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=192.0.2.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096
@@ -555,7 +563,7 @@ node_groups = {
       name           = "public-k8s-worker-01"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=198.51.100.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096
@@ -577,7 +585,7 @@ node_groups = {
       name           = "public-k8s-worker-02"
       backup         = false
       backup_storage = "backups"
-      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.44"
+      ipconfig0      = "ip=203.0.113.0/24,gw=198.51.100.48"
       os_profile     = "ubuntu2404"
       cores          = 2
       memory         = 4096

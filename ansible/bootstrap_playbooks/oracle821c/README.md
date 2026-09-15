@@ -76,6 +76,12 @@ oracle_servers:
 - A per-target marker stores the rendered SQL checksum. A changed template or credential map runs once; unchanged SQL is skipped unless `oracle_app_sql_force: true`.
 - Full and minimal templates rotate existing application accounts as well as creating missing accounts. `vault_oracle_app_user_passwords` or per-host `oracle_app_user_passwords` can supply a complete map whose values are distinct from usernames, 12-30 characters, and limited to letters, digits, `!@#%_+=.-`; otherwise distinct stable `APP_*` passwords are derived from the database administrator secret.
 - Rendered SQL is owner-only mode `0600`, and rendering/execution results are protected with `no_log`.
+
+Template options:
+
+- `app_bootstrap_full.sql.j2`: full `APP_*` users/tablespaces/grants bootstrap
+- `app_bootstrap_minimal.sql.j2`: minimal bootstrap (core tablespaces + baseline user/grants)
+
 - The database administrator password resolves from `vault_oracle_db_admin_password`, `.env`/runtime `ORACLE_DB_ADMIN_PASSWORD`, or an ignored persistent controller seed at `files/oracle_db_admin_password_seed`, in that order. The fallback directory is mode `0700` and the seed is mode `0600`; preserve it across reruns and VM recreation.
 
 ## Mandatory Prerequisites

@@ -41,6 +41,12 @@
       loop: "{{ query('fileglob', inventory_dir + '/group_vars/database21c.yml') }}"
       tags: [always]
 
+    - name: Load Oracle Database 21c host overrides from host_vars
+      ansible.builtin.include_vars:
+        file: "{{ item }}"
+      loop: "{{ query('fileglob', inventory_dir + '/host_vars/' + inventory_hostname + '.yml', inventory_dir + '/host_vars/' + inventory_hostname + '/*.yml', inventory_dir + '/host_vars/' + inventory_hostname + '.yaml') }}"
+      tags: [always]
+
     - name: Determine whether a local Oracle admin secret seed is required
       ansible.builtin.set_fact:
         oracle_external_db_admin_password: "{{ oracle_db_admin_password | default('', true) }}"

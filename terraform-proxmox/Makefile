@@ -3,13 +3,16 @@
 
 SHELL := /bin/bash
 
-.PHONY: help setup setup-tools check-tools vault-login vault-bootstrap vault-approle-refresh vault-runtime-verify vault-audit-check vault-audit-enable-file rotate-proxmox-creds env-discover env-template env-ssh-access env-cloud-images env-base-vm env-base-vm-ubuntu2404 env-base-vm-oracle8 env-base-vm-oracle9 env-base-vms env-bootstrap env-bootstrap-apply init validate fmt plan apply deploy destroy-workloads destroy-governance workspace-create workspace-select workspace-list create-dirs tf-security-scan tfsec tflint tf_scan render-snippets upload-snippets snippets packer-build packer-build-all packer-destroy-all k8s-deploy backup backup-jobs backup-vms verify-backups restore-drill clean-backups vault-mode-status vault-mode-loopback vault-mode-lan vault-mode-lan-auto vault-mode-verify vault-unseal-help vault-tls-regenerate vault-reinit-dry-run vault-reinit vault-recovery-list clean clean-all clean-legacy-inventory check-env
+.PHONY: help setup setup-tools check-tools docs-terraform vault-login vault-bootstrap vault-approle-refresh vault-runtime-verify vault-audit-check vault-audit-enable-file rotate-proxmox-creds env-discover env-template env-ssh-access env-cloud-images env-base-vm env-base-vm-ubuntu2404 env-base-vm-oracle8 env-base-vm-oracle9 env-base-vms env-bootstrap env-bootstrap-apply init validate fmt plan apply deploy destroy-workloads destroy-governance workspace-create workspace-select workspace-list create-dirs tf-security-scan tfsec tflint tf_scan render-snippets upload-snippets snippets packer-build packer-build-all packer-destroy-all k8s-deploy backup backup-jobs backup-vms verify-backups restore-drill clean-backups vault-mode-status vault-mode-loopback vault-mode-lan vault-mode-lan-auto vault-mode-verify vault-unseal-help vault-tls-regenerate vault-reinit-dry-run vault-reinit vault-recovery-list clean clean-all clean-legacy-inventory check-env check-ip-conflicts
 
 # Default environment follows the currently selected Terraform workspace.
 # Falls back to dev when workspace is unset or still "default".
 CURRENT_WORKSPACE := $(shell terraform workspace show 2>/dev/null || true)
 DEFAULT_ENVIRONMENT := $(if $(CURRENT_WORKSPACE),$(if $(filter default,$(CURRENT_WORKSPACE)),dev,$(CURRENT_WORKSPACE)),dev)
 ENVIRONMENT ?= $(DEFAULT_ENVIRONMENT)
+# Bind each workflow to its requested workspace, including recursive make calls.
+# A concurrent operation must not redirect it via .terraform/environment.
+plan apply render-snippets vault-bootstrap: override export TF_WORKSPACE = $(ENVIRONMENT)
 MAKEFILE_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 CLOUD_IMAGE_CATALOG ?= $(MAKEFILE_DIR)/config/cloud-images.env
 include $(CLOUD_IMAGE_CATALOG)
@@ -61,6 +64,15 @@ DISCOVER_PROXMOX_CORE_SCRIPT ?= ./scripts/discover-proxmox-core.sh
 SCAFFOLD_ENV_SCRIPT ?= ./scripts/scaffold-env.sh
 PROXMOX_SSH_SETUP_SCRIPT ?= ./scripts/setup-proxmox-root-ssh.sh
 REMOTE_BASE_VM_SCRIPT ?= ./scripts/create-base-vm-remote.sh
+VALIDATE_IP_CONFLICTS_SCRIPT ?= ./scripts/validate-ip-conflicts.sh
+VALIDATE_INVENTORY_SHADOWING_SCRIPT ?= ./scripts/validate-inventory-shadowing.sh
+VALIDATE_CAPACITY_HEADROOM_SCRIPT ?= ./scripts/validate-capacity-headroom.sh
+VERIFY_BACKUP_RECOVERY_SCRIPT ?= ./scripts/verify-backup-recovery.sh
+GENERATE_K8S_INVENTORY_SCRIPT ?= ./scripts/generate-k8s-inventory.sh
+VERIFY_K8S_CLUSTER_SCRIPT ?= ./scripts/verify-k8s-cluster.sh
+VERIFY_TELEMETRY_FRESHNESS_SCRIPT ?= ../scripts/verify-telemetry-freshness.sh
+KUBESPRAY_PINNED_TAG ?= v2.26.0
+K8S_INVENTORY_FILE ?= $(INVENTORY_ROOT)/k8s/inventory.ini
 
 # Packer configuration
 PACKER_DIR ?= packer/ubuntu-noble
@@ -228,6 +240,7 @@ help:
 	    @echo "  ${GREEN}setup${NC}            : Sync common cloud images and create base VM (local Proxmox mode)"
 	    @echo "  ${GREEN}setup-tools${NC}      : Install vault/terraform/packer/jq (Ubuntu/Debian) and run checks"
 	    @echo "  ${GREEN}check-tools${NC}      : Validate local toolchain + Vault/Packer/Terraform readiness"
+	    @echo "  ${GREEN}docs-terraform${NC}   : Regenerate Terraform module interface references"
 	    @echo "  ${GREEN}vault-login${NC}      : Authenticate to Vault (AppRole/token) and cache token locally"
 	    @echo "  ${GREEN}vault-bootstrap${NC}  : Recreate Vault module resources + refresh AppRole IDs + rotate Proxmox creds"
 	    @echo "  ${GREEN}vault-approle-refresh${NC}: Refresh only local AppRole runtime IDs with an admin token"
@@ -295,6 +308,7 @@ help:
 		@echo "  ${GREEN}tfsec${NC}            : Run tfsec security checks"
 		@echo "  ${GREEN}tf_scan${NC}          : Run tf-security-scan + tflint + tfsec"
 	    @echo "  ${GREEN}validate${NC}         : Validate Terraform configuration files"
+	    @echo "  ${GREEN}check-ip-conflicts${NC}: Verify no IP/VMID/host collisions across environments or live infra"
 	    @echo "  ${GREEN}fmt${NC}              : Format Terraform configuration files"
 	    @echo "  ${GREEN}init${NC}             : Initialize Terraform"
 	    @echo "  ${GREEN}plan${NC}             : Generate a Terraform execution plan"
@@ -479,17 +493,21 @@ env-base-vm:
 	            echo "${YELLOW}Hint:${NC} set PROXMOX_HOST or PROXMOX_HOST_<ENV> in .env."; \
 	            exit 1; \
 	    fi
-	    @PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" \
+	    @BOOTSTRAP_FILE="environments/$(ENVIRONMENT).bootstrap.env"; \
+	    if [ -f "$$BOOTSTRAP_FILE" ]; then \
+	            set -a; . "$$BOOTSTRAP_FILE"; set +a; \
+	    fi; \
+	    PROXMOX_HOST="$(PROXMOX_HOST_FOR_ENV)" PROXMOX_USER="$(PROXMOX_USER)" \
 	            VMID="$(BASE_VM_VMID)" NAME="$(BASE_VM_NAME)" OS_TYPE="$(BASE_VM_OS_TYPE)" \
 	            FORCE="$(BASE_VM_FORCE)" DRY_RUN="$(BASE_VM_DRY_RUN)" \
 	            REMOTE_ENV_FILE="$(BASE_VM_REMOTE_ENV_FILE)" \
 	            SANITIZE_TEMPLATE_BASE="$(BASE_VM_SANITIZE_TEMPLATE_BASE)" SHUTDOWN_FINAL_VM="$(BASE_VM_SHUTDOWN_FINAL_VM)" \
-	            DO_OS_UPDATE="$(BASE_VM_DO_OS_UPDATE)" \
-	            BRIDGE="$(BASE_VM_BRIDGE)" NETWORK_VLAN="$(BASE_VM_VLAN)" IPCIDR="$(BASE_VM_IPCIDR)" GATEWAY="$(BASE_VM_GATEWAY)" DNS="$(BASE_VM_DNS)" \
-	            OS_STORAGE="$(BASE_VM_OS_STORAGE)" DATA_STORAGE="$(BASE_VM_DATA_STORAGE)" EFI_STORAGE="$(BASE_VM_EFI_STORAGE)" \
-	            CI_STORAGE="$(BASE_VM_CI_STORAGE)" SNIPPET_STORAGE="$(BASE_VM_SNIPPET_STORAGE)" \
-	            CORES="$(BASE_VM_CORES)" MEM="$(BASE_VM_MEM)" OS_DISK_SIZE="$(BASE_VM_OS_DISK_SIZE)" \
-	            CIUSER="$(BASE_VM_CIUSER)" SSH_KEYS_FILE="$(BASE_VM_SSH_KEYS_FILE)" \
+	            DO_OS_UPDATE="$${DO_OS_UPDATE:-$(BASE_VM_DO_OS_UPDATE)}" \
+	            BRIDGE="$${BASE_VM_BRIDGE:-$(BASE_VM_BRIDGE)}" NETWORK_VLAN="$${BASE_VM_VLAN:-$(BASE_VM_VLAN)}" IPCIDR="$${BASE_VM_IPCIDR:-$(BASE_VM_IPCIDR)}" GATEWAY="$${BASE_VM_GATEWAY:-$(BASE_VM_GATEWAY)}" DNS="$${BASE_VM_DNS:-$(BASE_VM_DNS)}" \
+	            OS_STORAGE="$${BASE_VM_OS_STORAGE:-$(BASE_VM_OS_STORAGE)}" DATA_STORAGE="$${BASE_VM_DATA_STORAGE:-$(BASE_VM_DATA_STORAGE)}" EFI_STORAGE="$${BASE_VM_EFI_STORAGE:-$(BASE_VM_EFI_STORAGE)}" \
+	            CI_STORAGE="$${BASE_VM_CI_STORAGE:-$(BASE_VM_CI_STORAGE)}" SNIPPET_STORAGE="$${BASE_VM_SNIPPET_STORAGE:-$(BASE_VM_SNIPPET_STORAGE)}" \
+	            CORES="$${BASE_VM_CORES:-$(BASE_VM_CORES)}" MEM="$${BASE_VM_MEM:-$(BASE_VM_MEM)}" OS_DISK_SIZE="$${BASE_VM_OS_DISK_SIZE:-$(BASE_VM_OS_DISK_SIZE)}" \
+	            CIUSER="$${BASE_VM_CIUSER:-$(BASE_VM_CIUSER)}" SSH_KEYS_FILE="$(BASE_VM_SSH_KEYS_FILE)" \
 	            ORACLE_LINUX_IMAGE="$(ORACLE_LINUX_IMAGE)" UBUNTU_IMAGE="$(UBUNTU_IMAGE)" \
 	            AUTO_DOWNLOAD_IMAGE="$(AUTO_DOWNLOAD_IMAGE)" UBUNTU_IMAGE_URL="$(UBUNTU_IMAGE_URL)" UBUNTU24_IMAGE_URL="$(UBUNTU24_IMAGE_URL)" ORACLE8_IMAGE_URL="$(ORACLE8_IMAGE_URL)" ORACLE9_IMAGE_URL="$(ORACLE9_IMAGE_URL)" ORACLE8_IMAGE_SHA256="$(ORACLE8_IMAGE_SHA256)" ORACLE9_IMAGE_SHA256="$(ORACLE9_IMAGE_SHA256)" UBUNTU24_IMAGE_SHA256="$(UBUNTU24_IMAGE_SHA256)" ORACLE8_CHECKSUM_URL="$(ORACLE8_CHECKSUM_URL)" ORACLE9_CHECKSUM_URL="$(ORACLE9_CHECKSUM_URL)" UBUNTU24_CHECKSUM_URL="$(UBUNTU24_CHECKSUM_URL)" DOWNLOAD_IMAGE_SCRIPT="$(DOWNLOAD_CLOUD_IMAGE_SCRIPT)" \
 	            "$(REMOTE_BASE_VM_SCRIPT)"
@@ -560,12 +578,38 @@ env-bootstrap-apply: env-bootstrap
 # Workspace management
 workspace-create: create-dirs
 	    @echo "${YELLOW}--- Creating workspace: ${ENVIRONMENT} ---${NC}"
-	    @terraform workspace new $(ENVIRONMENT) 2>/dev/null || echo "Workspace $(ENVIRONMENT) may already exist"
+	    @if [ -n "$$TF_WORKSPACE" ]; then \
+	            if [ "$$TF_WORKSPACE" != "$(ENVIRONMENT)" ]; then \
+	                    echo "${RED}Error: TF_WORKSPACE=$$TF_WORKSPACE does not match ENVIRONMENT=$(ENVIRONMENT).${NC}"; \
+	                    exit 1; \
+	            fi; \
+	            WORKSPACES="$$(env -u TF_WORKSPACE terraform workspace list)" || exit $$?; \
+	            if printf '%s\n' "$$WORKSPACES" | sed 's/^[*[:space:]]*//' | grep -Fxq -- "$(ENVIRONMENT)"; then \
+	                    echo "Workspace $(ENVIRONMENT) already exists"; \
+	            else \
+	                    env -u TF_WORKSPACE terraform workspace new "$(ENVIRONMENT)"; \
+	            fi; \
+	    else \
+	            terraform workspace new "$(ENVIRONMENT)" 2>/dev/null || echo "Workspace $(ENVIRONMENT) may already exist"; \
+	    fi
 	    @echo "${GREEN}✓ Workspace $(ENVIRONMENT) ready${NC}"
 
 workspace-select: create-dirs
 	    @echo "${YELLOW}--- Selecting workspace: ${ENVIRONMENT} ---${NC}"
-	    @terraform workspace select $(ENVIRONMENT)
+	    @if [ -n "$$TF_WORKSPACE" ]; then \
+	            if [ "$$TF_WORKSPACE" != "$(ENVIRONMENT)" ]; then \
+	                    echo "${RED}Error: TF_WORKSPACE=$$TF_WORKSPACE does not match ENVIRONMENT=$(ENVIRONMENT).${NC}"; \
+	                    exit 1; \
+	            fi; \
+	            WORKSPACES="$$(env -u TF_WORKSPACE terraform workspace list)" || exit $$?; \
+	            if ! printf '%s\n' "$$WORKSPACES" | sed 's/^[*[:space:]]*//' | grep -Fxq -- "$(ENVIRONMENT)"; then \
+	                    echo "${RED}Error: Terraform workspace $(ENVIRONMENT) does not exist.${NC}"; \
+	                    exit 1; \
+	            fi; \
+	            echo "${GREEN}✓ Workspace pinned by TF_WORKSPACE: $(ENVIRONMENT)${NC}"; \
+	    else \
+	            terraform workspace select "$(ENVIRONMENT)"; \
+	    fi
 	    @echo "${GREEN}✓ Selected workspace: $(ENVIRONMENT)${NC}"
 
 workspace-list:
@@ -599,6 +643,9 @@ tf_scan: tf-security-scan tflint tfsec
 	    @echo "${GREEN}✓ Combined Terraform scan complete${NC}"
 
 # Validate Terraform configuration
+docs-terraform:
+	    @./scripts/generate-terraform-docs.sh
+
 validate:
 	    @echo "${YELLOW}--- Validating Terraform configuration ---${NC}"
 	    @terraform validate
@@ -617,13 +664,13 @@ init: create-dirs
 	    @echo "${GREEN}✓ Terraform initialized${NC}"
 
 # Render partitioning snippets from tfvars without provisioning VMs
-render-snippets: init workspace-select
+render-snippets: init
 	    @echo "${YELLOW}--- Rendering partitioning snippets for ${ENVIRONMENT} ---${NC}"
 	    @if [ ! -f "environments/$(ENVIRONMENT).tfvars" ]; then \
 	            echo "${RED}Error: environments/$(ENVIRONMENT).tfvars not found${NC}"; \
 	            exit 1; \
 	    fi
-	    @/bin/bash -lc "set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform apply -target=local_file.partitioning_snippet -target=local_file.cloudinit_first_access_snippet -var-file=\"environments/$(ENVIRONMENT).tfvars\" -auto-approve 2>&1 | tee \"$(LOG_DIR)/terraform-snippets-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
+	    @/bin/bash -lc "set -o pipefail; TF_WORKSPACE=\"$(ENVIRONMENT)\" $(WITH_VAULT_TOKEN_SCRIPT) terraform apply -target=local_file.partitioning_snippet -target=local_file.cloudinit_first_access_snippet -var-file=\"environments/$(ENVIRONMENT).tfvars\" -auto-approve 2>&1 | tee \"$(LOG_DIR)/terraform-snippets-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
 	    @echo "${GREEN}✓ Snippets rendered for $(ENVIRONMENT)${NC}"
 
 upload-snippets:
@@ -788,8 +835,38 @@ packer-destroy-all:
 	    @ENVIRONMENT="$(ENVIRONMENT)" PACKER_USE_VAULT_CREDS="$(PACKER_USE_VAULT_CREDS)" VAULT_PATH="$(PACKER_VAULT_PATH)" ./scripts/packer-destroy-all.sh
 	    @echo "${GREEN}✓ Packer destroy completed for $(ENVIRONMENT)${NC}"
 
+# Validate IP allocations across environments, inventories, and infrastructure hosts
+check-ip-conflicts: check-env
+	    @"$(VALIDATE_IP_CONFLICTS_SCRIPT)" --environment "$(ENVIRONMENT)" --repo-root "$(MAKEFILE_DIR)"
+
+# Validate inventory variable shadowing and stale group_vars mappings
+check-inventory-shadowing: check-env
+	    @"$(VALIDATE_INVENTORY_SHADOWING_SCRIPT)" --inventories "$$(dirname "$$(find $(MAKEFILE_DIR)/../inventories/$(ENVIRONMENT) -name 'inventory.ini' 2>/dev/null || echo $(MAKEFILE_DIR)/../inventories/$(ENVIRONMENT))")"
+
+# Validate cross-inventory variable collisions across all environments
+check-inventory-shadowing-all:
+	    @"$(VALIDATE_INVENTORY_SHADOWING_SCRIPT)" --all
+
+# Validate host capacity headroom and overcommit limits.
+# HOST_RAM_GIB is required — there are no silent defaults.
+# Example: make check-capacity ENVIRONMENT=example HOST_RAM_GIB=48
+check-capacity: check-env
+	    @if [ -z "$(HOST_RAM_GIB)" ]; then \
+	            echo "${RED}Error: HOST_RAM_GIB is required. Set it to the actual physical RAM in GiB for this host.${NC}"; \
+	            echo "  Example: make check-capacity ENVIRONMENT=example HOST_RAM_GIB=48"; \
+	            exit 1; \
+	    fi
+	    @"$(VALIDATE_CAPACITY_HEADROOM_SCRIPT)" --tfvars "environments/$(ENVIRONMENT).tfvars" --host-ram-gib "$(HOST_RAM_GIB)"
+
+# Verify backup policies and recovery readiness
+check-recovery: check-env
+	    @"$(VERIFY_BACKUP_RECOVERY_SCRIPT)" --environment "$(ENVIRONMENT)"
+
+# Comprehensive preflight checks covering IP, capacity, inventory, and backup readiness
+preflight-check: check-ip-conflicts check-capacity check-inventory-shadowing check-recovery ## Run all preflight checks
+
 # Generate Terraform plan
-plan: validate workspace-select
+plan: validate check-ip-conflicts
 	    @echo "${YELLOW}--- Generating Terraform plan for ${ENVIRONMENT} ---${NC}"
 	    @if [ ! -f "environments/$(ENVIRONMENT).tfvars" ]; then \
 	            echo "${RED}Error: environments/$(ENVIRONMENT).tfvars not found${NC}"; \
@@ -800,7 +877,7 @@ plan: validate workspace-select
 	    PLAN_FILE="$(PLAN_DIR)/$(ENVIRONMENT).tfplan"; \
 	    LOG_FILE="$(LOG_DIR)/terraform-plan-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log"; \
 	    run_plan() { \
-	            /bin/bash -lc "set -a; [ -f \"$(ENV_FILE)\" ] && source \"$(ENV_FILE)\"; set +a; set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform plan -var-file=\"$$TFVARS_FILE\" -out=\"$$PLAN_FILE\" 2>&1 | tee \"$$LOG_FILE\""; \
+	            /bin/bash -lc "set -a; [ -f \"$(ENV_FILE)\" ] && source \"$(ENV_FILE)\"; set +a; set -o pipefail; TF_WORKSPACE=\"$(ENVIRONMENT)\" $(WITH_VAULT_TOKEN_SCRIPT) terraform plan -var-file=\"$$TFVARS_FILE\" -out=\"$$PLAN_FILE\" 2>&1 | tee \"$$LOG_FILE\""; \
 	    }; \
 	    if run_plan; then \
 	            echo "${GREEN}✓ Terraform plan generated: $$PLAN_FILE${NC}"; \
@@ -826,11 +903,11 @@ plan: validate workspace-select
 	    fi
 
 # Apply Terraform plan
-apply:
+apply: check-ip-conflicts
 	    @$(MAKE) snippets ENVIRONMENT=$(ENVIRONMENT)
 	    @$(MAKE) plan ENVIRONMENT=$(ENVIRONMENT)
 	    @echo "${YELLOW}--- Applying Terraform plan for ${ENVIRONMENT} ---${NC}"
-	    @/bin/bash -lc "set -a; [ -f \"$(ENV_FILE)\" ] && source \"$(ENV_FILE)\"; set +a; set -o pipefail; $(WITH_VAULT_TOKEN_SCRIPT) terraform apply \"$(PLAN_DIR)/$(ENVIRONMENT).tfplan\" 2>&1 | tee \"$(LOG_DIR)/terraform-apply-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
+	    @/bin/bash -lc "set -a; [ -f \"$(ENV_FILE)\" ] && source \"$(ENV_FILE)\"; set +a; set -o pipefail; TF_WORKSPACE=\"$(ENVIRONMENT)\" $(WITH_VAULT_TOKEN_SCRIPT) terraform apply \"$(PLAN_DIR)/$(ENVIRONMENT).tfplan\" 2>&1 | tee \"$(LOG_DIR)/terraform-apply-$(ENVIRONMENT)-$$(date +%Y%m%d-%H%M%S).log\""
 	    @echo "${GREEN}✓ Terraform applied for $(ENVIRONMENT)${NC}"
 	    @$(MAKE) generate-inventory
 
@@ -865,16 +942,55 @@ check-env:
 		exit 1; \
 	fi
 
+# Kubernetes aggregate inventory generation
+k8s-inventory: ## Regenerate aggregate Kubespray inventory
+	@echo "Generating Kubernetes aggregate inventory..."
+	@"$(GENERATE_K8S_INVENTORY_SCRIPT)"
+
+# Kubernetes postcondition verification
+k8s-verify: ## Verify Kubernetes cluster health postconditions
+	@echo "Verifying Kubernetes cluster postconditions..."
+	@"$(VERIFY_K8S_CLUSTER_SCRIPT)"
+
+# Telemetry freshness verification
+telemetry-verify: ## Verify Prometheus and Loki freshness
+	@echo "Verifying end-to-end telemetry freshness..."
+	@"$(VERIFY_TELEMETRY_FRESHNESS_SCRIPT)"
+
 # Kubernetes deployment
-k8s-deploy: check-env ## Deploy Kubernetes cluster
+k8s-deploy: check-env k8s-inventory ## Deploy Kubernetes cluster
 	@echo "Deploying Kubernetes cluster for $(ENVIRONMENT)..."
 	@if [ ! -d "$(KUBESPRAY_DIR)" ]; then \
 		echo "Error: Kubespray directory not found at $(KUBESPRAY_DIR)"; \
 		echo "Please clone it or set KUBESPRAY_DIR variable."; \
 		exit 1; \
 	fi
-	@if [ ! -f "$(INVENTORY_FILE)" ]; then \
-		echo "Error: Inventory file not found at $(INVENTORY_FILE)"; \
+	@if [ -n "$(KUBESPRAY_PINNED_TAG)" ]; then \
+		if [ ! -d "$(KUBESPRAY_DIR)/.git" ]; then \
+			if [ "$(ALLOW_UNPINNED_KUBESPRAY)" != "true" ]; then \
+				echo "${RED}Error: $(KUBESPRAY_DIR) is not a git repository. Cannot verify pinned tag $(KUBESPRAY_PINNED_TAG). Set ALLOW_UNPINNED_KUBESPRAY=true to waive.${NC}"; \
+				exit 1; \
+			else \
+				echo "Warning: Kubespray directory is not a git repository (waived via ALLOW_UNPINNED_KUBESPRAY=true)"; \
+			fi; \
+		else \
+			EXACT_TAG="$$(git -C "$(KUBESPRAY_DIR)" describe --tags --exact-match 2>/dev/null || true)"; \
+			CURRENT_REV="$$(git -C "$(KUBESPRAY_DIR)" rev-parse --verify HEAD 2>/dev/null || true)"; \
+			PINNED_REV="$$(git -C "$(KUBESPRAY_DIR)" rev-parse --verify "$(KUBESPRAY_PINNED_TAG)^{commit}" 2>/dev/null || true)"; \
+			echo "Kubespray checkout: tag='$$EXACT_TAG', commit='$$CURRENT_REV' (pinned: $(KUBESPRAY_PINNED_TAG))"; \
+			if [ "$$EXACT_TAG" != "$(KUBESPRAY_PINNED_TAG)" ] && [ -n "$$PINNED_REV" ] && [ "$$CURRENT_REV" != "$$PINNED_REV" ]; then \
+				echo "${RED}Error: Kubespray checkout ($$EXACT_TAG / $$CURRENT_REV) does not match exact pinned tag $(KUBESPRAY_PINNED_TAG) ($$PINNED_REV)${NC}"; \
+				echo "Run: git -C $(KUBESPRAY_DIR) checkout $(KUBESPRAY_PINNED_TAG)"; \
+				exit 1; \
+			elif [ "$$EXACT_TAG" != "$(KUBESPRAY_PINNED_TAG)" ] && [ -z "$$PINNED_REV" ]; then \
+				echo "${RED}Error: Pinned tag $(KUBESPRAY_PINNED_TAG) not found in $(KUBESPRAY_DIR)${NC}"; \
+				exit 1; \
+			fi; \
+			echo "Kubespray verified at exact pinned revision $(KUBESPRAY_PINNED_TAG)"; \
+		fi; \
+	fi
+	@if [ ! -f "$(K8S_INVENTORY_FILE)" ]; then \
+		echo "Error: Inventory file not found at $(K8S_INVENTORY_FILE)"; \
 		exit 1; \
 	fi
 	@echo "Preparing isolated Kubespray environment..."
@@ -893,12 +1009,14 @@ k8s-deploy: check-env ## Deploy Kubernetes cluster
 	"$(KUBESPRAY_VENV_ABS)/bin/python" -m pip install -r "$(KUBESPRAY_DIR)/requirements.txt"; \
 	test -x "$(KUBESPRAY_VENV_ABS)/bin/ansible-playbook"
 	@echo "Running Ansible Playbook..."
-	@cd "$(KUBESPRAY_DIR)" && "$(KUBESPRAY_VENV_ABS)/bin/ansible-playbook" -i "$(INVENTORY_FILE)" -i "$(INVENTORY_DIR)/../aliases.ini" \
+	@cd "$(KUBESPRAY_DIR)" && "$(KUBESPRAY_VENV_ABS)/bin/ansible-playbook" -i "$(K8S_INVENTORY_FILE)" -i "$(INVENTORY_DIR)/../aliases.ini" \
 		--become --become-user=root \
 		--vault-password-file "$(MAKEFILE_DIR)/../ansible/.vault_password" \
 		cluster.yml \
 		--extra-vars "ansible_user=ansible ansible_ssh_private_key_file=~/.ssh/id_rsa"
-	@echo "Kubernetes cluster deployed for $(ENVIRONMENT)!"
+	@echo "Verifying Kubernetes cluster postconditions..."
+	@"$(VERIFY_K8S_CLUSTER_SCRIPT)"
+	@echo "Kubernetes cluster deployed and verified for $(ENVIRONMENT)!"
 
 # Backup current artifacts and a pulled copy of remote workspace state
 backup: create-dirs workspace-select

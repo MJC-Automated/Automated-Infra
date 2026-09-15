@@ -4,28 +4,7 @@
   become: true
   gather_facts: false
 
-  vars:
-    ansible_python_interpreter: /usr/bin/python3
-
   pre_tasks:
-    - name: Bootstrap python3 on target host (if missing)
-      ansible.builtin.raw: |
-        if command -v python3 >/dev/null 2>&1; then
-          exit 0
-        fi
-        if command -v dnf >/dev/null 2>&1; then
-          dnf install -y python3 python3-dnf
-        elif command -v yum >/dev/null 2>&1; then
-          yum install -y python3
-        elif command -v apt-get >/dev/null 2>&1; then
-          apt-get update -y && apt-get install -y python3 python3-apt
-        else
-          echo "No supported package manager found. Install python3 manually." >&2
-          exit 1
-        fi
-      changed_when: false
-      tags: [always]
-
     - name: Gather facts
       ansible.builtin.setup:
       tags: [always]
@@ -89,6 +68,10 @@
         gitlab_runner_install_docker: "{{ (GITLAB_RUNNER_INSTALL_DOCKER | default(gitlab_runner_install_docker | string, true)) | bool }}"
         gitlab_runner_docker_package_source: "{{ GITLAB_RUNNER_DOCKER_PACKAGE_SOURCE | default(gitlab_runner_docker_package_source, true) }}"
         gitlab_runner_package_path: "{{ GITLAB_RUNNER_PACKAGE_PATH | default(gitlab_runner_package_path, true) }}"
+        gitlab_runner_helper_images_package_path: "{{ GITLAB_RUNNER_HELPER_IMAGES_PACKAGE_PATH | default(gitlab_runner_helper_images_package_path, true) }}"
+        gitlab_runner_package_checksum: "{{ GITLAB_RUNNER_PACKAGE_CHECKSUM | default(gitlab_runner_package_checksum, true) }}"
+        gitlab_runner_helper_images_package_checksum: "{{ GITLAB_RUNNER_HELPER_IMAGES_PACKAGE_CHECKSUM | default(gitlab_runner_helper_images_package_checksum, true) }}"
+        gitlab_runner_version: "{{ GITLAB_RUNNER_VERSION | default(gitlab_runner_version, true) }}"
       tags: [always]
 
     - name: Apply GITLAB secret overrides from .env

@@ -58,8 +58,8 @@ The `time_sync` README and `main.yml` define an internal server/client NTP topol
 
 - `ntp_servers` contains the Ansible control node
 - `ntp_clients` contains service hosts that should sync from those internal servers
-- the playbook bootstraps Python 3 on targets when needed
-- facts are gathered after Python bootstrap, not before
+- targets use inventory-declared Python interpreters (e.g. AppStream Python 3.9 on OL8, Python 3 on Ubuntu/OL9)
+- facts are gathered using the configured host interpreter
 
 The alias file confirms the repo-wide grouping model:
 

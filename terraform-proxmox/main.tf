@@ -244,6 +244,21 @@ locals {
     )
   }
 
+  vm_network_vlan = {
+    for key, vm in local.flattened_vms : key => coalesce(
+      try(vm.config.network_vlan, null),
+      try(var.vm_defaults.network_vlan, null),
+      var.network_vlan
+    )
+  }
+
+  vm_host_ip = {
+    for key, vm in local.flattened_vms : key => try(
+      regex("(?:^|[,[:space:]])ip=([0-9]{1,3}(?:\\.[0-9]{1,3}){3})", vm.config.ipconfig0)[0],
+      split("/", split("=", split(",", vm.config.ipconfig0)[0])[1])[0]
+    )
+  }
+
   vm_force_recreate_trigger = {
     for key, vm in local.flattened_vms :
     key => (
@@ -295,9 +310,9 @@ locals {
     ["# All hosts", "[all_nodes]"],
     [
       for vm_key in sort(keys(local.flattened_vms)) : format(
-        "%s ansible_host=%s vmid=%s node_role=%s os_profile=%s os_family=%s ansible_python_interpreter=%s cores=%s memory_mb=%s disk_size=%s backup_enabled=%s backup_storage=%s monitoring_enabled=%s monitoring_profile=%s monitoring_environment=%s monitoring_expected_up=%s",
+        "%s ansible_host=%s vmid=%s node_role=%s os_profile=%s os_family=%s ansible_python_interpreter=%s cores=%s memory_mb=%s disk_size=%s backup_enabled=%s backup_storage=%s monitoring_enabled=%s monitoring_profile=%s monitoring_environment=%s monitoring_expected_up=%s network_vlan=%s",
         local.flattened_vms[vm_key].config.name,
-        split("/", split("=", split(",", local.flattened_vms[vm_key].config.ipconfig0)[0])[1])[0],
+        local.vm_host_ip[vm_key],
         local.flattened_vms[vm_key].config.vmid,
         local.flattened_vms[vm_key].group,
         local.vm_os_profile[vm_key],
@@ -311,7 +326,8 @@ locals {
         tostring(local.vm_monitoring_enabled[vm_key]),
         local.vm_monitoring_profile[vm_key],
         local.environment,
-        tostring(local.vm_monitoring_expected_up[vm_key])
+        tostring(local.vm_monitoring_expected_up[vm_key]),
+        tostring(local.vm_network_vlan[vm_key])
       )
     ],
     [""]
@@ -368,6 +384,25 @@ check "enabled_vm_backups_have_storage" {
       !enabled || length(local.vm_backup_storage[key]) > 0
     ])
     error_message = "Every VM with backup enabled must resolve backup_storage from its VM definition or backup_defaults.storage."
+  }
+}
+
+check "unique_vm_ip_allocations" {
+  assert {
+    condition = (
+      length(compact([
+        for key, vm in local.flattened_vms : try(
+          regex("(?:^|[,[:space:]])ip=([0-9]{1,3}(?:\\.[0-9]{1,3}){3})", vm.config.ipconfig0)[0],
+          null
+        )
+        ])) == length(distinct(compact([
+          for key, vm in local.flattened_vms : try(
+            regex("(?:^|[,[:space:]])ip=([0-9]{1,3}(?:\\.[0-9]{1,3}){3})", vm.config.ipconfig0)[0],
+            null
+          )
+      ])))
+    )
+    error_message = "Every VM must have a unique static IPv4 address allocation across all node groups."
   }
 }
 
@@ -468,6 +503,7 @@ module "proxmox_vms" {
     "Monitoring Profile: ${local.vm_monitoring_profile[each.key]}",
     "Monitoring Expected Up: ${local.vm_monitoring_expected_up[each.key]}",
     "IP Configuration: ${each.value.config.ipconfig0}",
+    "VLAN: ${local.vm_network_vlan[each.key]}",
     "",
     "--- Partitions (Logical Volumes) ---",
     try(each.value.config.partitioning.enabled, false) ? join("\n", concat([
@@ -513,7 +549,7 @@ module "proxmox_vms" {
   boot_order            = var.vm_defaults.boot_order
   boot_disk_device      = var.vm_defaults.boot_disk_device
   network_bridge        = var.network_bridge
-  network_vlan          = var.network_vlan
+  network_vlan          = local.vm_network_vlan[each.key]
   network_model         = var.vm_defaults.network_model
   ha_state = (
     trimspace(try(each.value.config.ha_state, "")) != "" ?
@@ -587,7 +623,7 @@ resource "local_file" "deployment_summary" {
     cluster_name = var.cluster_name
     deployment_info = merge({
       terraform_version = ">= 1.10.0"
-      provider_version  = "3.0.2-rc09"
+      provider_version  = "3.0.2-rc10"
       }, local.creation_timestamp != "" ? {
       timestamp = local.creation_timestamp
     } : {})
@@ -625,6 +661,10 @@ resource "local_file" "deployment_summary" {
       target_node    = var.target_node
       storage_pool   = var.storage_pool
       network_bridge = var.network_bridge
+      network_vlan   = var.network_vlan
+      vm_vlans = {
+        for key, vm in local.flattened_vms : key => local.vm_network_vlan[key]
+      }
     }
     tags = local.summary_tags
   })

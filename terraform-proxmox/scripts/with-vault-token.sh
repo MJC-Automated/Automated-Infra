@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 VAULT_AUTH_SCRIPT="${VAULT_AUTH_SCRIPT:-${REPO_ROOT}/scripts/vault-auth.sh}"
 ENV_FILE="${ENV_FILE:-${REPO_ROOT}/.env}"
+COMMAND_TF_WORKSPACE="${TF_WORKSPACE:-}"
 
 is_true() {
   local v="${1:-}"
@@ -73,6 +74,11 @@ if [[ -f "${ENV_FILE}" ]]; then
     source "${ENV_FILE}"
     set +a
   fi
+fi
+
+# Authentication defaults must not redirect an explicitly selected operation.
+if [[ -n "${COMMAND_TF_WORKSPACE}" ]]; then
+  export TF_WORKSPACE="${COMMAND_TF_WORKSPACE}"
 fi
 
 if [[ -z "${VAULT_ADDR:-}" ]]; then

@@ -5,6 +5,10 @@
   ansible.builtin.import_tasks: java.yml
   tags: [java, os_prereqs]
 
+- name: Verify Java compatibility for Jenkins runtime processes
+  ansible.builtin.import_tasks: java-verify.yml
+  tags: [java, verify]
+
 - name: Configure Jenkins Agent Node
   ansible.builtin.import_tasks: agent.yml
   when:

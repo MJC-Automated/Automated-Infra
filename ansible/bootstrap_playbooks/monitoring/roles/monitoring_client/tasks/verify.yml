@@ -127,6 +127,20 @@
   retries: 12
   delay: 5
 
+- name: Verify installed Grafana Alloy version matches the checksum-pinned package
+  ansible.builtin.command:
+    argv:
+      - alloy
+      - --version
+  register: monitoring_alloy_version_check
+  changed_when: false
+  failed_when: >-
+    monitoring_alloy_version_check.rc != 0 or
+    not (
+      (monitoring_alloy_version_check.stdout ~ monitoring_alloy_version_check.stderr)
+      is search('v?' ~ (monitoring_alloy_version | regex_escape) ~ '(\s|$)')
+    )
+
 - name: Verify Alloy ACLs on Kubernetes log roots
   ansible.builtin.command:
     argv:

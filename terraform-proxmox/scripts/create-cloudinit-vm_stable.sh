@@ -42,10 +42,10 @@ Required content:
   CIUSER="ansible"
   PASSWORD="<set-strong-cloud-init-password>"
   SSH_KEYS_FILE="/root/.ssh/authorized_keys"
-  ZABBIX_SERVER="198.51.100.42"
+  ZABBIX_SERVER="198.51.100.43"
   # Optional explicit split targets:
-  # ZABBIX_SERVER_PASSIVE="198.51.100.42"
-  # ZABBIX_SERVER_ACTIVE="198.51.100.42:10051"
+  # ZABBIX_SERVER_PASSIVE="198.51.100.43"
+  # ZABBIX_SERVER_ACTIVE="198.51.100.43:10051"
 
 EOF
   exit 1
@@ -91,10 +91,10 @@ if [[ -z "${ZABBIX_SERVER_PASSIVE}" || -z "${ZABBIX_SERVER_ACTIVE}" ]]; then
 ERROR: Zabbix target is not configured in ${ENV_FILE}
 
 Set either:
-  ZABBIX_SERVER="198.51.100.42"
+  ZABBIX_SERVER="198.51.100.43"
 or explicit split values:
-  ZABBIX_SERVER_PASSIVE="198.51.100.42"
-  ZABBIX_SERVER_ACTIVE="198.51.100.42:10051"
+  ZABBIX_SERVER_PASSIVE="198.51.100.43"
+  ZABBIX_SERVER_ACTIVE="198.51.100.43:10051"
 EOF
   exit 1
 fi
@@ -127,7 +127,7 @@ SOURCE_IMAGE="${SOURCE_IMAGE:-}"
 
 # Network.
 readonly BRIDGE="${BRIDGE:-vmbr0}"
-readonly DNS="${DNS:-198.51.100.43}"
+readonly DNS="${DNS:-198.51.100.44}"
 # Optional VLAN tag for primary NIC. Empty or 0 disables VLAN tagging.
 readonly NETWORK_VLAN="${NETWORK_VLAN:-0}"
 
@@ -681,7 +681,8 @@ run_capture_or_die() {
 _build_ssh_opts() {
   local -n _opts_ref="$1"   # nameref to caller's array
   _opts_ref=(
-    -o StrictHostKeyChecking=accept-new
+    -o StrictHostKeyChecking=no
+    -o UserKnownHostsFile=/dev/null
     -o ConnectTimeout=10
     -o BatchMode=yes
     -o PreferredAuthentications=publickey
@@ -694,9 +695,30 @@ _build_ssh_opts() {
   fi
 }
 
+_resolve_target_ip() {
+  local ip="${IPCIDR%%/*}"
+  if [[ "$ip" == "dhcp" || -z "$ip" ]]; then
+    local agent_ip=""
+    for _ in {1..30}; do
+      agent_ip="$(qm guest cmd "$VMID" network-get-interfaces 2>/dev/null | jq -r '.[]["ip-addresses"][]? | select(."ip-address-type" == "ipv4" and ."ip-address" != "127.0.0.1") | ."ip-address"' 2>/dev/null | head -n1 || true)"
+      if [[ -n "$agent_ip" ]]; then
+        ip="$agent_ip"
+        break
+      fi
+      sleep 2
+    done
+  fi
+  printf '%s' "$ip"
+}
+
 ssh_execute() {
   local cmd="$1"
-  local ip="${IPCIDR%%/*}"
+  local ip
+  ip="$(_resolve_target_ip)"
+  if [[ "$ip" == "dhcp" || -z "$ip" ]]; then
+    qm guest exec "$VMID" -- /bin/bash -c "$cmd" 2>&1
+    return $?
+  fi
   local ssh_opts=()
   _build_ssh_opts ssh_opts
 
@@ -704,7 +726,11 @@ ssh_execute() {
 }
 
 test_ssh() {
-  local ip="${IPCIDR%%/*}"
+  local ip
+  ip="$(_resolve_target_ip)"
+  if [[ "$ip" == "dhcp" || -z "$ip" ]]; then
+    return 1
+  fi
   local ssh_opts=()
   _build_ssh_opts ssh_opts
 
@@ -1161,6 +1187,7 @@ EOF
   if is_oracle_linux_8; then
     cat > "$os_runcmd" <<'EOF'
   - [ /bin/bash, -c, "echo 'nameserver __DNS__' > /etc/resolv.conf && getent ahostsv4 yum.oracle.com >/dev/null" ]
+  - [ /bin/bash, -c, "mkdir -p /etc/modules-load.d && ln -sf /dev/null /etc/modules-load.d/fwupd-i2c.conf" ]
 EOF
   fi
   inject_block "__OS_RUNCMD__" "$os_runcmd" "$userdata_file"
@@ -1522,7 +1549,7 @@ __OS_RUNCMD__
   - [ /usr/local/sbin/install-zabbix-agent2.sh ]
   - [ /usr/local/sbin/ensure-swap.sh ]
   - [ systemctl, enable, --now, qemu-guest-agent ]
-  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then echo 'Starting OS updates...' && ( __PKG_UPDATE_CMD__ || echo 'WARNING: OS updates failed' ) &>/var/log/os-update.log && echo 'OS updates completed.'; fi" ]
+  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then echo 'Starting OS updates...' && ( __PKG_UPDATE_CMD__ || echo 'WARNING: OS updates failed' ) &>/var/log/os-update.log && echo 'OS updates completed.'; fi; if [[ -f /usr/lib/modules-load.d/fwupd-i2c.conf ]]; then mkdir -p /etc/modules-load.d && ln -sf /dev/null /etc/modules-load.d/fwupd-i2c.conf; fi" ]
 
 final_message: "Cloud-init finished. Root disk only configuration."
 EOF
@@ -1985,7 +2012,7 @@ __OS_RUNCMD__
   - [ /usr/local/sbin/install-zabbix-agent2.sh ]
   - [ systemctl, enable, --now, qemu-guest-agent ]
   - [ /bin/bash, -lc, "/usr/local/sbin/provision_storage.sh" ]
-  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then echo 'Starting OS updates...' && ( __PKG_UPDATE_CMD__ || echo 'WARNING: OS updates failed' ) &>/var/log/os-update.log && echo 'OS updates completed.'; fi" ]
+  - [ /bin/bash, -c, "if [[ '__DO_OS_UPDATE__' == '1' ]]; then echo 'Starting OS updates...' && ( __PKG_UPDATE_CMD__ || echo 'WARNING: OS updates failed' ) &>/var/log/os-update.log && echo 'OS updates completed.'; fi; if [[ -f /usr/lib/modules-load.d/fwupd-i2c.conf ]]; then mkdir -p /etc/modules-load.d && ln -sf /dev/null /etc/modules-load.d/fwupd-i2c.conf; fi" ]
 
 final_message: "Cloud-init finished. Storage provisioning complete."
 EOF
@@ -2892,16 +2919,14 @@ main() {
     log_info "Initiating reboot for VM $VMID to verify upgrades..."
 
     log_info "Attempting graceful reboot via guest OS SSH..."
-    if ! ssh_execute "sudo -n reboot" >/dev/null 2>&1; then
-      log_warn "SSH reboot command failed or timed out, trying qm reboot..."
-      if ! qm reboot "$VMID" >/dev/null 2>&1; then
-        log_warn "qm reboot failed, performing hard reset..."
-        qm reset "$VMID"
-      fi
+    ssh_execute "sudo -n reboot" >/dev/null 2>&1 || true
+    sleep 5
+    if qm status "$VMID" 2>/dev/null | grep -q 'status: stopped'; then
+      qm start "$VMID" >/dev/null 2>&1 || true
     fi
 
-    log_info "Waiting 15 seconds for VM to shut down and start rebooting..."
-    sleep 15
+    log_info "Waiting 10 seconds for VM to stabilize after reboot..."
+    sleep 10
     wait_for_vm
     log_info "Running verification checks after reboot..."
     # Reset verification failed count to check post-reboot health

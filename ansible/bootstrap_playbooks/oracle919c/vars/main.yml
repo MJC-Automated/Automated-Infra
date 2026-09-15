@@ -174,20 +174,20 @@ oracle_app_sql_force: false
 oracle_app_sql_targets: []
 oracle_app_sql_defaults_from_pdbs: true
 oracle_app_sql_stage_dir: "{{ oracle_stage_dir }}/app_sql"
-oracle_app_sql_default_sql_id: "tq_app_bootstrap"
-oracle_app_sql_default_template: "tq_app_bootstrap_full.sql.j2"
+oracle_app_sql_default_sql_id: "app_bootstrap"
+oracle_app_sql_default_template: "app_bootstrap_full.sql.j2"
 oracle_app_sql_users_tablespace_name: "USERS"
 oracle_app_sql_users_datafile_name: "users01.dbf"
 oracle_app_sql_users_tablespace_size_mb: 100
 oracle_app_sql_users_tablespace_autoextend_next_mb: 100
 oracle_default_app_user_passwords:
-  TQ_CRM: "App1!{{ ((oracle_db_admin_password ~ ':TQ_CRM') | hash('sha256'))[0:20] }}"
-  TQ_DBA: "App1!{{ ((oracle_db_admin_password ~ ':TQ_DBA') | hash('sha256'))[0:20] }}"
-  TQ_FMS: "App1!{{ ((oracle_db_admin_password ~ ':TQ_FMS') | hash('sha256'))[0:20] }}"
-  TQ_GIS: "App1!{{ ((oracle_db_admin_password ~ ':TQ_GIS') | hash('sha256'))[0:20] }}"
-  TQ_HRMS: "App1!{{ ((oracle_db_admin_password ~ ':TQ_HRMS') | hash('sha256'))[0:20] }}"
-  TQ_LMS: "App1!{{ ((oracle_db_admin_password ~ ':TQ_LMS') | hash('sha256'))[0:20] }}"
-  TQ_MED: "App1!{{ ((oracle_db_admin_password ~ ':TQ_MED') | hash('sha256'))[0:20] }}"
+  APP_CRM: "App1!{{ ((oracle_db_admin_password ~ ':APP_CRM') | hash('sha256'))[0:20] }}"
+  APP_DBA: "App1!{{ ((oracle_db_admin_password ~ ':APP_DBA') | hash('sha256'))[0:20] }}"
+  APP_FMS: "App1!{{ ((oracle_db_admin_password ~ ':APP_FMS') | hash('sha256'))[0:20] }}"
+  APP_GIS: "App1!{{ ((oracle_db_admin_password ~ ':APP_GIS') | hash('sha256'))[0:20] }}"
+  APP_HRMS: "App1!{{ ((oracle_db_admin_password ~ ':APP_HRMS') | hash('sha256'))[0:20] }}"
+  APP_LMS: "App1!{{ ((oracle_db_admin_password ~ ':APP_LMS') | hash('sha256'))[0:20] }}"
+  APP_MED: "App1!{{ ((oracle_db_admin_password ~ ':APP_MED') | hash('sha256'))[0:20] }}"
 oracle_app_user_passwords: "{{ vault_oracle_app_user_passwords | default(oracle_default_app_user_passwords, true) }}"
 
 # --- Post-PDB state + baseline tuning ---

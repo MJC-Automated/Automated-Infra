@@ -174,7 +174,6 @@ auto_start_admin: true
 auto_start_managed: true
 
 # --- Bootstrap / Prechecks ---
-bootstrap_python: false
 precheck_mounts_enabled: true
 min_free_gb_u01: 20
 min_free_gb_domains: 5

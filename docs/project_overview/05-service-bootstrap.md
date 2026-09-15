@@ -2,6 +2,7 @@
 
 ## Primary Sources
 
+- [docs/service-upgrade-compatibility.md](../service-upgrade-compatibility.md)
 - [ansible/bootstrap_playbooks/README.md](../../ansible/bootstrap_playbooks/README.md)
 - [ansible/bootstrap_playbooks/oracle819c/README.md](../../ansible/bootstrap_playbooks/oracle819c/README.md)
 - [ansible/bootstrap_playbooks/oracle821c/README.md](../../ansible/bootstrap_playbooks/oracle821c/README.md)

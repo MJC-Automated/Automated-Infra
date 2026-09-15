@@ -160,6 +160,7 @@ For a scenario-oriented entry point, use [Start With the Outcome](#start-with-th
 - [12.2 Review and Edit Before Provisioning](#122-review-and-edit-before-provisioning)
 - [12.3 Bootstrap End-to-End Until Plan](#123-bootstrap-end-to-end-until-plan)
 - [12.4 Apply](#124-apply)
+- [Generated Terraform Module Reference](#generated-terraform-module-reference)
 - [Architecture and Concepts](#architecture-and-concepts)
 - [Makefile Targets (Common)](#makefile-targets-common)
 - [Repo Hygiene](#repo-hygiene)
@@ -174,6 +175,138 @@ For a scenario-oriented entry point, use [Start With the Outcome](#start-with-th
 - Local tools: Terraform 1.10+, Packer, Vault CLI, TFLint, tfsec, SSH/SCP.
 - Optional: `jq` for parsing `vault-init.json`.
 - Know your Proxmox node name (example: `proxmox` or `proxmox-node`) and storage pools.
+
+### Provider Compatibility
+
+Terraform configuration pins Telmate Proxmox to `3.0.2-rc10` in the root
+module and both Proxmox child modules, alongside Vault `5.11.0` and Local
+`2.9.0`. The tested controller baseline is Terraform `1.16.1`. Run
+`terraform init -backend=false` and `terraform validate` after a provider
+change before using an environment plan. The Telmate provider is
+community-signed; verify the provider source and signing key reported by
+Terraform during initialization.
+
+The local verification baseline is TFLint `0.64.0`, tfsec `1.28.14`, and
+terraform-docs `0.24.0`. `make setup-tools` discovers the latest helper
+releases when it installs them; run `make check-tools` to verify the active
+toolchain before planning changes.
+
+## Generated Terraform Module Reference
+
+This reference is generated from Terraform source. Regenerate it after an
+interface, provider, resource, input, or output change with
+`make docs-terraform` from this directory. CI verifies that the generated
+content is current.
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+| ---- | ------- |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.10.0 |
+| <a name="requirement_local"></a> [local](#requirement\_local) | 2.9.0 |
+| <a name="requirement_proxmox"></a> [proxmox](#requirement\_proxmox) | 3.0.2-rc10 |
+| <a name="requirement_vault"></a> [vault](#requirement\_vault) | 5.11.0 |
+
+## Providers
+
+| Name | Version |
+| ---- | ------- |
+| <a name="provider_local"></a> [local](#provider\_local) | 2.9.0 |
+
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_proxmox_vms"></a> [proxmox\_vms](#module\_proxmox\_vms) | ./modules/proxmox-vm | n/a |
+| <a name="module_vault_proxmox_access"></a> [vault\_proxmox\_access](#module\_vault\_proxmox\_access) | ./modules/vault-proxmox-access | n/a |
+| <a name="module_vm_pool"></a> [vm\_pool](#module\_vm\_pool) | ./modules/proxmox-pool | n/a |
+
+## Resources
+
+| Name | Type |
+| ---- | ---- |
+| [local_file.ansible_inventory](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
+| [local_file.cloudinit_first_access_snippet](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
+| [local_file.deployment_summary](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
+| [local_file.partitioning_snippet](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_backup_defaults"></a> [backup\_defaults](#input\_backup\_defaults) | Default Proxmox VM backup policy. Per-VM backup and backup\_storage values override these settings. | <pre>object({<br/>    enabled              = optional(bool, false)<br/>    storage              = optional(string, "")<br/>    schedule             = optional(string, "03:30")<br/>    mode                 = optional(string, "snapshot")<br/>    compress             = optional(string, "zstd")<br/>    bandwidth_limit_kib  = optional(number, 51200)<br/>    ionice               = optional(number, 8)<br/>    repeat_missed        = optional(bool, false)<br/>    notification_mode    = optional(string, "notification-system")<br/>    max_backup_age_hours = optional(number, 36)<br/>    retention = optional(object({<br/>      keep_last    = optional(number, 2)<br/>      keep_daily   = optional(number, 3)<br/>      keep_weekly  = optional(number, 2)<br/>      keep_monthly = optional(number, 1)<br/>      keep_yearly  = optional(number, 0)<br/>    }), {})<br/>  })</pre> | `{}` | no |
+| <a name="input_build_date"></a> [build\_date](#input\_build\_date) | Date of the build to ensure reproducibility (format: YYYY-MM-DD). | `string` | `""` | no |
+| <a name="input_clone_template"></a> [clone\_template](#input\_clone\_template) | The name of the Proxmox VM template to clone. | `string` | n/a | yes |
+| <a name="input_cloudinit_first_access_ssh_public_key"></a> [cloudinit\_first\_access\_ssh\_public\_key](#input\_cloudinit\_first\_access\_ssh\_public\_key) | One or more SSH public keys (newline-separated) to inject for first access on cloned VMs. Leave empty to preserve template-inherited auth. | `string` | `""` | no |
+| <a name="input_cloudinit_first_access_user"></a> [cloudinit\_first\_access\_user](#input\_cloudinit\_first\_access\_user) | Cloud-init user for first SSH access when cloudinit\_first\_access\_ssh\_public\_key is set. | `string` | `"ansible"` | no |
+| <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | A unique name for the cluster or stack in this environment. | `string` | n/a | yes |
+| <a name="input_cost_center"></a> [cost\_center](#input\_cost\_center) | Cost center for resource allocation and billing. | `string` | `"engineering"` | no |
+| <a name="input_created_by"></a> [created\_by](#input\_created\_by) | Tag for the creator of the resources. | `string` | `"terraform-proxmox"` | no |
+| <a name="input_data_disk_defaults"></a> [data\_disk\_defaults](#input\_data\_disk\_defaults) | Defaults for the data disk used by partitioning when no additional\_disks are provided. | <pre>object({<br/>    enabled = bool<br/>    storage = string<br/>    size    = string<br/>    slot    = string<br/>  })</pre> | <pre>{<br/>  "enabled": true,<br/>  "size": "50G",<br/>  "slot": "virtio1",<br/>  "storage": ""<br/>}</pre> | no |
+| <a name="input_default_os_profile"></a> [default\_os\_profile](#input\_default\_os\_profile) | Default OS profile to use when no group mapping or per-VM override is provided. | `string` | `"ubuntu2404"` | no |
+| <a name="input_environment_name"></a> [environment\_name](#input\_environment\_name) | The name of the environment (for example: dev, testing, prod, qa). | `string` | `"dev"` | no |
+| <a name="input_force_create"></a> [force\_create](#input\_force\_create) | Whether to force creation of VMs even if the VMID is already in use. | `bool` | `false` | no |
+| <a name="input_force_recreate_on_partitioning_change"></a> [force\_recreate\_on\_partitioning\_change](#input\_force\_recreate\_on\_partitioning\_change) | Whether generated partitioning cloud-init snippet content changes should force VM recreation. | `bool` | `false` | no |
+| <a name="input_group_os_profile"></a> [group\_os\_profile](#input\_group\_os\_profile) | Map of node group names to OS profile keys. Used for auto-selecting templates and filesystem defaults. | `map(string)` | <pre>{<br/>  "cicd": "ubuntu2404",<br/>  "database19c": "oracle8",<br/>  "database19c_ol9": "oracle9",<br/>  "database21c": "oracle8",<br/>  "gitlab": "ubuntu2404",<br/>  "gitlab_runner": "ubuntu2404",<br/>  "jenkins": "ubuntu2404",<br/>  "jenkins_agent": "ubuntu2404",<br/>  "weblogic12c": "oracle8",<br/>  "weblogic14c": "oracle9",<br/>  "zimbra": "oracle9"<br/>}</pre> | no |
+| <a name="input_log_file_prefix"></a> [log\_file\_prefix](#input\_log\_file\_prefix) | Prefix for log file naming. | `string` | `"terraform-plugin-proxmox"` | no |
+| <a name="input_log_level"></a> [log\_level](#input\_log\_level) | Logging level for Terraform provider operations. | `string` | `"info"` | no |
+| <a name="input_manage_vault_access"></a> [manage\_vault\_access](#input\_manage\_vault\_access) | Whether Terraform should manage Vault mount/policy/approle resources. | `bool` | `false` | no |
+| <a name="input_manage_vm_pool"></a> [manage\_vm\_pool](#input\_manage\_vm\_pool) | Whether Terraform should manage the Proxmox VM pool resource. | `bool` | `false` | no |
+| <a name="input_network_bridge"></a> [network\_bridge](#input\_network\_bridge) | The Proxmox network bridge to attach VMs to. | `string` | n/a | yes |
+| <a name="input_network_vlan"></a> [network\_vlan](#input\_network\_vlan) | Optional VLAN tag for primary workload NICs. Set 0 to leave NICs untagged. | `number` | `0` | no |
+| <a name="input_node_groups"></a> [node\_groups](#input\_node\_groups) | A map of node groups to provision (e.g., 'oracledb', 'weblogic', 'cicd', 'k8s'), value is a map of VM configurations. | <pre>map(map(object({<br/>    vmid                        = number<br/>    name                        = string<br/>    ipconfig0                   = string<br/>    cores                       = number<br/>    memory                      = number // in MB<br/>    disk_size                   = string // e.g., "50G"<br/>    vm_disk_storage             = optional(string, "")<br/>    tags                        = optional(string, "")<br/>    clone_template              = optional(string, "")<br/>    os_profile                  = optional(string, "")<br/>    ha_state                    = optional(string, "")<br/>    ha_group                    = optional(string, "")<br/>    efi_disk_enabled            = optional(bool)<br/>    efi_disk_storage            = optional(string, "")<br/>    efi_disk_type               = optional(string, "")<br/>    efi_disk_format             = optional(string, "")<br/>    efi_pre_enrolled_keys       = optional(bool)<br/>    power_state                 = optional(string, "")<br/>    start_at_node_boot          = optional(bool)<br/>    protection                  = optional(bool)<br/>    backup                      = optional(bool)<br/>    backup_storage              = optional(string, "")<br/>    balloon                     = optional(number)<br/>    nameserver                  = optional(string, "")<br/>    searchdomain                = optional(string, "")<br/>    skip_ipv6                   = optional(bool)<br/>    network_vlan                = optional(number)<br/>    monitoring_enabled          = optional(bool, true)<br/>    monitoring_profile          = optional(string, "")<br/>    monitoring_expected_up      = optional(bool)<br/>    force_recreate_on_change_of = optional(string, "")<br/>    data_disk = optional(object({<br/>      size    = string<br/>      storage = optional(string, "")<br/>      slot    = optional(string, "")<br/>    }), null)<br/>    additional_disks = optional(list(object({<br/>      storage = string<br/>      size    = string<br/>      slot    = string<br/>    })), [])<br/>    cicustom = optional(string, "")<br/>    partitioning = optional(object({<br/>      enabled     = optional(bool, true)<br/>      disk_device = optional(string, "/dev/vdb")<br/>      vg_name     = optional(string, "vgdata")<br/>      fs_type     = optional(string, "ext4")<br/>      mounts = list(object({<br/>        mount   = string<br/>        size_gb = string<br/>        owner   = optional(string, "root")<br/>        group   = optional(string, "root")<br/>      }))<br/>    }), null)<br/>  })))</pre> | `{}` | no |
+| <a name="input_os_profiles"></a> [os\_profiles](#input\_os\_profiles) | Map of OS profiles to template, filesystem defaults, and Ansible hints. | <pre>map(object({<br/>    clone_template             = string<br/>    fs_type                    = string<br/>    os_family                  = string<br/>    ansible_python_interpreter = string<br/>  }))</pre> | <pre>{<br/>  "oracle8": {<br/>    "ansible_python_interpreter": "/usr/bin/python3.9",<br/>    "clone_template": "oracle8",<br/>    "fs_type": "xfs",<br/>    "os_family": "oracle"<br/>  },<br/>  "oracle9": {<br/>    "ansible_python_interpreter": "/usr/bin/python3",<br/>    "clone_template": "oracle9",<br/>    "fs_type": "xfs",<br/>    "os_family": "oracle"<br/>  },<br/>  "ubuntu2404": {<br/>    "ansible_python_interpreter": "/usr/bin/python3",<br/>    "clone_template": "ubuntu2404",<br/>    "fs_type": "ext4",<br/>    "os_family": "ubuntu"<br/>  }<br/>}</pre> | no |
+| <a name="input_owner"></a> [owner](#input\_owner) | Owner of the resources for tagging and organization. | `string` | `"platform-team"` | no |
+| <a name="input_project_name"></a> [project\_name](#input\_project\_name) | Name of the project for tagging and organization. | `string` | `"ha-cluster"` | no |
+| <a name="input_proxmox_debug"></a> [proxmox\_debug](#input\_proxmox\_debug) | Whether to enable verbose proxmox-api-go debug output. | `bool` | `false` | no |
+| <a name="input_proxmox_log_enable"></a> [proxmox\_log\_enable](#input\_proxmox\_log\_enable) | Whether to enable Telmate Proxmox provider logging. | `bool` | `true` | no |
+| <a name="input_proxmox_minimum_permission_check"></a> [proxmox\_minimum\_permission\_check](#input\_proxmox\_minimum\_permission\_check) | Whether the Proxmox provider should check minimum API token permissions. | `bool` | `true` | no |
+| <a name="input_proxmox_minimum_permission_list"></a> [proxmox\_minimum\_permission\_list](#input\_proxmox\_minimum\_permission\_list) | Optional override for the Proxmox provider minimum permission check list. | `list(string)` | `[]` | no |
+| <a name="input_proxmox_parallel"></a> [proxmox\_parallel](#input\_proxmox\_parallel) | Allowed simultaneous Proxmox provider operations. | `number` | `1` | no |
+| <a name="input_snippet_storage"></a> [snippet\_storage](#input\_snippet\_storage) | The Proxmox storage that exposes snippets content for cicustom cloud-init data. | `string` | `"local"` | no |
+| <a name="input_storage_pool"></a> [storage\_pool](#input\_storage\_pool) | The Proxmox storage pool for VM disks and cloud-init. | `string` | n/a | yes |
+| <a name="input_target_node"></a> [target\_node](#input\_target\_node) | The Proxmox node where VMs will be deployed. | `string` | n/a | yes |
+| <a name="input_timeout"></a> [timeout](#input\_timeout) | Timeout for Proxmox API operations in seconds. | `number` | `300` | no |
+| <a name="input_vault_address"></a> [vault\_address](#input\_vault\_address) | The address of the Vault server. | `string` | n/a | yes |
+| <a name="input_vault_approle_bind_secret_id"></a> [vault\_approle\_bind\_secret\_id](#input\_vault\_approle\_bind\_secret\_id) | Whether AppRole login requires secret\_id. | `bool` | `true` | no |
+| <a name="input_vault_approle_secret_id_bound_cidrs"></a> [vault\_approle\_secret\_id\_bound\_cidrs](#input\_vault\_approle\_secret\_id\_bound\_cidrs) | Allowed CIDR blocks for AppRole secret\_id usage. | `set(string)` | `[]` | no |
+| <a name="input_vault_approle_secret_id_num_uses"></a> [vault\_approle\_secret\_id\_num\_uses](#input\_vault\_approle\_secret\_id\_num\_uses) | Maximum uses per AppRole secret\_id (0 means unlimited). | `number` | `0` | no |
+| <a name="input_vault_approle_secret_id_ttl_seconds"></a> [vault\_approle\_secret\_id\_ttl\_seconds](#input\_vault\_approle\_secret\_id\_ttl\_seconds) | TTL for AppRole secret\_id in seconds (0 means no expiry). | `number` | `0` | no |
+| <a name="input_vault_approle_token_bound_cidrs"></a> [vault\_approle\_token\_bound\_cidrs](#input\_vault\_approle\_token\_bound\_cidrs) | Allowed CIDR blocks for tokens issued by AppRole. | `set(string)` | `[]` | no |
+| <a name="input_vault_approle_token_no_default_policy"></a> [vault\_approle\_token\_no\_default\_policy](#input\_vault\_approle\_token\_no\_default\_policy) | Whether to omit Vault default policy from AppRole-issued tokens. | `bool` | `false` | no |
+| <a name="input_vault_approle_token_num_uses"></a> [vault\_approle\_token\_num\_uses](#input\_vault\_approle\_token\_num\_uses) | Maximum uses for AppRole-issued tokens (0 means unlimited). | `number` | `0` | no |
+| <a name="input_vault_auth_mode"></a> [vault\_auth\_mode](#input\_vault\_auth\_mode) | Vault provider authentication mode: token or approle. | `string` | `"token"` | no |
+| <a name="input_vault_kv_mount_path"></a> [vault\_kv\_mount\_path](#input\_vault\_kv\_mount\_path) | Vault KV v2 mount path used for Proxmox credentials. | `string` | `"secret"` | no |
+| <a name="input_vault_manage_kv_mount"></a> [vault\_manage\_kv\_mount](#input\_vault\_manage\_kv\_mount) | Whether Vault governance should create/manage the KV mount resource. Null defaults to true. | `bool` | `null` | no |
+| <a name="input_vault_role_id"></a> [vault\_role\_id](#input\_vault\_role\_id) | Vault AppRole role\_id used when vault\_auth\_mode=approle. | `string` | `null` | no |
+| <a name="input_vault_secret_id"></a> [vault\_secret\_id](#input\_vault\_secret\_id) | Vault AppRole secret\_id used when vault\_auth\_mode=approle. | `string` | `null` | no |
+| <a name="input_vault_secret_prefix"></a> [vault\_secret\_prefix](#input\_vault\_secret\_prefix) | Prefix under the KV mount where per-workspace Proxmox credentials are stored. | `string` | `"terraform"` | no |
+| <a name="input_vault_token"></a> [vault\_token](#input\_vault\_token) | The token to authenticate with Vault. | `string` | `null` | no |
+| <a name="input_vm_defaults"></a> [vm\_defaults](#input\_vm\_defaults) | Default configuration values for VMs across all node types. | <pre>object({<br/>    agent_enabled         = optional(number, 1)<br/>    os_type               = optional(string, "cloud-init")<br/>    cpu_type              = optional(string, "host")<br/>    network_model         = optional(string, "virtio")<br/>    scsihw                = optional(string, "virtio-scsi-single")<br/>    boot_order            = optional(string, "order=scsi0;net0")<br/>    boot_disk_device      = optional(string, "scsi0")<br/>    bios                  = optional(string, "ovmf")<br/>    machine               = optional(string, "q35")<br/>    efi_disk_enabled      = optional(bool, true)<br/>    efi_disk_storage      = optional(string, "")<br/>    efi_disk_type         = optional(string, "4m")<br/>    efi_disk_format       = optional(string, "raw")<br/>    efi_pre_enrolled_keys = optional(bool, false)<br/>    ha_state              = optional(string, "")<br/>    ha_group              = optional(string, "")<br/>    power_state           = optional(string, "running")<br/>    start_at_node_boot    = optional(bool, false)<br/>    protection            = optional(bool, false)<br/>    balloon               = optional(number, 0)<br/>    nameserver            = optional(string, "")<br/>    searchdomain          = optional(string, "")<br/>    skip_ipv6             = optional(bool, false)<br/>    network_vlan          = optional(number, null)<br/>  })</pre> | `{}` | no |
+| <a name="input_vm_pool"></a> [vm\_pool](#input\_vm\_pool) | The Proxmox resource pool for the VMs. | `string` | n/a | yes |
+| <a name="input_vm_pool_comment"></a> [vm\_pool\_comment](#input\_vm\_pool\_comment) | Comment for managed Proxmox VM pool. | `string` | `"Managed by Terraform"` | no |
+
+## Outputs
+
+| Name | Description |
+| ---- | ----------- |
+| <a name="output_all_nodes_summary"></a> [all\_nodes\_summary](#output\_all\_nodes\_summary) | A comprehensive summary of all nodes deployed in the environment. |
+| <a name="output_all_vm_host_ips"></a> [all\_vm\_host\_ips](#output\_all\_vm\_host\_ips) | Parsed host IP addresses (without CIDR/gateway) of all VMs (corresponding to sorted names). |
+| <a name="output_all_vm_ids"></a> [all\_vm\_ids](#output\_all\_vm\_ids) | IDs of all VMs (corresponding to sorted names). |
+| <a name="output_all_vm_ips"></a> [all\_vm\_ips](#output\_all\_vm\_ips) | ipconfig0 strings of all VMs (corresponding to sorted names). |
+| <a name="output_all_vm_names"></a> [all\_vm\_names](#output\_all\_vm\_names) | Names of all VMs (sorted). |
+| <a name="output_all_vm_vlans"></a> [all\_vm\_vlans](#output\_all\_vm\_vlans) | Effective VLAN tags for all VMs (0 = untagged). |
+| <a name="output_ansible_inventory_path"></a> [ansible\_inventory\_path](#output\_ansible\_inventory\_path) | The path to the generated Ansible inventory file. |
+| <a name="output_backup_job_settings"></a> [backup\_job\_settings](#output\_backup\_job\_settings) | Environment-level schedule, performance, notification, and retention settings for Proxmox backup jobs. |
+| <a name="output_connection_info"></a> [connection\_info](#output\_connection\_info) | Connection information for configuration management tools. |
+| <a name="output_deployment_summary_path"></a> [deployment\_summary\_path](#output\_deployment\_summary\_path) | The path to the deployment summary JSON file for CI/CD integration. |
+| <a name="output_environment_info"></a> [environment\_info](#output\_environment\_info) | Structured environment information for CI/CD pipelines. |
+| <a name="output_infrastructure_metrics"></a> [infrastructure\_metrics](#output\_infrastructure\_metrics) | Infrastructure metrics for monitoring and alerting. |
+| <a name="output_node_groups_summary"></a> [node\_groups\_summary](#output\_node\_groups\_summary) | Summary of nodes grouped by their role. |
+| <a name="output_vm_backup_policy"></a> [vm\_backup\_policy](#output\_vm\_backup\_policy) | Per-VM Proxmox backup inclusion and destination policy. |
+| <a name="output_workspace_info"></a> [workspace\_info](#output\_workspace\_info) | Current workspace and environment information. |
+<!-- END_TF_DOCS -->
 
 Quick local bootstrap (recommended):
 
@@ -199,7 +332,7 @@ Ubuntu/Debian example (recommended for this repo):
 ```bash
 sudo apt-get update
 sudo apt-get install -y wget gpg
-wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
 sudo apt-get update
 sudo apt-get install -y vault terraform packer jq
@@ -573,6 +706,15 @@ make plan   # uses dev by default
 ```
 
 Use explicit `ENVIRONMENT=<env>` in automation/CI for clarity.
+
+`plan`, `apply`, `render-snippets`, and `vault-bootstrap` pin `TF_WORKSPACE`
+to that environment, including recursive Vault bootstrap commands and after
+the bootstrap script loads `.env`. When this binding is present,
+the workspace helpers verify an existing workspace without changing Terraform's
+shared local selection. Creating a missing workspace still requires
+`terraform workspace new` with the binding temporarily removed, which updates
+the local selection; create new workspaces before starting concurrent runs.
+Bootstrap and the retried plan remain pinned to the requested environment.
 
 ### 3.4 Switch Vault Access Mode (loopback or LAN)
 
@@ -962,7 +1104,7 @@ Checksum behavior:
   Bash image/builder helpers consume that one catalog while allowing explicit
   runtime overrides.
 - Current pins are Oracle Linux 8.10 `b287`, Oracle Linux 9.8 `b293`, and the
-  Ubuntu Noble `20260801` daily image. Upgrade the URL, filename, and checksum
+  Ubuntu Noble `20260826` daily image. Upgrade the URL, filename, and checksum
   atomically, then repeat the two-PVE builder acceptance.
 
 The builder validates `CORES` against the target node's `nproc` value before
@@ -1523,9 +1665,9 @@ Default OS profiles (can be overridden in `.tfvars`):
 
 ```hcl
 os_profiles = {
-  oracle8    = { clone_template = "oracle8",    fs_type = "xfs" }
-  oracle9    = { clone_template = "oracle9",    fs_type = "xfs" }
-  ubuntu2404 = { clone_template = "ubuntu2404", fs_type = "ext4" }
+  oracle8    = { clone_template = "oracle8",    fs_type = "xfs",  ansible_python_interpreter = "/usr/bin/python3.9" }
+  oracle9    = { clone_template = "oracle9",    fs_type = "xfs",  ansible_python_interpreter = "/usr/bin/python3" }
+  ubuntu2404 = { clone_template = "ubuntu2404", fs_type = "ext4", ansible_python_interpreter = "/usr/bin/python3" }
 }
 
 group_os_profile = {
@@ -1536,6 +1678,8 @@ group_os_profile = {
   zimbra      = "oracle9"
 }
 ```
+
+> **Note:** `oracle8` targets use `/usr/bin/python3.9` from the AppStream `python39` package to support modern `ansible-core 2.17+` controllers without altering the underlying OS platform Python.
 
 Automatic inference is used when a group is not in `group_os_profile`:
 
@@ -1574,6 +1718,7 @@ current target descriptions and defaults.
 
 - `make setup-tools`
 - `make check-tools`
+- `make docs-terraform`
 - `make env-discover ENVIRONMENT=<env> PROXMOX_HOST=<ip>`
 - `make env-template ENVIRONMENT=<env> TEMPLATE_ENV=dev PROXMOX_HOST=<ip> AUTO_DISCOVER=true`
 - `make env-ssh-access ENVIRONMENT=<env>`

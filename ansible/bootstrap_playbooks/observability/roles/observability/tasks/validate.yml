@@ -64,6 +64,11 @@
       - observability_alertmanager_version == '0.33.1'
       - observability_alertmanager_amd64_digest is match('^sha256:[a-f0-9]{64}$')
       - observability_grafana_base_url is match('^https?://[^/]+')
+      - observability_prometheus_image is match('^[^\s]+:[^\s]+$')
+      - observability_loki_image is match('^[^\s]+:[^\s]+$')
+      - observability_tempo_image is match('^[^\s]+:[^\s]+$')
+      - observability_grafana_image is match('^[^\s]+:[^\s]+$')
+      - observability_otel_collector_image is match('^[^\s]+:[^\s]+$')
     fail_msg: "Retention and immutable Alertmanager pinning must remain explicit."
 
 - name: Validate loopback-only ports are excluded from external firewall rules

@@ -110,37 +110,104 @@
     enabled: true
   when: gitlab_runner_install_docker | bool
 
-- name: Check local GitLab Runner package on controller
-  ansible.builtin.stat:
-    path: "{{ gitlab_runner_package_path }}"
-  delegate_to: localhost
-  become: false
-  register: gitlab_runner_local_package
-  when: gitlab_runner_package_path | length > 0
-
-- name: Assert configured local GitLab Runner package exists
+- name: Require both gitlab-runner and helper-images packages for offline installation
   ansible.builtin.assert:
     that:
-      - gitlab_runner_local_package.stat.exists
-      - gitlab_runner_local_package.stat.isreg
-    fail_msg: "GitLab Runner package {{ gitlab_runner_package_path }} was not found on the controller."
+      - gitlab_runner_package_path | length > 0
+      - gitlab_runner_helper_images_package_path | length > 0
+    fail_msg: >-
+      GitLab Runner offline installation requires both gitlab_runner_package_path
+      and gitlab_runner_helper_images_package_path to satisfy strict version dependencies.
+  when: (gitlab_runner_package_path | length > 0) or (gitlab_runner_helper_images_package_path | length > 0)
+
+- name: Check local GitLab Runner packages on controller
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: gitlab_runner_local_packages
+  loop:
+    - { name: "gitlab-runner", path: "{{ gitlab_runner_package_path }}", checksum: "{{ gitlab_runner_package_checksum }}" }
+    - { name: "gitlab-runner-helper-images", path: "{{ gitlab_runner_helper_images_package_path }}", checksum: "{{ gitlab_runner_helper_images_package_checksum }}" }
   when: gitlab_runner_package_path | length > 0
 
-- name: Copy local GitLab Runner package to target
+- name: Assert configured local GitLab Runner packages exist
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Local package {{ item.item.path }} for {{ item.item.name }} was not found on the controller."
+  loop: "{{ gitlab_runner_local_packages.results }}"
+  when: gitlab_runner_package_path | length > 0
+
+- name: Require checksums for offline GitLab Runner packages
+  ansible.builtin.assert:
+    that:
+      - gitlab_runner_package_checksum | length > 0
+      - gitlab_runner_helper_images_package_checksum | length > 0
+    fail_msg: >-
+      Offline installation requires SHA256 checksums for both packages.
+      Set gitlab_runner_package_checksum and gitlab_runner_helper_images_package_checksum
+      in your .env file or role variables.
+  when: gitlab_runner_package_path | length > 0
+
+- name: Assert local GitLab Runner package checksums match
+  ansible.builtin.assert:
+    that:
+      - item.stat.checksum == item.item.checksum
+    fail_msg: "Checksum mismatch for {{ item.item.name }}: expected {{ item.item.checksum }}, found {{ item.stat.checksum }}"
+  loop: "{{ gitlab_runner_local_packages.results }}"
+  when: gitlab_runner_package_path | length > 0
+
+- name: Copy local GitLab Runner packages to target
   ansible.builtin.copy:
-    src: "{{ gitlab_runner_package_path }}"
-    dest: "/tmp/{{ gitlab_runner_package_path | basename }}"
+    src: "{{ item.path }}"
+    dest: "/tmp/{{ item.path | basename }}"
     mode: "0644"
+  loop:
+    - { path: "{{ gitlab_runner_package_path }}" }
+    - { path: "{{ gitlab_runner_helper_images_package_path }}" }
   when: gitlab_runner_package_path | length > 0
 
-- name: Install GitLab Runner from local package
+- name: Read local GitLab Runner package versions
+  ansible.builtin.command:
+    argv:
+      - dpkg-deb
+      - --field
+      - "/tmp/{{ item | basename }}"
+      - Version
+  register: gitlab_runner_bundle_versions
+  changed_when: false
+  loop:
+    - "{{ gitlab_runner_package_path }}"
+    - "{{ gitlab_runner_helper_images_package_path }}"
+  when: gitlab_runner_package_path | length > 0
+
+- name: Require local GitLab Runner package versions to match configured version and each other
+  ansible.builtin.assert:
+    that:
+      - gitlab_runner_bundle_versions.results[0].stdout | trim == gitlab_runner_version
+      - gitlab_runner_bundle_versions.results[1].stdout | trim == gitlab_runner_version
+      - gitlab_runner_bundle_versions.results[0].stdout | trim == gitlab_runner_bundle_versions.results[1].stdout | trim
+    fail_msg: >-
+      GitLab Runner offline bundle version mismatch:
+      runner={{ gitlab_runner_bundle_versions.results[0].stdout | trim }},
+      helper-images={{ gitlab_runner_bundle_versions.results[1].stdout | trim }},
+      configured={{ gitlab_runner_version }}.
+  when: gitlab_runner_package_path | length > 0
+
+- name: Install GitLab Runner offline package bundle
   ansible.builtin.apt:
-    deb: "/tmp/{{ gitlab_runner_package_path | basename }}"
+    deb: "/tmp/{{ item | basename }}"
     state: present
-  register: gitlab_runner_local_package_install
-  until: gitlab_runner_local_package_install is succeeded
+  register: gitlab_runner_local_bundle_install
+  until: gitlab_runner_local_bundle_install is succeeded
   retries: 3
   delay: 10
+  loop:
+    - "{{ gitlab_runner_helper_images_package_path }}"
+    - "{{ gitlab_runner_package_path }}"
   when: gitlab_runner_package_path | length > 0
 
 - name: Check whether the GitLab Runner repository is configured
@@ -172,7 +239,9 @@
 
 - name: Install gitlab-runner package
   ansible.builtin.apt:
-    name: gitlab-runner
+    name:
+      - "gitlab-runner={{ gitlab_runner_version }}"
+      - "gitlab-runner-helper-images={{ gitlab_runner_version }}"
     state: present
     update_cache: true
   register: gitlab_runner_package_install
@@ -270,8 +339,33 @@
       changed_when: true
       no_log: true
 
-    - name: Restart gitlab-runner service
+    - name: Restart gitlab-runner service after registration
       ansible.builtin.systemd:
         name: gitlab-runner
         state: restarted
         enabled: true
+
+- name: Ensure gitlab-runner service is enabled and started
+  ansible.builtin.systemd:
+    name: gitlab-runner
+    state: started
+    enabled: true
+
+- name: Verify GitLab Runner daemon connectivity and registration
+  ansible.builtin.command:
+    argv:
+      - gitlab-runner
+      - verify
+  register: runner_verify_status
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - runner_check_status.stdout == "ALREADY_REGISTERED" or (register_output is defined and register_output is succeeded)
+
+- name: Report GitLab Runner verification status
+  ansible.builtin.debug:
+    msg: "GitLab Runner daemon is active and verified with GitLab coordinator: {{ gitlab_runner_name }}"
+  when:
+    - not ansible_check_mode
+    - runner_verify_status is defined
+    - runner_verify_status is succeeded

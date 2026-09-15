@@ -35,6 +35,12 @@ The root README defines one repository-wide pyenv environment for Ansible automa
 | Python packages | `ansible/requirements.txt` |
 | Ansible collections | `ansible/requirements.yml` |
 
+The current controller pins are Ansible `14.3.1`, ansible-core `2.21.3`, and
+cryptography `50.0.1`. Terraform pins Telmate Proxmox `3.0.2-rc10` consistently
+in the root configuration and Proxmox child modules; Vault is pinned to
+`5.11.0`. These versions are validated by the infrastructure workflow before
+promotion.
+
 This is operational, not cosmetic. The repo expects Ansible work to use the same controller interpreter and dependency set across service, host-baseline, and database playbooks.
 
 ## Local Inputs vs. Generated Outputs

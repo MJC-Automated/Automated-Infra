@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 {% endif %}
   prometheus:
-    image: prom/prometheus:v2.54.1
+    image: "{{ observability_prometheus_image }}"
     container_name: prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
 
   loki:
-    image: grafana/loki:3.2.1
+    image: "{{ observability_loki_image }}"
     container_name: loki
     command: ["-config.file=/etc/loki/local-config.yml"]
     ports:
@@ -69,7 +69,7 @@ services:
     restart: unless-stopped
 
   tempo:
-    image: grafana/tempo:2.6.1
+    image: "{{ observability_tempo_image }}"
     container_name: tempo
     command: ["-config.file=/etc/tempo.yaml"]
     ports:
@@ -80,7 +80,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:11.2.0
+    image: "{{ observability_grafana_image }}"
     container_name: grafana
     environment:
       GF_SECURITY_ADMIN_USER: "${OBS_GRAFANA_ADMIN_USER}"
@@ -95,7 +95,7 @@ services:
     restart: unless-stopped
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.108.0
+    image: "{{ observability_otel_collector_image }}"
     container_name: otel-collector
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     ports:

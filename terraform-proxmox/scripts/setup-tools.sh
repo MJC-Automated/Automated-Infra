@@ -124,6 +124,26 @@ install_terraform_helpers() {
   echo "Installed tfsec ${tfsec_tag}, tflint ${tflint_tag}, and terraform-docs ${terraform_docs_tag}"
 }
 
+refresh_hashicorp_keyring() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "Warning: sudo is required for keyring refresh. Skipping." >&2
+    return 0
+  fi
+  if (! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1) || ! command -v gpg >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Refreshing HashiCorp apt repository keyring..."
+  sudo mkdir -p /usr/share/keyrings
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO - https://apt.releases.hashicorp.com/gpg \
+      | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  else
+    curl -fsSL https://apt.releases.hashicorp.com/gpg \
+      | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  fi
+  echo "HashiCorp keyring refreshed."
+}
+
 install_tools_ubuntu_debian() {
   local apt_yes=()
   if [[ "${ASSUME_YES}" == true ]]; then
@@ -135,15 +155,15 @@ install_tools_ubuntu_debian() {
     exit 1
   fi
 
+  # Refresh keyring before initial apt-get update to avoid GPG signature errors on rotated keys
+  refresh_hashicorp_keyring
+
   echo "Installing tools via apt (Ubuntu/Debian)..."
   sudo apt-get update
   sudo apt-get install "${apt_yes[@]}" wget gpg lsb-release ca-certificates jq unzip curl
 
-  # HashiCorp repository keyring.
-  if [[ ! -f /usr/share/keyrings/hashicorp-archive-keyring.gpg ]]; then
-    wget -O - https://apt.releases.hashicorp.com/gpg \
-      | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-  fi
+  # Ensure HashiCorp repository keyring is present and up to date
+  refresh_hashicorp_keyring
 
   # HashiCorp apt source.
   codename="$(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || true)"
@@ -161,6 +181,7 @@ install_tools_ubuntu_debian() {
 if [[ "${CHECK_ONLY}" == false ]]; then
   if [[ "${FORCE_INSTALL}" == false ]] && tools_already_present; then
     echo "Required tools already present (vault/terraform/packer/tflint/tfsec/terraform-docs). Skipping installation."
+    refresh_hashicorp_keyring
   else
     if [[ ! -r /etc/os-release ]]; then
       echo "Error: Cannot detect OS (/etc/os-release missing)." >&2
