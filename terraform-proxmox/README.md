@@ -204,7 +204,7 @@ content is current.
 | Name | Version |
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.10.0 |
-| <a name="requirement_local"></a> [local](#requirement\_local) | 2.9.0 |
+| <a name="requirement_local"></a> [local](#requirement\_local) | 2.9.1 |
 | <a name="requirement_proxmox"></a> [proxmox](#requirement\_proxmox) | 3.0.2-rc10 |
 | <a name="requirement_vault"></a> [vault](#requirement\_vault) | 5.11.0 |
 
@@ -212,7 +212,7 @@ content is current.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_local"></a> [local](#provider\_local) | 2.9.0 |
+| <a name="provider_local"></a> [local](#provider\_local) | 2.9.1 |
 
 ## Modules
 
@@ -226,10 +226,10 @@ content is current.
 
 | Name | Type |
 | ---- | ---- |
-| [local_file.ansible_inventory](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
-| [local_file.cloudinit_first_access_snippet](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
-| [local_file.deployment_summary](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
-| [local_file.partitioning_snippet](https://registry.terraform.io/providers/hashicorp/local/2.9.0/docs/resources/file) | resource |
+| [local_file.ansible_inventory](https://registry.terraform.io/providers/hashicorp/local/2.9.1/docs/resources/file) | resource |
+| [local_file.cloudinit_first_access_snippet](https://registry.terraform.io/providers/hashicorp/local/2.9.1/docs/resources/file) | resource |
+| [local_file.deployment_summary](https://registry.terraform.io/providers/hashicorp/local/2.9.1/docs/resources/file) | resource |
+| [local_file.partitioning_snippet](https://registry.terraform.io/providers/hashicorp/local/2.9.1/docs/resources/file) | resource |
 
 ## Inputs
 
