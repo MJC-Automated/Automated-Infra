@@ -84,6 +84,120 @@ ansible_user=ansible
         finally:
             temp_path.unlink()
 
+    def test_get_expected_hosts_filters_monitoring_expected_up_false(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("""[all_nodes]
+host-active ansible_host=198.51.100.50 monitoring_expected_up=true
+host-resting ansible_host=198.51.100.51 monitoring_expected_up=false
+host-default ansible_host=198.51.100.52
+""")
+            f.flush()
+            temp_path = Path(f.name)
+
+        try:
+            # By default (expected_up_only=True), host-resting is filtered out
+            expected_hosts = get_expected_hosts(temp_path)
+            self.assertEqual(expected_hosts, {"host-active", "host-default"})
+
+            # With expected_up_only=False, all hosts are returned
+            all_hosts = get_expected_hosts(temp_path, expected_up_only=False)
+            self.assertEqual(all_hosts, {"host-active", "host-resting", "host-default"})
+        finally:
+            temp_path.unlink()
+
+    def test_get_expected_hosts_handles_unadorned_and_adorned_cross_references(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("""[all_nodes]
+node-stopped ansible_host=198.51.100.53 monitoring_expected_up=false
+node-running ansible_host=198.51.100.54 monitoring_expected_up=true
+
+[monitoring_clients]
+node-stopped
+node-running
+""")
+            f.flush()
+            temp_path = Path(f.name)
+
+        try:
+            expected_hosts = get_expected_hosts(temp_path)
+            self.assertEqual(expected_hosts, {"node-running"})
+        finally:
+            temp_path.unlink()
+
+    def test_get_expected_hosts_filters_monitoring_enabled_false(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("""[all_nodes]
+node-monitored ansible_host=198.51.100.55 monitoring_enabled=true
+node-unmonitored ansible_host=198.51.100.56 monitoring_enabled=false
+""")
+            f.flush()
+            temp_path = Path(f.name)
+
+        try:
+            expected_hosts = get_expected_hosts(temp_path)
+            self.assertEqual(expected_hosts, {"node-monitored"})
+        finally:
+            temp_path.unlink()
+
+    def test_get_expected_hosts_excludes_disabled_host_when_expected_up_is_true(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("""[all_nodes]
+node-disabled ansible_host=198.51.100.57 monitoring_enabled=false monitoring_expected_up=true
+""")
+            f.flush()
+            temp_path = Path(f.name)
+
+        try:
+            self.assertEqual(get_expected_hosts(temp_path), set())
+        finally:
+            temp_path.unlink()
+
+    def test_get_expected_hosts_preserves_false_across_inventory_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            declared = root / "declared.ini"
+            alias = root / "alias.ini"
+            declared.write_text(
+                "[all_nodes]\nnode-stopped monitoring_expected_up=false\n"
+            )
+            alias.write_text("[other_group]\nnode-stopped\n")
+
+            self.assertEqual(get_expected_hosts([declared, alias]), set())
+            self.assertEqual(
+                get_expected_hosts([declared, alias], expected_up_only=False),
+                {"node-stopped"},
+            )
+
+    def test_get_expected_hosts_parses_quoted_false_values(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("""[all_nodes]
+node-disabled monitoring_enabled="false"
+""")
+            f.flush()
+            temp_path = Path(f.name)
+
+        try:
+            self.assertEqual(get_expected_hosts(temp_path), set())
+        finally:
+            temp_path.unlink()
+
+    def test_get_expected_hosts_rejects_invalid_monitoring_boolean(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("""[all_nodes]
+node-invalid monitoring_expected_up=occasionally
+""")
+            f.flush()
+            temp_path = Path(f.name)
+
+        try:
+            with self.assertRaisesRegex(
+                ValueError,
+                "node-invalid.*monitoring_expected_up.*occasionally",
+            ):
+                get_expected_hosts(temp_path)
+        finally:
+            temp_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

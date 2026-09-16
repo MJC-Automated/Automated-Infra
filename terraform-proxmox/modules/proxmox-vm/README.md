@@ -64,7 +64,7 @@ No modules.
 | <a name="input_ha_group"></a> [ha\_group](#input\_ha\_group) | High availability group name. Requires ha\_state. | `string` | `""` | no |
 | <a name="input_ha_state"></a> [ha\_state](#input\_ha\_state) | High availability state. Leave empty for no HA. | `string` | `""` | no |
 | <a name="input_hotplug_devices"></a> [hotplug\_devices](#input\_hotplug\_devices) | Comma-separated list of devices that allow hotplugging (e.g., 'network,disk,usb'). | `string` | `"network,disk,usb"` | no |
-| <a name="input_ipconfig0"></a> [ipconfig0](#input\_ipconfig0) | IP configuration string for the first network interface (e.g., 'ip=192.0.2.0/24,gw=198.51.100.21'). | `string` | n/a | yes |
+| <a name="input_ipconfig0"></a> [ipconfig0](#input\_ipconfig0) | IP configuration string for the first network interface (e.g., 'ip=192.0.2.0/24,gw=198.51.100.22'). | `string` | n/a | yes |
 | <a name="input_machine"></a> [machine](#input\_machine) | The machine type (e.g., 'i440fx' or 'q35'). | `string` | `""` | no |
 | <a name="input_memory_mb"></a> [memory\_mb](#input\_memory\_mb) | Amount of RAM allocated to the VM in Megabytes. | `number` | `2048` | no |
 | <a name="input_name"></a> [name](#input\_name) | The name of the Proxmox QEMU VM. | `string` | n/a | yes |

@@ -107,7 +107,7 @@ VMID="${VMID:-999999991}"
 NAME="${NAME:-}"          # Leave empty → auto-derived from OS_TYPE + IP last octet
 OS_TYPE="${OS_TYPE:-oracle-linux-8}"  # See detect_os_config() for supported values
 IPCIDR="${IPCIDR:-192.0.2.0/24}"   # Use "dhcp" for DHCP or "10.x.x.x/24"
-GATEWAY="${GATEWAY:-198.51.100.21}"
+GATEWAY="${GATEWAY:-198.51.100.22}"
 FORCE="${FORCE:-1}"       # 1 = destroy existing VM, 0 = abort if exists
 DRY_RUN="${DRY_RUN:-0}"   # 1 = show what would happen without executing
 SANITIZE_TEMPLATE_BASE="${SANITIZE_TEMPLATE_BASE:-0}" # 1 = clean per-instance state before final shutdown

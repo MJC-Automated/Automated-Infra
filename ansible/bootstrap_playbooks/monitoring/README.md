@@ -378,6 +378,27 @@ Run every selected workflow twice. Pass two must finish with `failed=0`,
 logs under `terraform-proxmox/logs/acceptance/` and leave changes unstaged
 unless the operator explicitly requests staging.
 
+### Prometheus and Loki Freshness Gate
+
+After central convergence, run the repository-owned Make target with every
+environment served by the shared monitoring stack:
+
+```bash
+make -C terraform-proxmox telemetry-verify \
+  TELEMETRY_INVENTORIES="inventories/example inventories/optiplex" \
+  TELEMETRY_PROMETHEUS_URL=http://198.51.100.18:9090 \
+  TELEMETRY_LOKI_URL=http://198.51.100.18:3100 \
+  TELEMETRY_LOOKBACK_SECONDS=600 \
+  TELEMETRY_JSON=true
+```
+
+The default gate excludes any host with either `monitoring_enabled=false` or
+`monitoring_expected_up=false`. Explicit false remains authoritative across
+duplicate groups and inventory files. Quoted and unquoted Ansible booleans are
+accepted; malformed explicit values fail closed. Set
+`TELEMETRY_ALL_HOSTS=true` only for a deliberate whole-fleet scan, where
+powered-off hosts are expected to fail freshness.
+
 All playbook-local Ansible configurations disable injected top-level fact
 variables. Use `ansible_facts[...]` in roles and run syntax checks with
 `ANSIBLE_INJECT_FACT_VARS=False` when validating from outside those playbook
@@ -441,7 +462,7 @@ The snapshot must be non-empty, readable by Alloy, and contain no credentials.
 Central Prometheus examples:
 
 ```bash
-OBSERVABILITY_IP=198.51.100.24
+OBSERVABILITY_IP=198.51.100.18
 
 curl -fsS --get \
   --data-urlencode 'query=up{job="alloy"}' \

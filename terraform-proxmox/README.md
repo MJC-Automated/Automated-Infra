@@ -36,6 +36,7 @@ selected workspace and falls back to `dev`.
 | Refresh only a Packer template | `make packer-build-ubuntu2404 ENVIRONMENT=<env>` | Builds one template from its prepared base VM. | Ensure the matching base VM is healthy and stopped. |
 | Reconcile PVE backups | `make backup-jobs ENVIRONMENT=<env> CONFIRM=YES` | Creates or updates policy-owned PVE schedules. | Run the `DRY_RUN=true` form first. |
 | Verify or drill recovery | `make verify-backups …` / `make restore-drill …` | Checks archive freshness or restores one archive into a stopped reserved VM. | A restore drill requires `CONFIRM=YES`; see the recovery section. |
+| Verify central telemetry | `make telemetry-verify TELEMETRY_INVENTORIES="inventories/<a> inventories/<b>" …` | Checks Prometheus target freshness and expected-host Loki streams through the repository wrapper. | Start the central stack, provide its URLs explicitly, and keep stopped hosts marked `monitoring_expected_up=false`. |
 | Retire workload VMs | `make destroy-workloads ENVIRONMENT=<env>` | Backs up state then destroys workload resources while retaining Vault governance. | Requires two interactive confirmation phrases. |
 
 ### Safe Day-to-Day Loop
@@ -52,6 +53,26 @@ ansible-inventory -i ../inventories/example/inventory.ini -i ../inventories/alia
 `apply` owns the snippet render/upload sequence. Do not run raw `terraform
 apply` as a substitute when a change can affect generated partitioning or
 first-access cloud-init inputs.
+
+### Central Telemetry Gate
+
+Run the Prometheus/Loki freshness verifier through Make while the central
+monitoring guests are running. Inventory paths are repository-root relative
+even though Make runs from `terraform-proxmox/`:
+
+```bash
+make telemetry-verify \
+  TELEMETRY_INVENTORIES="inventories/example inventories/optiplex" \
+  TELEMETRY_PROMETHEUS_URL=http://198.51.100.18:9090 \
+  TELEMETRY_LOKI_URL=http://198.51.100.18:3100 \
+  TELEMETRY_LOOKBACK_SECONDS=600 \
+  TELEMETRY_JSON=true
+```
+
+Empty variables retain the validator defaults. `TELEMETRY_ALL_HOSTS=true`
+intentionally includes hosts marked stopped or monitoring-disabled; otherwise
+either explicit false policy flag excludes the host. Both Make boolean
+switches accept only `true` or `false`.
 
 ### New Environment: Stop at a Reviewable Plan
 
@@ -82,7 +103,7 @@ does not copy it to `/tmp`. Explicit Make values override that remote file.
 # Ubuntu 24.04 plus Oracle Linux 8/9 source VMs. This replaces the reserved
 # base VMIDs when BASE_VM_FORCE=1 (the default).
 make env-base-vms ENVIRONMENT=example BASE_VM_BUILD_ORACLE=true \
-  BASE_VM_IPCIDR=198.51.100.0/24 BASE_VM_GATEWAY=198.51.100.18
+  BASE_VM_IPCIDR=198.51.100.0/24 BASE_VM_GATEWAY=198.51.100.19
 
 # Build the matching templates only after the bases are accepted.
 make packer-build-all ENVIRONMENT=example
@@ -110,7 +131,7 @@ make env-template ENVIRONMENT=qa TEMPLATE_ENV=dev \
 # Existing environment/base refresh.
 make env-base-vms ENVIRONMENT=example BASE_VM_BUILD_ORACLE=true \
   BASE_VM_VLAN=120 BASE_VM_IPCIDR=198.51.100.0/24 \
-  BASE_VM_GATEWAY=198.51.100.18
+  BASE_VM_GATEWAY=198.51.100.19
 ```
 
 Terraform rejects decimal, negative, and out-of-range values; the builder also
@@ -180,7 +201,7 @@ For a scenario-oriented entry point, use [Start With the Outcome](#start-with-th
 
 Terraform configuration pins Telmate Proxmox to `3.0.2-rc10` in the root
 module and both Proxmox child modules, alongside Vault `5.11.0` and Local
-`2.9.0`. The tested controller baseline is Terraform `1.16.1`. Run
+`2.9.1`. The tested controller baseline is Terraform `1.16.2`. Run
 `terraform init -backend=false` and `terraform validate` after a provider
 change before using an environment plan. The Telmate provider is
 community-signed; verify the provider source and signing key reported by
@@ -988,7 +1009,7 @@ For a static address during the example base rebuild, the complete command is:
 
 ```bash
 make env-base-vms ENVIRONMENT=example BASE_VM_BUILD_ORACLE=true \
-  BASE_VM_IPCIDR=198.51.100.0/24 BASE_VM_GATEWAY=198.51.100.18
+  BASE_VM_IPCIDR=198.51.100.0/24 BASE_VM_GATEWAY=198.51.100.19
 ```
 
 This command replaces reusable base VMIDs when `BASE_VM_FORCE=1` (the
@@ -1236,6 +1257,9 @@ Update `environments/<env>.tfvars`:
   `monitoring_clients` group. `monitoring_profile` defaults to the node-group
   name, while `monitoring_expected_up` defaults from the resolved desired power
   state when it is not set explicitly.
+- `make telemetry-verify` treats either monitoring flag being explicitly false
+  as authoritative across the complete supplied inventory union. Use
+  `TELEMETRY_ALL_HOSTS=true` only for an intentional whole-fleet audit.
 
 Example node group for Oracle DB (single large data disk, `/u01` fixed, `/u02` auto-grow):
 
@@ -1245,7 +1269,7 @@ node_groups = {
     "database19c-dot82" = {
       vmid      = 10002
       name      = "public-database19c-01"
-      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.19"
+      ipconfig0 = "ip=203.0.113.0/24,gw=198.51.100.20"
       cores     = 8
       memory    = 10240
       disk_size = "50G"
@@ -1503,13 +1527,13 @@ Preflight checklist (recommended before first `plan`/`apply`):
 
 If you need a specific VM IP window, edit `ipconfig0` entries in `environments/<env>.tfvars`.
 Also verify `snippet_storage` matches a storage that supports `snippets` on the target Proxmox.
-Example for `198.51.100.20-130`:
+Example for `198.51.100.21-130`:
 
-- `ip=192.0.2.0/24,gw=198.51.100.21`
-- `ip=198.51.100.0/24,gw=198.51.100.21`
-- `ip=203.0.113.0/24,gw=198.51.100.21`
-- `ip=192.0.2.0/24,gw=198.51.100.21`
-- `ip=198.51.100.0/24,gw=198.51.100.21`
+- `ip=192.0.2.0/24,gw=198.51.100.22`
+- `ip=198.51.100.0/24,gw=198.51.100.22`
+- `ip=203.0.113.0/24,gw=198.51.100.22`
+- `ip=192.0.2.0/24,gw=198.51.100.22`
+- `ip=198.51.100.0/24,gw=198.51.100.22`
 
 If you already have base/source VMs for Packer, set `clone_vm_id` in each env Packer vars file:
 
@@ -1524,13 +1548,13 @@ clone_vm_id = 999999990
 clone_vm_id = 999999992
 ```
 
-Concrete example (dev-like stack on `198.51.100.13` with IPs `198.51.100.20-130`):
+Concrete example (dev-like stack on `198.51.100.13` with IPs `198.51.100.21-130`):
 
 ```bash
 make env-template ENVIRONMENT=testing TEMPLATE_ENV=dev PROXMOX_HOST=198.51.100.13 ENV_TEMPLATE_FORCE=true
 
 # Edit environments/testing.tfvars:
-# - ipconfig0 values to 198.51.100.20-129
+# - ipconfig0 values to 198.51.100.21-129
 # - cloudinit_first_access_ssh_public_key with required public keys
 # - clone_template values (or os_profiles override) if template names differ on Proxmox
 # Edit packer/*/vars.testing.pkrvars.hcl clone_vm_id values to 999999991/999999990/999999992
@@ -1542,19 +1566,19 @@ make workspace-create ENVIRONMENT=testing
 make plan ENVIRONMENT=testing
 ```
 
-Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `203.0.113.0/24`, Proxmox host `198.51.100.22`, control node `198.51.100.23`):
+Concrete example (`example` cloned from the tracked `dev` scaffold, subnet `203.0.113.0/24`, Proxmox host `198.51.100.23`, control node `198.51.100.24`):
 
 ```bash
-make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.22
+make env-discover ENVIRONMENT=example PROXMOX_HOST=198.51.100.23
 
 make env-template \
   ENVIRONMENT=example \
   TEMPLATE_ENV=dev \
-  PROXMOX_HOST=198.51.100.22 \
+  PROXMOX_HOST=198.51.100.23 \
   PROXMOX_NODE=proxmox \
-  ANSIBLE_HOST=198.51.100.23 \
+  ANSIBLE_HOST=198.51.100.24 \
   NETWORK_CIDR=203.0.113.0/24 \
-  NETWORK_GW=198.51.100.18 \
+  NETWORK_GW=198.51.100.19 \
   AUTO_DISCOVER=true \
   ENV_TEMPLATE_FORCE=true
 

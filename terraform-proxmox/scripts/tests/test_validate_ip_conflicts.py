@@ -40,8 +40,8 @@ def config(name='candidate', vmid=101, ip='ip=192.0.2.0/24', extra='', prefix=''
 class ParserTests(unittest.TestCase):
     def test_malformed_network_entries_fail_closed(self):
         for entry in ('ip_address=192.0.2.0/24', 'ip=dhcp,ip=192.0.2.0/24',
-                      'ip=198.51.100.53', 'ip=192.0.2.0/24,', 'ip=auto',
-                      'ip6=manual', 'gw=dhcp', 'gw=198.51.100.19', 'gw6=2001:db8::1',
+                      'ip=198.51.100.59', 'ip=192.0.2.0/24,', 'ip=auto',
+                      'ip6=manual', 'gw=dhcp', 'gw=198.51.100.20', 'gw6=2001:db8::1',
                       'ip=192.0.2.0/24,gw=198.51.100.0/24'):
             with self.subTest(entry=entry), self.assertRaises(ValueError):
                 parse(config(ip=entry))
@@ -53,7 +53,7 @@ class ParserTests(unittest.TestCase):
                 parse(config(ip=entry))
 
     def test_point_to_point_and_host_prefixes_remain_valid(self):
-        for entry in ('ip=192.0.2.0/31', 'ip=192.0.2.2/31', 'ip=198.51.100.53', 'ip6=2001:db8::1/128'):
+        for entry in ('ip=192.0.2.0/31', 'ip=192.0.2.2/31', 'ip=198.51.100.59', 'ip6=2001:db8::1/128'):
             with self.subTest(entry=entry):
                 self.assertEqual(len(parse(config(ip=entry))), 1)
 
@@ -107,9 +107,9 @@ class ParserTests(unittest.TestCase):
         self.assertIsNone(hosts[0]['vlan'])
 
     def test_infrastructure_from_file_and_environment_without_fixed_addresses(self):
-        source = 'export PROXMOX_HOST="198.51.100.54"\nPVE_URL="https://[2001:db8::2]:8006"\n'
-        with patch('builtins.open', mock_open(read_data=source)), patch.object(validator.os.path, 'isfile', return_value=True), patch.dict(os.environ, {'ANSIBLE_HOST': '198.51.100.55'}, clear=True):
-            self.assertEqual(set(validator.parse_env_infrastructure_ips('/fixture/.env')), {'198.51.100.54', '2001:db8::2', '198.51.100.55'})
+        source = 'export PROXMOX_HOST="198.51.100.60"\nPVE_URL="https://[2001:db8::2]:8006"\n'
+        with patch('builtins.open', mock_open(read_data=source)), patch.object(validator.os.path, 'isfile', return_value=True), patch.dict(os.environ, {'ANSIBLE_HOST': '198.51.100.61'}, clear=True):
+            self.assertEqual(set(validator.parse_env_infrastructure_ips('/fixture/.env')), {'198.51.100.60', '2001:db8::2', '198.51.100.61'})
 
 
 class VariableSourceTests(unittest.TestCase):
@@ -294,7 +294,7 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.run_guard(config(ip='ip=dhcp'), config(vmid=102, ip='ip=dhcp'))[0], 1)
 
     def test_other_vms_gateway_is_reserved(self):
-        other = config(name='other', vmid=102, ip='ip=192.0.2.0/24,gw=198.51.100.53')
+        other = config(name='other', vmid=102, ip='ip=192.0.2.0/24,gw=198.51.100.59')
         status, output, _ = self.run_guard(config(), other)
         self.assertEqual(status, 1)
         self.assertIn('GATEWAY_COLLISION', output)
@@ -414,7 +414,7 @@ printf '{"workspace":"%s","command":"vault-bootstrap"}\n' "${TF_WORKSPACE:-}"
                 'make', '--no-print-directory', '-C', str(ROOT), 'plan',
                 '-o', 'validate', '-o', 'check-ip-conflicts', '-o', 'create-dirs',
                 'ENVIRONMENT=dev', 'CURRENT_WORKSPACE=wrong-workspace',
-                'PROXMOX_HOST=198.51.100.19',
+                'PROXMOX_HOST=198.51.100.20',
                 f'DIRS={fixture}/dirs', f'INVENTORY_DIR={fixture}/inventory',
                 f'LEGACY_INVENTORY_DIR={fixture}/legacy',
                 f'ENV_FILE={env_file}', f'LOG_DIR={fixture}', f'PLAN_DIR={fixture}',
@@ -461,9 +461,9 @@ printf '{"workspace":"%s","command":"vault-bootstrap"}\n' "${TF_WORKSPACE:-}"
     def test_ping_errors_fail_closed(self):
         for failure in (FileNotFoundError(), subprocess.TimeoutExpired('ping', 3)):
             with patch.object(validator.subprocess, 'run', side_effect=failure), self.assertRaises(RuntimeError):
-                validator.probe_ip_live('198.51.100.53')
+                validator.probe_ip_live('198.51.100.59')
         with patch.object(validator.subprocess, 'run', return_value=subprocess.CompletedProcess([], 2)), self.assertRaises(RuntimeError):
-            validator.probe_ip_live('198.51.100.53')
+            validator.probe_ip_live('198.51.100.59')
 
     def test_ping_no_reply_and_ipv6_arguments(self):
         with patch.object(validator.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)) as run:

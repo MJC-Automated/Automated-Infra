@@ -36,7 +36,7 @@ Service bootstrap playbooks are grouped here to keep app/db automation modular a
 
 All entry points use the shared controller dependency set in
 `ansible/requirements.txt` and collections in `ansible/requirements.yml`.
-The supported baseline is Ansible `14.3.1`, ansible-core `2.21.3`, and
+The supported baseline is Ansible `14.4.0`, ansible-core `2.21.4`, and
 cryptography `50.0.1` on Python 3.13. Install the files together rather than
 upgrading a single package in an existing controller environment; CI validates
 the playbooks with the production ansible-lint profile and deprecated fact

@@ -36,6 +36,10 @@ The Makefile exposes several verification surfaces before and during provisionin
 - `plan` validates inputs, selects the workspace, ensures `environments/<env>.tfvars` exists, and can auto-run `vault-bootstrap` before retrying
 - `apply` runs `snippets`, then `plan`, then `terraform apply`, then `generate-inventory`
 - `deploy` wraps `fmt`, `init`, `validate`, workspace setup, `plan`, and `apply`
+- `telemetry-verify` forwards explicit inventory, Prometheus, Loki, lookback,
+  JSON, and whole-fleet options to the repository telemetry verifier; expected
+  hosts are resolved fail-closed from both monitoring policy flags across the
+  complete selected inventory union
 
 The same Makefile and Terraform configuration define where generated outputs land:
 

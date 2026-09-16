@@ -207,3 +207,7 @@ ansible-galaxy collection install -r requirements.yml
 - Uses an injected `observability_grafana_admin_password` when supplied; otherwise it persists a generated credential in the ignored mode-`0600` `files/` directory.
 - Targets `observability_servers` alias group.
 - Run twice for idempotency checks.
+- After convergence, verify Prometheus and Loki through the documented
+  `make -C terraform-proxmox telemetry-verify` workflow in the
+  [monitoring guide](../monitoring/README.md); supply the complete shared
+  inventory union and central endpoint URLs explicitly.

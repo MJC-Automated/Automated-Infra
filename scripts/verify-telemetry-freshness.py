@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Union
 
 
 def http_get_json(url: str, timeout: int = 10) -> Dict[str, Any]:
@@ -31,27 +31,80 @@ def http_get_json(url: str, timeout: int = 10) -> Dict[str, Any]:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def get_expected_hosts(inventory_path: Path) -> Set[str]:
-    """Extract hostnames from inventory file."""
-    hosts: Set[str] = set()
-    if not inventory_path.is_file():
-        return hosts
+def parse_inventory_bool(value: str, hostname: str, variable: str) -> bool:
+    """Parse a strict Ansible-style boolean host variable."""
+    normalized = value.strip().strip("\"'").lower()
+    if normalized in ("true", "1", "yes", "on"):
+        return True
+    if normalized in ("false", "0", "no", "off"):
+        return False
+    raise ValueError(
+        f"Host {hostname}: {variable} must be a boolean, got {value!r}"
+    )
 
-    current_section = None
-    with open(inventory_path, "r", encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith(("#", ";")):
-                continue
-            if line.startswith("[") and line.endswith("]"):
-                current_section = line[1:-1].strip()
-                continue
-            if current_section and (current_section.endswith(":children") or current_section.endswith(":vars")):
-                continue
-            tokens = line.split()
-            if tokens and "=" not in tokens[0]:
-                hosts.add(tokens[0])
-    return hosts
+
+def get_expected_hosts(
+    inventory_path: Union[Path, Sequence[Path]], expected_up_only: bool = True
+) -> Set[str]:
+    """Extract hostnames and combine monitoring policy across inventories.
+
+    If expected_up_only is True (default), exclude any host explicitly marked
+    monitoring_expected_up=false or monitoring_enabled=false. An explicit
+    false remains authoritative across duplicate group or inventory entries.
+    """
+    hosts_expected_status: Dict[str, bool] = {}
+    inventory_paths = (
+        [inventory_path] if isinstance(inventory_path, Path) else inventory_path
+    )
+
+    for source in inventory_paths:
+        if not source.is_file():
+            continue
+
+        current_section = None
+        with open(source, "r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith(("#", ";")):
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    current_section = line[1:-1].strip()
+                    continue
+                if current_section and (
+                    current_section.endswith(":children")
+                    or current_section.endswith(":vars")
+                ):
+                    continue
+                tokens = line.split()
+                if not tokens or "=" in tokens[0]:
+                    continue
+
+                hostname = tokens[0]
+                explicit_statuses: List[bool] = []
+                for tok in tokens[1:]:
+                    for variable in (
+                        "monitoring_expected_up",
+                        "monitoring_enabled",
+                    ):
+                        prefix = f"{variable}="
+                        if tok.startswith(prefix):
+                            explicit_statuses.append(
+                                parse_inventory_bool(
+                                    tok.split("=", 1)[1], hostname, variable
+                                )
+                            )
+
+                if explicit_statuses:
+                    hosts_expected_status[hostname] = (
+                        hosts_expected_status.get(hostname, True)
+                        and all(explicit_statuses)
+                    )
+                elif hostname not in hosts_expected_status:
+                    hosts_expected_status[hostname] = True
+
+    if expected_up_only:
+        return {host for host, exp in hosts_expected_status.items() if exp}
+    return set(hosts_expected_status.keys())
 
 
 def verify_prometheus(
@@ -238,13 +291,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--prometheus-url",
-        default="http://198.51.100.24:9090",
-        help="Prometheus API base URL (default: http://198.51.100.24:9090)",
+        default="http://198.51.100.18:9090",
+        help="Prometheus API base URL (default: http://198.51.100.18:9090)",
     )
     parser.add_argument(
         "--loki-url",
-        default="http://198.51.100.24:3100",
-        help="Loki API base URL (default: http://198.51.100.24:3100)",
+        default="http://198.51.100.18:3100",
+        help="Loki API base URL (default: http://198.51.100.18:3100)",
     )
     parser.add_argument(
         "--lookback-seconds",
@@ -266,15 +319,23 @@ def main() -> int:
         action="store_true",
         help="Emit machine-readable JSON output",
     )
+    parser.add_argument(
+        "--all-hosts",
+        action="store_true",
+        help="Verify all inventory hosts regardless of monitoring_expected_up status",
+    )
 
     args = parser.parse_args()
     repo_root = Path(__file__).resolve().parents[1]
 
-    expected_hosts: Set[str] = set()
     inv_sources = discover_inventory_sources(repo_root, args.inventories, args.inventory)
-
-    for inv_file in inv_sources:
-        expected_hosts.update(get_expected_hosts(inv_file))
+    try:
+        expected_hosts = get_expected_hosts(
+            inv_sources, expected_up_only=not args.all_hosts
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     errors: List[str] = []
 

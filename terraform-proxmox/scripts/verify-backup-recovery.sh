@@ -79,11 +79,11 @@ MAX_BACKUP_AGE_HOURS="${MAX_BACKUP_AGE_HOURS:-36}"
 
 if [ -z "${PROXMOX_HOST:-}" ]; then
   if [ "${ENVIRONMENT}" == "example" ]; then
-    PROXMOX_HOST="198.51.100.22"
+    PROXMOX_HOST="198.51.100.23"
   elif [ "${ENVIRONMENT}" == "optiplex" ]; then
     PROXMOX_HOST="198.51.100.47"
   else
-    PROXMOX_HOST="198.51.100.22"
+    PROXMOX_HOST="198.51.100.23"
   fi
 fi
 

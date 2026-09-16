@@ -66,7 +66,7 @@ class InventoryShadowingValidatorTests(unittest.TestCase):
             inv2.mkdir()
 
             (inv1 / "inventory.ini").write_text("host1 ansible_host=198.51.100.49\n")
-            (inv2 / "inventory.ini").write_text("host2 ansible_host=198.51.100.52\n")
+            (inv2 / "inventory.ini").write_text("host2 ansible_host=198.51.100.58\n")
 
             gv1 = inv1 / "group_vars"
             gv2 = inv2 / "group_vars"
@@ -90,7 +90,7 @@ class InventoryShadowingValidatorTests(unittest.TestCase):
             inv2.mkdir()
 
             (inv1 / "inventory.ini").write_text("host1 ansible_host=198.51.100.49\n")
-            (inv2 / "inventory.ini").write_text("host2 ansible_host=198.51.100.52\n")
+            (inv2 / "inventory.ini").write_text("host2 ansible_host=198.51.100.58\n")
 
             gv1 = inv1 / "group_vars"
             gv2 = inv2 / "group_vars"

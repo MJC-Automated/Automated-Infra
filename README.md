@@ -64,6 +64,10 @@ upgrade sequences, see [Service Upgrade Compatibility](docs/service-upgrade-comp
 
 - Terraform/Packer workflow: run from `terraform-proxmox/` via `make` targets.
   Start with the scenario-oriented [Terraform operator guide](terraform-proxmox/README.md).
+- Monitoring convergence and telemetry acceptance: follow the
+  [inventory-driven monitoring guide](ansible/bootstrap_playbooks/monitoring/README.md)
+  and run the Prometheus/Loki gate through `make -C terraform-proxmox
+  telemetry-verify` with explicit inventory and endpoint variables.
 - Ansible project entrypoints:
   - `ansible/bootstrap_playbooks/oracle819c/main.yml`
   - `ansible/bootstrap_playbooks/oracle919c/main.yml`
@@ -88,6 +92,9 @@ upgrade sequences, see [Service Upgrade Compatibility](docs/service-upgrade-comp
 - `inventories/aliases.ini` also carries repo-wide helper groups such as `ntp_clients`, which should include Kerberos-sensitive service hosts like FreeIPA, Keycloak, and observability nodes in addition to Oracle/WebLogic clients.
 - Validate inventory wiring with:
   - `ansible-inventory -i inventories/<env>/inventory.ini -i inventories/aliases.ini --graph`
+- The telemetry gate excludes a host when either `monitoring_enabled=false` or
+  `monitoring_expected_up=false` is explicit. Use `TELEMETRY_ALL_HOSTS=true`
+  only for an intentional audit that includes stopped or disabled hosts.
 
 ## Ansible Vault
 
@@ -106,7 +113,7 @@ All Ansible automation uses the repository-wide pyenv virtualenv declared in `an
 - Python packages: `ansible/requirements.txt`
 - Ansible collections: `ansible/requirements.yml`
 
-The pinned controller baseline is Ansible `14.3.1` / ansible-core `2.21.3`
+The pinned controller baseline is Ansible `14.4.0` / ansible-core `2.21.4`
 with cryptography `50.0.1`. Keep these pins together: the repository CI runs
 the production Ansible lint profile against this exact requirements file.
 
@@ -254,7 +261,7 @@ ansible-galaxy collection install -r requirements.yml
 | Worker Node 2 | `public-k8s-worker-02` | 2 | 4 GB | 50 GB |
 | Dedicated etcd | `public-k8s-etcd-01` | 2 | 4 GB | 50 GB |
 
-- **Kubespray checkout**: external at `/home/example/kubespray` by default; the repository does not pin its version
+- **Kubespray checkout**: external at `/home/example/kubespray` by default; `make k8s-deploy` enforces exact tag `v2.26.0` unless `KUBESPRAY_PINNED_TAG` is deliberately changed
 - **Inventory**: repository-generated `inventories/<env>/inventory.ini` plus `inventories/aliases.ini`
 - **OS**: Ubuntu 24.04 (cloud-init template `ubuntu2404`)
 - **Network plugin**: Calico (kubespray default)

@@ -13,6 +13,11 @@ This directory is the central inventory location for all environments.
   It also contains cross-environment service aliases (for example `zimbra_servers` -> `zimbra`).
   `ntp_clients` is the repo-wide Chrony target group; when FreeIPA is part of an environment, keep it aligned with service aliases that need Kerberos-safe time sync, including `freeipa_servers`, `keycloak_servers`, and `observability_servers`.
   Playbooks that should only touch Terraform-managed VMs should target `all_nodes` (or use `--limit all_nodes`).
+- Generated host lines carry `monitoring_enabled` and
+  `monitoring_expected_up`. The telemetry verifier treats either explicit
+  false as authoritative across duplicate groups and inventory files; an
+  unadorned alias cannot re-enable that host. Do not hand-edit these generated
+  flags—change tfvars and reconcile through the Terraform workflow.
 
 Validate the current generated graph from the repository root:
 

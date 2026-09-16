@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: help setup setup-tools check-tools docs-terraform vault-login vault-bootstrap vault-approle-refresh vault-runtime-verify vault-audit-check vault-audit-enable-file rotate-proxmox-creds env-discover env-template env-ssh-access env-cloud-images env-base-vm env-base-vm-ubuntu2404 env-base-vm-oracle8 env-base-vm-oracle9 env-base-vms env-bootstrap env-bootstrap-apply init validate fmt plan apply deploy destroy-workloads destroy-governance workspace-create workspace-select workspace-list create-dirs tf-security-scan tfsec tflint tf_scan render-snippets upload-snippets snippets packer-build packer-build-all packer-destroy-all k8s-deploy backup backup-jobs backup-vms verify-backups restore-drill clean-backups vault-mode-status vault-mode-loopback vault-mode-lan vault-mode-lan-auto vault-mode-verify vault-unseal-help vault-tls-regenerate vault-reinit-dry-run vault-reinit vault-recovery-list clean clean-all clean-legacy-inventory check-env check-ip-conflicts
+.PHONY: help setup setup-tools check-tools docs-terraform vault-login vault-bootstrap vault-approle-refresh vault-runtime-verify vault-audit-check vault-audit-enable-file rotate-proxmox-creds env-discover env-template env-ssh-access env-cloud-images env-base-vm env-base-vm-ubuntu2404 env-base-vm-oracle8 env-base-vm-oracle9 env-base-vms env-bootstrap env-bootstrap-apply init validate fmt plan apply deploy destroy-workloads destroy-governance workspace-create workspace-select workspace-list create-dirs tf-security-scan tfsec tflint tf_scan render-snippets upload-snippets snippets packer-build packer-build-all packer-destroy-all k8s-deploy k8s-verify telemetry-verify backup backup-jobs backup-vms verify-backups restore-drill clean-backups vault-mode-status vault-mode-loopback vault-mode-lan vault-mode-lan-auto vault-mode-verify vault-unseal-help vault-tls-regenerate vault-reinit-dry-run vault-reinit vault-recovery-list clean clean-all clean-legacy-inventory check-env check-ip-conflicts
 
 # Default environment follows the currently selected Terraform workspace.
 # Falls back to dev when workspace is unset or still "default".
@@ -71,6 +71,12 @@ VERIFY_BACKUP_RECOVERY_SCRIPT ?= ./scripts/verify-backup-recovery.sh
 GENERATE_K8S_INVENTORY_SCRIPT ?= ./scripts/generate-k8s-inventory.sh
 VERIFY_K8S_CLUSTER_SCRIPT ?= ./scripts/verify-k8s-cluster.sh
 VERIFY_TELEMETRY_FRESHNESS_SCRIPT ?= ../scripts/verify-telemetry-freshness.sh
+TELEMETRY_INVENTORIES ?=
+TELEMETRY_PROMETHEUS_URL ?=
+TELEMETRY_LOKI_URL ?=
+TELEMETRY_LOOKBACK_SECONDS ?=
+TELEMETRY_ALL_HOSTS ?= false
+TELEMETRY_JSON ?= false
 KUBESPRAY_PINNED_TAG ?= v2.26.0
 K8S_INVENTORY_FILE ?= $(INVENTORY_ROOT)/k8s/inventory.ini
 
@@ -955,7 +961,31 @@ k8s-verify: ## Verify Kubernetes cluster health postconditions
 # Telemetry freshness verification
 telemetry-verify: ## Verify Prometheus and Loki freshness
 	@echo "Verifying end-to-end telemetry freshness..."
-	@"$(VERIFY_TELEMETRY_FRESHNESS_SCRIPT)"
+	@args=(); \
+	if [ -n "$(strip $(TELEMETRY_INVENTORIES))" ]; then \
+		read -r -a inventory_paths <<< "$(strip $(TELEMETRY_INVENTORIES))"; \
+		args+=(--inventories "$${inventory_paths[@]}"); \
+	fi; \
+	if [ -n "$(strip $(TELEMETRY_PROMETHEUS_URL))" ]; then \
+		args+=(--prometheus-url "$(strip $(TELEMETRY_PROMETHEUS_URL))"); \
+	fi; \
+	if [ -n "$(strip $(TELEMETRY_LOKI_URL))" ]; then \
+		args+=(--loki-url "$(strip $(TELEMETRY_LOKI_URL))"); \
+	fi; \
+	if [ -n "$(strip $(TELEMETRY_LOOKBACK_SECONDS))" ]; then \
+		args+=(--lookback-seconds "$(strip $(TELEMETRY_LOOKBACK_SECONDS))"); \
+	fi; \
+	case "$(strip $(TELEMETRY_ALL_HOSTS))" in \
+		true) args+=(--all-hosts) ;; \
+		false|"") ;; \
+		*) echo "Error: TELEMETRY_ALL_HOSTS must be true or false" >&2; exit 2 ;; \
+	esac; \
+	case "$(strip $(TELEMETRY_JSON))" in \
+		true) args+=(--json) ;; \
+		false|"") ;; \
+		*) echo "Error: TELEMETRY_JSON must be true or false" >&2; exit 2 ;; \
+	esac; \
+	"$(VERIFY_TELEMETRY_FRESHNESS_SCRIPT)" "$${args[@]}"
 
 # Kubernetes deployment
 k8s-deploy: check-env k8s-inventory ## Deploy Kubernetes cluster
